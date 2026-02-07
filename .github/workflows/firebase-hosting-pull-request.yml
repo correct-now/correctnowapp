@@ -5,15 +5,19 @@ name: Deploy to Firebase Hosting on PR
 on: pull_request
 jobs:
   build_and_preview:
-    if: '${{ github.event.pull_request.head.repo.full_name == github.repository }}'
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
       - name: Install and Build
-        run: npm ci && npm run build
+        run: npm install && npm run build
         env:
-          # Match the same env list as the merge file above
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
           VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
@@ -23,3 +27,4 @@ jobs:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_CORRECTNOW_B1A64 }}
           projectId: correctnow-b1a64
+          channelId: pr-${{ github.event.number }}
