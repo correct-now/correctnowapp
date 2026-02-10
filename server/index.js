@@ -42,8 +42,17 @@ const initAdminDb = () => {
         });
       } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
         // Fallback to env variable
+        // Handle both escaped and unescaped JSON strings
+        let serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
+        // Remove outer quotes if present
+        if (serviceAccountJson.startsWith('"') && serviceAccountJson.endsWith('"')) {
+          serviceAccountJson = serviceAccountJson.slice(1, -1);
+        }
+        // Replace escaped newlines and quotes
+        serviceAccountJson = serviceAccountJson.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+        
         admin.initializeApp({
-          credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)),
+          credential: admin.credential.cert(JSON.parse(serviceAccountJson)),
         });
       } else {
         return null;
@@ -1478,6 +1487,13 @@ app.get("/api/models", async (_req, res) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("ListModels error:", errorText);
+      
+      // If location not supported, return empty models list as fallback
+      if (errorText.includes("User location is not supported") || errorText.includes("FAILED_PRECONDITION")) {
+        console.warn("Gemini API not available in this region for model listing");
+        return res.json({ models: [] });
+      }
+      
       return res.status(500).json({ message: "ListModels error", details: errorText });
     }
 
@@ -1530,6 +1546,13 @@ Text:\n"""${text}"""`;
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Detect-language error:", errorText);
+      
+      // If location not supported, return auto as fallback
+      if (errorText.includes("User location is not supported") || errorText.includes("FAILED_PRECONDITION")) {
+        console.warn("Gemini API not available in this region, returning 'auto' as fallback");
+        return res.json({ code: "auto" });
+      }
+      
       return res.status(500).json({ message: "Detect-language error", details: errorText });
     }
 
@@ -2388,6 +2411,15 @@ app.post("/api/proofread", async (req, res) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("API error:", errorText);
+      
+      // If location not supported, return helpful error message
+      if (errorText.includes("User location is not supported") || errorText.includes("FAILED_PRECONDITION")) {
+        return res.status(503).json({ 
+          message: "Proofreading service is temporarily unavailable in your region. Please try again later or contact support.",
+          error: "REGION_NOT_SUPPORTED" 
+        });
+      }
+      
       return res.status(500).json({ message: "API error" });
     }
 
@@ -2405,6 +2437,15 @@ app.post("/api/proofread", async (req, res) => {
       if (!response.ok) {
         const errorText = await response.text();
         console.error("API error (retry):", errorText);
+        
+        // If location not supported, return helpful error message  
+        if (errorText.includes("User location is not supported") || errorText.includes("FAILED_PRECONDITION")) {
+          return res.status(503).json({ 
+            message: "Proofreading service is temporarily unavailable in your region. Please try again later or contact support.",
+            error: "REGION_NOT_SUPPORTED" 
+          });
+        }
+        
         return res.status(500).json({ message: "API error" });
       }
       data = await response.json();
