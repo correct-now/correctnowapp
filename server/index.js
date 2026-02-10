@@ -42,17 +42,36 @@ const initAdminDb = () => {
         });
       } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
         // Fallback to env variable
-        // Handle both escaped and unescaped JSON strings
+        // Handle both local .env format and cloud platform environment variables
         let serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
-        // Remove outer quotes if present
-        if (serviceAccountJson.startsWith('"') && serviceAccountJson.endsWith('"')) {
-          serviceAccountJson = serviceAccountJson.slice(1, -1);
+        let parsedConfig;
+        
+        try {
+          // Try parsing as-is first (works if already valid JSON)
+          parsedConfig = JSON.parse(serviceAccountJson);
+        } catch (err) {
+          // If that fails, try unescaping (handles escaped JSON strings from .env files)
+          try {
+            // Remove outer quotes if present
+            if (serviceAccountJson.startsWith('"') && serviceAccountJson.endsWith('"')) {
+              serviceAccountJson = serviceAccountJson.slice(1, -1);
+            }
+            // Replace escaped characters: \n -> newline, \" -> ", \\ -> \
+            serviceAccountJson = serviceAccountJson
+              .replace(/\\n/g, '\n')
+              .replace(/\\"/g, '"')
+              .replace(/\\\\/g, '\\');
+            
+            parsedConfig = JSON.parse(serviceAccountJson);
+          } catch (err2) {
+            console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT:", err2.message);
+            console.error("Please check your .env file or use serviceAccountKey.json file instead");
+            throw err2;
+          }
         }
-        // Replace escaped newlines and quotes
-        serviceAccountJson = serviceAccountJson.replace(/\\n/g, '\n').replace(/\\"/g, '"');
         
         admin.initializeApp({
-          credential: admin.credential.cert(JSON.parse(serviceAccountJson)),
+          credential: admin.credential.cert(parsedConfig),
         });
       } else {
         return null;
