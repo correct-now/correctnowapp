@@ -42,8 +42,17 @@ const initAdminDb = () => {
         });
       } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
         // Fallback to env variable
+        // Handle both escaped and unescaped JSON strings
+        let serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
+        // Remove outer quotes if present
+        if (serviceAccountJson.startsWith('"') && serviceAccountJson.endsWith('"')) {
+          serviceAccountJson = serviceAccountJson.slice(1, -1);
+        }
+        // Replace escaped newlines and quotes
+        serviceAccountJson = serviceAccountJson.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+        
         admin.initializeApp({
-          credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)),
+          credential: admin.credential.cert(JSON.parse(serviceAccountJson)),
         });
       } else {
         return null;
@@ -171,7 +180,10 @@ const getUserEntitlements = (userData) => {
   const isRecent = updatedAt
     ? Date.now() - updatedAt.getTime() <= 1000 * 60 * 60 * 24 * 31 // 31 days
     : false;
-  const isActive = subscriptionStatus === 'active' && (updatedAt ? isRecent : true);
+  
+  // Allow both 'active' and 'past_due' status to have pro access (grace period)
+  // Users will be downgraded to free plan after multiple payment failures via webhooks
+  const isActive = ['active', 'past_due'].includes(subscriptionStatus) && (updatedAt ? isRecent : true);
   
   const effectiveIsPro = subscriptionStatus ? (isActive && isPro) : isPro;
   
@@ -638,11 +650,11 @@ app.post("/api/razorpay/webhook", express.raw({ type: "application/json" }), asy
           updatedAt: nowIso,
         });
       } else if (eventName === "payment.failed") {
+        // First payment failure - mark as past_due but keep pro access temporarily
+        console.log("Razorpay payment failed - marking as past_due (grace period)");
         await updateUsersBySubscriptionId(subscriptionId, {
-          plan: "free",
-          wordLimit: 200,
-          credits: 0,
           subscriptionStatus: "past_due",
+          subscriptionUpdatedAt: nowIso,
           updatedAt: nowIso,
         });
       } else if (
@@ -653,10 +665,13 @@ app.post("/api/razorpay/webhook", express.raw({ type: "application/json" }), asy
           "subscription.completed",
         ].includes(eventName)
       ) {
+        // Subscription halted (multiple failures) or cancelled - downgrade to free
+        console.log(`Razorpay ${eventName} - downgrading to free plan`);
         await updateUsersBySubscriptionId(subscriptionId, {
           plan: "free",
           wordLimit: 200,
           credits: 0,
+          creditsUsed: 0,
           subscriptionStatus: "inactive",
           updatedAt: nowIso,
         });
@@ -892,8 +907,10 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
         console.log("--- Processing invoice.payment_failed ---");
         const invoice = event.data.object;
         const subscriptionId = invoice.subscription;
+        const attemptCount = invoice.attempt_count || 0;
         
         console.log("Subscription ID:", subscriptionId);
+        console.log("Payment attempt count:", attemptCount);
         
         if (!adminDb || !subscriptionId) {
           console.error("ERROR: No adminDb or subscriptionId");
@@ -913,14 +930,33 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
         }
         
         const batch = adminDb.batch();
-        snapshot.forEach((doc) => {
-          console.log("Updating user:", doc.id);
-          batch.set(doc.ref, {
-            subscriptionStatus: "past_due",
-            subscriptionUpdatedAt: nowIso,
-            updatedAt: nowIso,
-          }, { merge: true });
-        });
+        
+        // After 2nd failed attempt, downgrade to free; otherwise just mark past_due
+        if (attemptCount >= 2) {
+          console.log("Multiple payment failures - downgrading to free plan");
+          snapshot.forEach((doc) => {
+            console.log("Downgrading user:", doc.id);
+            batch.set(doc.ref, {
+              plan: "free",
+              wordLimit: 200,
+              credits: 0,
+              creditsUsed: 0,
+              subscriptionStatus: "past_due",
+              subscriptionUpdatedAt: nowIso,
+              updatedAt: nowIso,
+            }, { merge: true });
+          });
+        } else {
+          console.log("First payment failure - marking as past_due (grace period)");
+          snapshot.forEach((doc) => {
+            console.log("Updating user:", doc.id);
+            batch.set(doc.ref, {
+              subscriptionStatus: "past_due",
+              subscriptionUpdatedAt: nowIso,
+              updatedAt: nowIso,
+            }, { merge: true });
+          });
+        }
         
         await batch.commit();
         console.log("✓ Batch update completed");
@@ -1478,6 +1514,13 @@ app.get("/api/models", async (_req, res) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("ListModels error:", errorText);
+      
+      // If location not supported, return empty models list as fallback
+      if (errorText.includes("User location is not supported") || errorText.includes("FAILED_PRECONDITION")) {
+        console.warn("Gemini API not available in this region for model listing");
+        return res.json({ models: [] });
+      }
+      
       return res.status(500).json({ message: "ListModels error", details: errorText });
     }
 
@@ -1530,6 +1573,13 @@ Text:\n"""${text}"""`;
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Detect-language error:", errorText);
+      
+      // If location not supported, return auto as fallback
+      if (errorText.includes("User location is not supported") || errorText.includes("FAILED_PRECONDITION")) {
+        console.warn("Gemini API not available in this region, returning 'auto' as fallback");
+        return res.json({ code: "auto" });
+      }
+      
       return res.status(500).json({ message: "Detect-language error", details: errorText });
     }
 
@@ -2388,6 +2438,15 @@ app.post("/api/proofread", async (req, res) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("API error:", errorText);
+      
+      // If location not supported, return helpful error message
+      if (errorText.includes("User location is not supported") || errorText.includes("FAILED_PRECONDITION")) {
+        return res.status(503).json({ 
+          message: "Proofreading service is temporarily unavailable in your region. Please try again later or contact support.",
+          error: "REGION_NOT_SUPPORTED" 
+        });
+      }
+      
       return res.status(500).json({ message: "API error" });
     }
 
@@ -2405,6 +2464,15 @@ app.post("/api/proofread", async (req, res) => {
       if (!response.ok) {
         const errorText = await response.text();
         console.error("API error (retry):", errorText);
+        
+        // If location not supported, return helpful error message  
+        if (errorText.includes("User location is not supported") || errorText.includes("FAILED_PRECONDITION")) {
+          return res.status(503).json({ 
+            message: "Proofreading service is temporarily unavailable in your region. Please try again later or contact support.",
+            error: "REGION_NOT_SUPPORTED" 
+          });
+        }
+        
         return res.status(500).json({ message: "API error" });
       }
       data = await response.json();
