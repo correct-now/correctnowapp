@@ -180,7 +180,10 @@ const getUserEntitlements = (userData) => {
   const isRecent = updatedAt
     ? Date.now() - updatedAt.getTime() <= 1000 * 60 * 60 * 24 * 31 // 31 days
     : false;
-  const isActive = subscriptionStatus === 'active' && (updatedAt ? isRecent : true);
+  
+  // Allow both 'active' and 'past_due' status to have pro access (grace period)
+  // Users will be downgraded to free plan after multiple payment failures via webhooks
+  const isActive = ['active', 'past_due'].includes(subscriptionStatus) && (updatedAt ? isRecent : true);
   
   const effectiveIsPro = subscriptionStatus ? (isActive && isPro) : isPro;
   
@@ -647,11 +650,11 @@ app.post("/api/razorpay/webhook", express.raw({ type: "application/json" }), asy
           updatedAt: nowIso,
         });
       } else if (eventName === "payment.failed") {
+        // First payment failure - mark as past_due but keep pro access temporarily
+        console.log("Razorpay payment failed - marking as past_due (grace period)");
         await updateUsersBySubscriptionId(subscriptionId, {
-          plan: "free",
-          wordLimit: 200,
-          credits: 0,
           subscriptionStatus: "past_due",
+          subscriptionUpdatedAt: nowIso,
           updatedAt: nowIso,
         });
       } else if (
@@ -662,10 +665,13 @@ app.post("/api/razorpay/webhook", express.raw({ type: "application/json" }), asy
           "subscription.completed",
         ].includes(eventName)
       ) {
+        // Subscription halted (multiple failures) or cancelled - downgrade to free
+        console.log(`Razorpay ${eventName} - downgrading to free plan`);
         await updateUsersBySubscriptionId(subscriptionId, {
           plan: "free",
           wordLimit: 200,
           credits: 0,
+          creditsUsed: 0,
           subscriptionStatus: "inactive",
           updatedAt: nowIso,
         });
@@ -901,8 +907,10 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
         console.log("--- Processing invoice.payment_failed ---");
         const invoice = event.data.object;
         const subscriptionId = invoice.subscription;
+        const attemptCount = invoice.attempt_count || 0;
         
         console.log("Subscription ID:", subscriptionId);
+        console.log("Payment attempt count:", attemptCount);
         
         if (!adminDb || !subscriptionId) {
           console.error("ERROR: No adminDb or subscriptionId");
@@ -922,14 +930,33 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
         }
         
         const batch = adminDb.batch();
-        snapshot.forEach((doc) => {
-          console.log("Updating user:", doc.id);
-          batch.set(doc.ref, {
-            subscriptionStatus: "past_due",
-            subscriptionUpdatedAt: nowIso,
-            updatedAt: nowIso,
-          }, { merge: true });
-        });
+        
+        // After 2nd failed attempt, downgrade to free; otherwise just mark past_due
+        if (attemptCount >= 2) {
+          console.log("Multiple payment failures - downgrading to free plan");
+          snapshot.forEach((doc) => {
+            console.log("Downgrading user:", doc.id);
+            batch.set(doc.ref, {
+              plan: "free",
+              wordLimit: 200,
+              credits: 0,
+              creditsUsed: 0,
+              subscriptionStatus: "past_due",
+              subscriptionUpdatedAt: nowIso,
+              updatedAt: nowIso,
+            }, { merge: true });
+          });
+        } else {
+          console.log("First payment failure - marking as past_due (grace period)");
+          snapshot.forEach((doc) => {
+            console.log("Updating user:", doc.id);
+            batch.set(doc.ref, {
+              subscriptionStatus: "past_due",
+              subscriptionUpdatedAt: nowIso,
+              updatedAt: nowIso,
+            }, { merge: true });
+          });
+        }
         
         await batch.commit();
         console.log("✓ Batch update completed");
