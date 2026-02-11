@@ -553,12 +553,16 @@ const Admin = () => {
   useEffect(() => {
     const loadCoupons = async () => {
       const db = getFirebaseDb();
+      console.log('[loadCoupons] Starting, db:', db ? 'initialized' : 'null');
       if (!db) return;
       setCouponLoading(true);
       try {
+        console.log('[loadCoupons] Fetching coupons collection...');
         const snap = await getDocs(collection(db, "coupons"));
+        console.log('[loadCoupons] Query complete, docs count:', snap.size);
         const items: Coupon[] = snap.docs.map((docSnap) => {
           const data = docSnap.data() || {};
+          console.log('[loadCoupons] Processing doc:', docSnap.id, data);
           return {
             id: docSnap.id,
             code: String(data.code || docSnap.id),
@@ -568,7 +572,9 @@ const Admin = () => {
           };
         });
         items.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+        console.log('[loadCoupons] Final items after sort:', items);
         setCoupons(items);
+        console.log('[loadCoupons] State updated with items');
       } catch (err) {
         console.error("Failed to load coupons", err);
       } finally {
