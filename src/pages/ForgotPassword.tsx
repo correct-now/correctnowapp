@@ -11,7 +11,11 @@ import { getFirebaseAuth } from "@/lib/firebase";
 const ForgotPassword = () => {
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const apiBase = import.meta.env.VITE_API_BASE_URL || "";
+  
+  // Auto-detect API base URL: use env var in development, empty string (relative URLs) in production
+  const apiBase = import.meta.env.DEV 
+    ? (import.meta.env.VITE_API_BASE_URL || "http://localhost:8787")
+    : ""; // In production, use relative URLs (same domain)
   const [isSubmitted, setIsSubmitted] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {

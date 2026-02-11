@@ -39,7 +39,12 @@ const Payment = () => {
   );
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const apiBase = import.meta.env.VITE_API_BASE_URL || "";
+  
+  // Auto-detect API base URL: use env var in development, empty string (relative URLs) in production
+  const apiBase = import.meta.env.DEV 
+    ? (import.meta.env.VITE_API_BASE_URL || "http://localhost:8787")
+    : ""; // In production, use relative URLs (same domain)
+    
   const isCreditPurchase = searchParams.get("mode") === "credits";
   const creditPacks = useMemo(() => getCreditPacks(regionalPricing.currency), [regionalPricing.currency]);
   const creditPack = useMemo(

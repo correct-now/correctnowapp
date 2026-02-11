@@ -41,7 +41,11 @@ const Auth = () => {
   const [googleUserData, setGoogleUserData] = useState<any>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const apiBase = import.meta.env.VITE_API_BASE_URL || "";
+  
+  // Auto-detect API base URL: use env var in development, empty string (relative URLs) in production
+  const apiBase = import.meta.env.DEV 
+    ? (import.meta.env.VITE_API_BASE_URL || "http://localhost:8787")
+    : ""; // In production, use relative URLs (same domain)
   const [hasAutoTriggeredGoogle, setHasAutoTriggeredGoogle] = useState(() => {
     try {
       return sessionStorage.getItem("cn:autoGoogleTriggered") === "1";
