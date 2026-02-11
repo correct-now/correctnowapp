@@ -44,14 +44,16 @@ const initAdminDb = () => {
         // Fallback to env variable
         // Handle both local .env format and cloud platform environment variables
         let serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
-        let parsedConfig;
+        let serviceAccount;
         
         try {
           // Try parsing as-is first (works if already valid JSON)
-          parsedConfig = JSON.parse(serviceAccountJson);
+          serviceAccount = JSON.parse(serviceAccountJson);
+          console.log("✓ Successfully parsed FIREBASE_SERVICE_ACCOUNT (direct parse)");
         } catch (err) {
           // If that fails, try unescaping (handles escaped JSON strings from .env files)
           try {
+            console.log("First parse failed, trying with unescaping...");
             // Remove outer quotes if present
             if (serviceAccountJson.startsWith('"') && serviceAccountJson.endsWith('"')) {
               serviceAccountJson = serviceAccountJson.slice(1, -1);
@@ -62,16 +64,27 @@ const initAdminDb = () => {
               .replace(/\\"/g, '"')
               .replace(/\\\\/g, '\\');
             
-            parsedConfig = JSON.parse(serviceAccountJson);
+            serviceAccount = JSON.parse(serviceAccountJson);
+            console.log("✓ Successfully parsed FIREBASE_SERVICE_ACCOUNT (after unescaping)");
           } catch (err2) {
-            console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT:", err2.message);
-            console.error("Please check your .env file or use serviceAccountKey.json file instead");
-            throw err2;
+            console.error("❌ Failed to parse FIREBASE_SERVICE_ACCOUNT:", err2.message);
+            console.error("Environment variable preview:", serviceAccountJson?.substring(0, 100));
+            throw new Error("Invalid FIREBASE_SERVICE_ACCOUNT format. Must be valid JSON.");
           }
         }
         
+        // Verify it's an object with required fields
+        if (!serviceAccount || typeof serviceAccount !== 'object') {
+          throw new Error("FIREBASE_SERVICE_ACCOUNT must be a valid JSON object");
+        }
+        
+        if (!serviceAccount.project_id || !serviceAccount.private_key || !serviceAccount.client_email) {
+          throw new Error("FIREBASE_SERVICE_ACCOUNT is missing required fields (project_id, private_key, client_email)");
+        }
+        
+        console.log("✓ Firebase service account validated, initializing admin SDK...");
         admin.initializeApp({
-          credential: admin.credential.cert(parsedConfig),
+          credential: admin.credential.cert(serviceAccount),
         });
       } else {
         return null;
