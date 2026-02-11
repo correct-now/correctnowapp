@@ -1294,19 +1294,16 @@ app.post("/api/razorpay/subscription", async (req, res) => {
     const interval = Math.max(1, Number(req.body?.interval ?? 1));
     const percent = Number(req.body?.discountPercent || 0);
     const baseAmount = Number(req.body?.amount ?? 499);
-    const amountInRupees = percent > 0
-      ? Math.max(1, Number((baseAmount * (1 - percent / 100)).toFixed(2)))
-      : baseAmount;
+    
+    // Always use base amount for the plan (discount applied separately as one-time addon)
+    const amountInRupees = baseAmount;
     let planId = requestedPlanId || process.env.RAZORPAY_PLAN_ID;
 
     if (!Number.isFinite(amountInRupees) || amountInRupees <= 0) {
       return res.status(400).json({ message: "Invalid subscription amount" });
     }
 
-    if (Number.isFinite(amountInRupees) && amountInRupees > 0 && percent > 0) {
-      planId = undefined;
-    }
-
+    // Create new plan only if no planId and no existing standard plan
     if (!planId) {
       console.log("Creating new Razorpay plan");
       const plan = await razorpay.plans.create({
@@ -1314,7 +1311,7 @@ app.post("/api/razorpay/subscription", async (req, res) => {
         interval,
         item: {
           name: "CorrectNow Pro",
-          amount: Math.round(amountInRupees * 100),
+          amount: Math.round(amountInRupees * 100),  // Full price
           currency: "INR",
           description: "Monthly Pro subscription - 2000 word limit, 50,000 credits",
         },
@@ -1325,12 +1322,28 @@ app.post("/api/razorpay/subscription", async (req, res) => {
 
     console.log("Creating subscription with plan:", planId);
     const totalCount = Number(req.body?.totalCount ?? 12);
-    const subscription = await razorpay.subscriptions.create({
+    
+    const subscriptionData = {
       plan_id: planId,
       total_count: totalCount,
       customer_notify: 1,
       notes: { plan: "pro" },
-    });
+    };
+    
+    // Apply first-month discount as a one-time addon (negative amount)
+    if (percent > 0) {
+      const discountAmount = Math.round((baseAmount * percent / 100) * 100); // In paise
+      subscriptionData.addons = [{
+        item: {
+          name: `${percent}% off first month`,
+          amount: -discountAmount,  // ✅ Negative amount = discount
+          currency: "INR"
+        }
+      }];
+      console.log(`Applied ${percent}% discount (₹${discountAmount/100}) for first month only`);
+    }
+    
+    const subscription = await razorpay.subscriptions.create(subscriptionData);
 
     console.log("Subscription created successfully:", subscription.id);
     return res.json(subscription);
@@ -1503,14 +1516,12 @@ app.post("/api/stripe/create-checkout-session", async (req, res) => {
       if (!Number.isFinite(baseAmount) || baseAmount <= 0) {
         return res.status(400).json({ message: "Invalid subscription amount" });
       }
-      const discountedAmount = percent > 0
-        ? Math.max(1, Number((baseAmount * (1 - percent / 100)).toFixed(2)))
-        : baseAmount;
 
-      let resolvedPriceId = percent > 0 ? undefined : (priceId || process.env.STRIPE_PRICE_ID);
+      // Always use base price - discount will be applied via Stripe coupon (first month only)
+      let resolvedPriceId = priceId || process.env.STRIPE_PRICE_ID;
       
       if (!resolvedPriceId) {
-        // Create a price if not configured
+        // Create a price if not configured (always use FULL amount, not discounted)
         const product = await stripe.products.create({
           name: "CorrectNow Pro",
           description: "Monthly subscription",
@@ -1518,7 +1529,7 @@ app.post("/api/stripe/create-checkout-session", async (req, res) => {
         
         const price = await stripe.prices.create({
           product: product.id,
-          unit_amount: toStripeAmount(discountedAmount, currency),
+          unit_amount: toStripeAmount(baseAmount, currency),  // Full price
           currency: String(currency || "inr").toLowerCase(),
           recurring: { interval: "month" },
         });
@@ -1530,6 +1541,28 @@ app.post("/api/stripe/create-checkout-session", async (req, res) => {
         price: resolvedPriceId,
         quantity: 1,
       }];
+      
+      // Apply discount as Stripe coupon (first payment only)
+      if (percent > 0 && couponCode) {
+        try {
+          // Create or retrieve one-time coupon
+          const coupon = await stripe.coupons.create({
+            percent_off: percent,
+            duration: 'once',  // ✅ First payment only!
+            name: `${couponCode} - ${percent}% off first month`,
+          });
+          
+          sessionConfig.discounts = [{
+            coupon: coupon.id,
+          }];
+          
+          console.log(`Applied ${percent}% discount coupon for first month only`);
+        } catch (couponErr) {
+          console.error("Failed to create Stripe coupon:", couponErr);
+          // Continue without discount if coupon creation fails
+        }
+      }
+      
       sessionConfig.metadata.type = "subscription";
       if (couponCode) sessionConfig.metadata.couponCode = String(couponCode);
     }
