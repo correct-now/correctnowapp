@@ -397,32 +397,32 @@ const Payment = () => {
                 <RadioGroup
                   value={paymentMethod}
                   onValueChange={setPaymentMethod}
-                  className="grid grid-cols-2 gap-4"
+                  className="grid grid-cols-1 sm:grid-cols-2 gap-4"
                 >
                   <Label
                     htmlFor="card"
-                    className={`flex items-center gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
+                    className={`flex items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-lg border cursor-pointer transition-colors ${
                       paymentMethod === "card"
                         ? "border-accent bg-accent/5"
                         : "border-border hover:border-accent/50"
                     }`}
                   >
                     <RadioGroupItem value="card" id="card" />
-                    <CreditCard className="w-5 h-5 text-muted-foreground" />
-                    <span>Credit/Debit Card</span>
+                    <CreditCard className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground flex-shrink-0" />
+                    <span className="text-sm sm:text-base">Credit/Debit Card</span>
                   </Label>
                   {regionalPricing.useRazorpay && (
                     <Label
                       htmlFor="upi"
-                      className={`flex items-center gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
+                      className={`flex items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-lg border cursor-pointer transition-colors ${
                         paymentMethod === "upi"
                           ? "border-accent bg-accent/5"
                           : "border-border hover:border-accent/50"
                       }`}
                     >
                       <RadioGroupItem value="upi" id="upi" />
-                      <Smartphone className="w-5 h-5 text-muted-foreground" />
-                      <span>UPI</span>
+                      <Smartphone className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground flex-shrink-0" />
+                      <span className="text-sm sm:text-base">UPI</span>
                     </Label>
                   )}
                 </RadioGroup>
@@ -434,31 +434,31 @@ const Payment = () => {
                   <RadioGroup
                     value={cardProvider}
                     onValueChange={setCardProvider}
-                    className="grid grid-cols-2 gap-4"
+                    className="grid grid-cols-1 sm:grid-cols-2 gap-4"
                   >
                     <Label
                       htmlFor="stripe"
-                      className={`flex items-center gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
+                      className={`flex items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-lg border cursor-pointer transition-colors ${
                         cardProvider === "stripe"
                           ? "border-accent bg-accent/5"
                           : "border-border hover:border-accent/50"
                       }`}
                     >
                       <RadioGroupItem value="stripe" id="stripe" />
-                      <CreditCard className="w-5 h-5 text-muted-foreground" />
-                      <span>Stripe</span>
+                      <CreditCard className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground flex-shrink-0" />
+                      <span className="text-sm sm:text-base">Stripe</span>
                     </Label>
                     <Label
                       htmlFor="razorpay"
-                      className={`flex items-center gap-3 p-4 rounded-lg border transition-colors ${
+                      className={`flex items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-lg border transition-colors ${
                         cardProvider === "razorpay"
                           ? "border-accent bg-accent/5"
                           : "border-border hover:border-accent/50"
                       } ${!regionalPricing.useRazorpay ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
                     >
                       <RadioGroupItem value="razorpay" id="razorpay" disabled={!regionalPricing.useRazorpay} />
-                      <CreditCard className="w-5 h-5 text-muted-foreground" />
-                      <span>Razorpay</span>
+                      <CreditCard className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground flex-shrink-0" />
+                      <span className="text-sm sm:text-base">Razorpay</span>
                     </Label>
                   </RadioGroup>
                 </div>
