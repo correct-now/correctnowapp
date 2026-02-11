@@ -50,6 +50,13 @@ const initAdminDb = () => {
           // Try parsing as-is first (works if already valid JSON)
           serviceAccount = JSON.parse(serviceAccountJson);
           console.log("✓ Successfully parsed FIREBASE_SERVICE_ACCOUNT (direct parse)");
+          
+          // Handle double-encoded JSON (when parsing returns a string instead of object)
+          if (typeof serviceAccount === 'string') {
+            console.log("Detected double-encoded JSON, parsing again...");
+            serviceAccount = JSON.parse(serviceAccount);
+            console.log("✓ Successfully parsed double-encoded JSON");
+          }
         } catch (err) {
           // If that fails, try unescaping (handles escaped JSON strings from .env files)
           try {
@@ -75,14 +82,17 @@ const initAdminDb = () => {
         
         // Verify it's an object with required fields
         if (!serviceAccount || typeof serviceAccount !== 'object') {
+          console.error("❌ Parsed result type:", typeof serviceAccount);
+          console.error("Parsed result preview:", JSON.stringify(serviceAccount)?.substring(0, 200));
           throw new Error("FIREBASE_SERVICE_ACCOUNT must be a valid JSON object");
         }
         
         if (!serviceAccount.project_id || !serviceAccount.private_key || !serviceAccount.client_email) {
+          console.error("❌ Missing required fields. Has:", Object.keys(serviceAccount || {}).join(', '));
           throw new Error("FIREBASE_SERVICE_ACCOUNT is missing required fields (project_id, private_key, client_email)");
         }
         
-        console.log("✓ Firebase service account validated, initializing admin SDK...");
+        console.log("✓ Firebase service account validated, project:", serviceAccount.project_id);
         admin.initializeApp({
           credential: admin.credential.cert(serviceAccount),
         });
