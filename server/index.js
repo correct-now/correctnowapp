@@ -1043,9 +1043,33 @@ app.get("/api/health", (_req, res) => {
   res.status(200).json({ status: "ok" });
 });
 
-// Set admin claim and create user if needed (SECURE THIS IN PRODUCTION)
+// Set admin claim and create user if needed (admin only)
 app.post("/api/set-admin", async (req, res) => {
   try {
+    // Verify the requesting user is an admin
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: "Unauthorized: No token provided" });
+    }
+
+    const idToken = authHeader.split('Bearer ')[1];
+    let decodedToken;
+    try {
+      decodedToken = await admin.auth().verifyIdToken(idToken);
+    } catch (error) {
+      return res.status(401).json({ error: "Unauthorized: Invalid token" });
+    }
+
+    // Check if the requesting user is an admin
+    const isAdmin = decodedToken.admin === true || 
+                    decodedToken.email === 'correctnowapp@gmail.com' ||
+                    (decodedToken.email && decodedToken.email.endsWith('@correctnow.app')) ||
+                    (decodedToken.email && decodedToken.email.includes('admin'));
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: "Forbidden: Admin access required" });
+    }
+
     const { email, password } = req.body;
     if (!email) {
       return res.status(400).json({ error: "Email required" });
@@ -1055,6 +1079,14 @@ app.post("/api/set-admin", async (req, res) => {
     try {
       // Try to get existing user
       user = await admin.auth().getUserByEmail(email);
+      // Update password if provided
+      if (password) {
+        await admin.auth().updateUser(user.uid, {
+          password,
+          emailVerified: true,
+        });
+        console.log(`Updated password for existing user: ${email}`);
+      }
     } catch (error) {
       // User doesn't exist, create it
       if (password) {
@@ -1075,7 +1107,7 @@ app.post("/api/set-admin", async (req, res) => {
 
     res.json({ 
       success: true, 
-      message: `Admin claim set for ${email}`,
+      message: `Admin access granted to ${email}`,
       uid: user.uid
     });
   } catch (error) {

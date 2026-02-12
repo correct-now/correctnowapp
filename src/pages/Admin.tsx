@@ -153,6 +153,11 @@ const Admin = () => {
   const [couponSaving, setCouponSaving] = useState(false);
   const [couponLoading, setCouponLoading] = useState(false);
 
+  // Admin creation
+  const [newAdminEmail, setNewAdminEmail] = useState("");
+  const [newAdminPassword, setNewAdminPassword] = useState("");
+  const [creatingAdmin, setCreatingAdmin] = useState(false);
+
   // User limit management
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [limitType, setLimitType] = useState<"unlimited" | "limited" | "disabled">("limited");
@@ -553,16 +558,12 @@ const Admin = () => {
   useEffect(() => {
     const loadCoupons = async () => {
       const db = getFirebaseDb();
-      console.log('[loadCoupons] Starting, db:', db ? 'initialized' : 'null');
       if (!db) return;
       setCouponLoading(true);
       try {
-        console.log('[loadCoupons] Fetching coupons collection...');
         const snap = await getDocs(collection(db, "coupons"));
-        console.log('[loadCoupons] Query complete, docs count:', snap.size);
         const items: Coupon[] = snap.docs.map((docSnap) => {
           const data = docSnap.data() || {};
-          console.log('[loadCoupons] Processing doc:', docSnap.id, data);
           return {
             id: docSnap.id,
             code: String(data.code || docSnap.id),
@@ -572,9 +573,7 @@ const Admin = () => {
           };
         });
         items.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-        console.log('[loadCoupons] Final items after sort:', items);
         setCoupons(items);
-        console.log('[loadCoupons] State updated with items');
       } catch (err) {
         console.error("Failed to load coupons", err);
       } finally {
@@ -623,6 +622,56 @@ const Admin = () => {
       toast.error("Failed to create coupon");
     } finally {
       setCouponSaving(false);
+    }
+  };
+
+  const handleCreateAdmin = async () => {
+    if (!newAdminEmail || !newAdminPassword) {
+      toast.error("Email and password are required");
+      return;
+    }
+
+    if (newAdminPassword.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
+
+    setCreatingAdmin(true);
+    try {
+      // Get auth token
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error("You must be logged in to create admin users");
+      }
+
+      const idToken = await currentUser.getIdToken();
+
+      const response = await fetch("/api/set-admin", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          email: newAdminEmail,
+          password: newAdminPassword,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to create admin");
+      }
+
+      toast.success(`Admin access granted to ${newAdminEmail}`);
+      setNewAdminEmail("");
+      setNewAdminPassword("");
+    } catch (err: any) {
+      console.error("Failed to create admin", err);
+      toast.error(err.message || "Failed to create admin");
+    } finally {
+      setCreatingAdmin(false);
     }
   };
 
@@ -3001,6 +3050,51 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                     ) : (
                       <p className="text-sm text-muted-foreground">No coupons created yet.</p>
                     )}
+                  </div>
+                </div>
+
+                <div className="bg-card rounded-xl border border-border p-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                    <div>
+                      <h2 className="text-lg font-semibold text-foreground">Create Admin User</h2>
+                      <p className="text-sm text-muted-foreground">Grant admin access to new or existing users</p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-[1.5fr_1.5fr_auto]">
+                    <div>
+                      <label className="text-sm text-muted-foreground">Email</label>
+                      <Input
+                        type="email"
+                        value={newAdminEmail}
+                        onChange={(e) => setNewAdminEmail(e.target.value)}
+                        placeholder="admin@example.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm text-muted-foreground">Password</label>
+                      <Input
+                        type="password"
+                        value={newAdminPassword}
+                        onChange={(e) => setNewAdminPassword(e.target.value)}
+                        placeholder="Min 6 characters"
+                      />
+                    </div>
+                    <div className="flex items-end">
+                      <Button
+                        variant="accent"
+                        onClick={handleCreateAdmin}
+                        disabled={creatingAdmin}
+                      >
+                        {creatingAdmin ? "Creating..." : "Create Admin"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 p-4 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground">
+                      ℹ️ If the email already exists, admin access will be granted and password will be updated. New users will be created with admin privileges.
+                    </p>
                   </div>
                 </div>
 
