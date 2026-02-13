@@ -1262,6 +1262,63 @@ app.post("/api/admin/delete-user", async (req, res) => {
   }
 });
 
+// Toggle user plan between Pro and Free (admin only)
+app.post("/api/admin/toggle-plan", async (req, res) => {
+  try {
+    const { userId } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ error: "User ID is required" });
+    }
+
+    if (!adminDb) {
+      return res.status(500).json({ error: "Database not initialized" });
+    }
+
+    // Get current user data
+    const userDoc = await adminDb.collection("users").doc(userId).get();
+    
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const userData = userDoc.data();
+    const currentPlan = String(userData?.plan || "free").toLowerCase();
+    
+    // Toggle plan
+    const newPlan = currentPlan === "pro" ? "free" : "pro";
+    const updates = {
+      plan: newPlan,
+      wordLimit: newPlan === "pro" ? 50000 : 200,
+      subscriptionStatus: newPlan === "pro" ? "active" : "inactive",
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Note: Manual admin grants don't have subscription IDs or auto-renewal
+    // If toggling to Pro, this is a manual override (no billing cycle)
+    // If toggling to Free, clear any existing subscription metadata
+    if (newPlan === "free") {
+      updates.razorpaySubscriptionId = null;
+      updates.stripeSubscriptionId = null;
+    }
+
+    await adminDb.collection("users").doc(userId).update(updates);
+    
+    console.log(`Toggled plan for user ${userId}: ${currentPlan} → ${newPlan}`);
+
+    res.json({ 
+      success: true, 
+      message: `Plan changed to ${newPlan}`,
+      newPlan,
+      wordLimit: updates.wordLimit,
+      subscriptionStatus: updates.subscriptionStatus
+    });
+  } catch (error) {
+    console.error("Toggle plan error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get("/api/razorpay/key", (_req, res) => {
   const keyId = process.env.RAZORPAY_KEY_ID;
   if (!keyId) {

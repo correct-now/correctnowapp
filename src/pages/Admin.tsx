@@ -84,6 +84,8 @@ type AdminUser = {
   adminCreditsExpiryAt?: string;
   subscriptionStatus?: string;
   subscriptionUpdatedAt?: string;
+  razorpaySubscriptionId?: string;
+  stripeSubscriptionId?: string;
   updatedAt?: string;
   createdAt?: string;
   status?: string;
@@ -168,6 +170,9 @@ const Admin = () => {
   // Addon credits management
   const [addingCreditsUserId, setAddingCreditsUserId] = useState<string | null>(null);
   const [addonCreditsAmount, setAddonCreditsAmount] = useState("");
+
+  // Plan toggle management
+  const [togglingPlanUserId, setTogglingPlanUserId] = useState<string | null>(null);
   const [addonCreditsExpiry, setAddonCreditsExpiry] = useState("");
   const [savingAddonCredits, setSavingAddonCredits] = useState(false);
 
@@ -672,6 +677,46 @@ const Admin = () => {
       toast.error(err.message || "Failed to create admin");
     } finally {
       setCreatingAdmin(false);
+    }
+  };
+
+  const handleTogglePlan = async (userId: string, currentPlan: string) => {
+    setTogglingPlanUserId(userId);
+    try {
+      const response = await fetch("/api/admin/toggle-plan", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ userId }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to toggle plan");
+      }
+
+      // Update local state
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === userId
+            ? {
+                ...u,
+                plan: data.newPlan === "pro" ? "Pro" : "Free",
+                wordLimit: data.wordLimit,
+                subscriptionStatus: data.subscriptionStatus,
+              }
+            : u
+        )
+      );
+
+      toast.success(`User plan changed to ${data.newPlan.toUpperCase()}`);
+    } catch (err: any) {
+      console.error("Failed to toggle plan", err);
+      toast.error(err.message || "Failed to toggle plan");
+    } finally {
+      setTogglingPlanUserId(null);
     }
   };
 
@@ -1972,29 +2017,38 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                                   <p className="text-sm font-medium text-foreground">
                                     {user.name}
                                   </p>
-                                  <div className="flex items-center gap-2">
-                                    <p className="text-xs text-muted-foreground">
-                                      {user.email}
-                                    </p>
-                                    <div className="flex items-center gap-1">
-                                      <Button 
-                                        variant="ghost" 
-                                        size="sm"
-                                        className="h-6 px-2 text-xs"
-                                        onClick={() => handleEditUser(user.id, user)}
-                                      >
-                                        Edit
-                                      </Button>
-                                      <Button 
-                                        variant="ghost" 
-                                        size="sm"
-                                        className="h-6 w-6 p-0"
-                                        onClick={() => handleAddAddonCredits(user.id, user)}
-                                        title="Add Addon Credits"
-                                      >
-                                        <Coins className="w-3 h-3" />
-                                      </Button>
-                                    </div>
+                                  <p className="text-xs text-muted-foreground mb-1">
+                                    {user.email}
+                                  </p>
+                                  <div className="flex items-center gap-1.5">
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm"
+                                      className="h-7 px-2.5 text-xs border-border/50 hover:bg-accent/10"
+                                      onClick={() => handleEditUser(user.id, user)}
+                                    >
+                                      Edit
+                                    </Button>
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm"
+                                      className="h-7 px-2.5 text-xs border-border/50 hover:bg-accent/10"
+                                      onClick={() => handleAddAddonCredits(user.id, user)}
+                                      title="Add Addon Credits"
+                                    >
+                                      <Coins className="w-3.5 h-3.5 mr-1" />
+                                      Credits
+                                    </Button>
+                                    <Button 
+                                      variant={user.plan === "Pro" ? "destructive" : "default"}
+                                      size="sm"
+                                      className="h-7 px-2.5 text-xs"
+                                      onClick={() => handleTogglePlan(user.id, user.plan)}
+                                      disabled={togglingPlanUserId === user.id}
+                                      title={user.plan === "Pro" ? "Downgrade to Free" : "Upgrade to Pro (Manual - No auto-renewal)"}
+                                    >
+                                      {togglingPlanUserId === user.id ? "..." : user.plan === "Pro" ? "↓ Free" : "↑ Pro"}
+                                    </Button>
                                   </div>
                                 </div>
                               </div>
@@ -2006,17 +2060,22 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                               {user.category || "—"}
                             </td>
                             <td className="py-4 px-6">
-                              <Badge
-                                variant={
-                                  user.plan === "Pro"
-                                    ? "default"
-                                    : user.plan === "Team"
-                                    ? "secondary"
-                                    : "outline"
-                                }
-                              >
-                                {user.plan}
-                              </Badge>
+                              <div className="flex flex-col gap-1">
+                                <Badge
+                                  variant={
+                                    user.plan === "Pro"
+                                      ? "default"
+                                      : user.plan === "Team"
+                                      ? "secondary"
+                                      : "outline"
+                                  }
+                                >
+                                  {user.plan}
+                                </Badge>
+                                {user.plan === "Pro" && !user.razorpaySubscriptionId && !user.stripeSubscriptionId && (
+                                  <span className="text-[10px] text-muted-foreground italic">Manual Grant</span>
+                                )}
+                              </div>
                             </td>
                             <td className="py-4 px-6">
                               <Badge
@@ -3053,14 +3112,14 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                   </div>
                 </div>
 
-                <div className="bg-card rounded-xl border border-border p-6">
+                {/* Admin Creation Section - Hidden for now */}
+                {/* <div className="bg-card rounded-xl border border-border p-6">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                     <div>
                       <h2 className="text-lg font-semibold text-foreground">Create Admin User</h2>
                       <p className="text-sm text-muted-foreground">Grant admin access to new or existing users</p>
                     </div>
                   </div>
-
                   <div className="grid gap-4 sm:grid-cols-[1.5fr_1.5fr_auto]">
                     <div>
                       <label className="text-sm text-muted-foreground">Email</label>
@@ -3090,13 +3149,12 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                       </Button>
                     </div>
                   </div>
-
                   <div className="mt-4 p-4 bg-muted/50 rounded-lg">
                     <p className="text-xs text-muted-foreground">
                       ℹ️ If the email already exists, admin access will be granted and password will be updated. New users will be created with admin privileges.
                     </p>
                   </div>
-                </div>
+                </div> */}
 
                 <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="bg-card rounded-xl border border-border p-6">
