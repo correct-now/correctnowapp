@@ -139,6 +139,7 @@ const Admin = () => {
   const [blogSaving, setBlogSaving] = useState(false);
   const [blogEditingId, setBlogEditingId] = useState<string | null>(null);
   const [blogTitle, setBlogTitle] = useState("");
+  const [blogCustomSlug, setBlogCustomSlug] = useState("");
   const [blogContentHtml, setBlogContentHtml] = useState("");
   const [blogContentText, setBlogContentText] = useState("");
   const [blogDateTime, setBlogDateTime] = useState("");
@@ -286,6 +287,7 @@ const Admin = () => {
     const nowIso = new Date().toISOString();
     setBlogEditingId(null);
     setBlogTitle("");
+    setBlogCustomSlug("");
     setBlogContentHtml("");
     setBlogContentText("");
     setBlogDateTime(toLocalInputValue(nowIso));
@@ -587,6 +589,13 @@ const Admin = () => {
     };
     loadCoupons();
   }, []);
+
+  // Update blog editor content only when loading/resetting, not on every keystroke
+  useEffect(() => {
+    if (blogEditorRef.current) {
+      blogEditorRef.current.innerHTML = blogContentHtml;
+    }
+  }, [blogEditorKey]);
 
   const handleCreateCoupon = async () => {
     const db = getFirebaseDb();
@@ -1336,6 +1345,7 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
   const handleEditBlog = (post: BlogPost) => {
     setBlogEditingId(post.id);
     setBlogTitle(post.title || "");
+    setBlogCustomSlug(post.slug || "");
     setBlogContentHtml(post.contentHtml || "");
     setBlogContentText(post.contentText || "");
     setBlogDateTime(toLocalInputValue(post.publishedAt));
@@ -1492,10 +1502,20 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
           .replace(/^-|-$/g, "");
         return base;
       };
-      const slugBase = slugify(blogTitle.trim());
-      const stableSlug =
-        existing?.slug ||
-        (slugBase ? `${slugBase}-${docRef.id.slice(0, 6)}` : `post-${docRef.id.slice(0, 8)}`);
+      
+      // Use custom slug if provided, otherwise auto-generate from title
+      let stableSlug;
+      if (blogCustomSlug.trim()) {
+        // Use custom slug (already slugified by user input)
+        stableSlug = slugify(blogCustomSlug.trim());
+      } else if (existing?.slug) {
+        // Keep existing slug when editing
+        stableSlug = existing.slug;
+      } else {
+        // Auto-generate from title for new posts
+        const slugBase = slugify(blogTitle.trim());
+        stableSlug = slugBase ? `${slugBase}-${docRef.id.slice(0, 6)}` : `post-${docRef.id.slice(0, 8)}`;
+      }
 
       const payload: BlogPost = {
         id: docRef.id,
@@ -1523,6 +1543,13 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
           new Date(a.publishedAt || a.createdAt || 0).getTime()
         );
       });
+
+      // Optionally ping Google to re-check sitemap (non-blocking)
+      if (!blogEditingId) {
+        // Only ping for new posts, not edits
+        fetch("/api/ping-sitemap", { method: "POST" })
+          .catch(() => null); // Silent fail - this is optional
+      }
 
       toast.success(blogEditingId ? "Blog post updated" : "Blog post created");
       resetBlogForm();
@@ -2756,6 +2783,30 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                       />
                     </div>
                     <div>
+                      <label className="block text-sm font-medium mb-2">Custom URL (Optional)</label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground">correctnow.app/blog/</span>
+                        <Input
+                          value={blogCustomSlug}
+                          onChange={(e) => {
+                            // Auto-slugify as user types
+                            const slugified = e.target.value
+                              .toLowerCase()
+                              .replace(/['"\`]/g, "")
+                              .replace(/[^a-z0-9]+/g, "-")
+                              .replace(/-+/g, "-")
+                              .replace(/^-|-$/g, "");
+                            setBlogCustomSlug(slugified);
+                          }}
+                          placeholder="my-seo-friendly-url"
+                          className="flex-1"
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Leave empty to auto-generate from title. Only use lowercase letters, numbers, and hyphens.
+                      </p>
+                    </div>
+                    <div>
                       <label className="block text-sm font-medium mb-2">Content</label>
                       <div className="rounded-lg border border-border bg-background">
                         <div className="flex flex-wrap gap-2 border-b border-border p-2">
@@ -2806,14 +2857,12 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                           </Button>
                         </div>
                         <div
-                          key={blogEditorKey}
                           ref={blogEditorRef}
                           className="min-h-[220px] p-3 text-sm leading-relaxed focus:outline-none"
                           contentEditable
                           suppressContentEditableWarning
                           onInput={(e) => syncBlogContentState(e.currentTarget.innerHTML)}
                           onKeyDown={handleBlogKeyDown}
-                          dangerouslySetInnerHTML={{ __html: blogContentHtml }}
                         />
                       </div>
                       <p className="text-xs text-muted-foreground mt-2">

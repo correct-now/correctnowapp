@@ -1319,6 +1319,33 @@ app.post("/api/admin/toggle-plan", async (req, res) => {
   }
 });
 
+// Ping Google to notify sitemap update (optional - called after blog publish)
+app.post("/api/ping-sitemap", async (req, res) => {
+  try {
+    const sitemapUrl = "https://correctnow.app/sitemap.xml";
+    const pingUrl = `https://www.google.com/ping?sitemap=${encodeURIComponent(sitemapUrl)}`;
+    
+    // Send ping to Google (fire and forget, don't wait for response)
+    fetch(pingUrl).catch(err => {
+      console.warn("Sitemap ping warning:", err.message);
+    });
+    
+    console.log("Sitemap ping sent to Google");
+    
+    res.json({ 
+      success: true, 
+      message: "Sitemap ping sent successfully" 
+    });
+  } catch (error) {
+    console.error("Sitemap ping error:", error);
+    // Don't fail the request - this is optional
+    res.json({ 
+      success: true, 
+      message: "Ping attempted (non-critical)" 
+    });
+  }
+});
+
 app.get("/api/razorpay/key", (_req, res) => {
   const keyId = process.env.RAZORPAY_KEY_ID;
   if (!keyId) {
@@ -2707,11 +2734,80 @@ app.post("/api/proofread", async (req, res) => {
 
 // Serve frontend in production (or when dist exists)
 if (existsSync(distPath)) {
-  app.get("/sitemap.xml", (req, res) => {
-    const sitemapPath = existsSync(path.join(distPath, "sitemap.xml"))
-      ? path.join(distPath, "sitemap.xml")
-      : path.join(publicPath, "sitemap.xml");
-    return res.sendFile(sitemapPath);
+  // Dynamic sitemap generation
+  app.get("/sitemap.xml", async (req, res) => {
+    try {
+      const baseUrl = "https://correctnow.app";
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Static pages
+      const staticPages = [
+        { url: '', priority: '1.0', changefreq: 'daily' }, // Homepage
+        { url: 'blog', priority: '0.9', changefreq: 'daily' },
+        { url: 'pricing', priority: '0.8', changefreq: 'weekly' },
+        { url: 'about', priority: '0.7', changefreq: 'monthly' },
+        { url: 'features', priority: '0.8', changefreq: 'weekly' },
+      ];
+
+      // Fetch all published blog posts from Firestore
+      let blogUrls = [];
+      if (adminDb) {
+        try {
+          const blogsSnapshot = await adminDb.collection('blogs')
+            .orderBy('publishedAt', 'desc')
+            .limit(500) // Reasonable limit for daily blogs
+            .get();
+          
+          blogUrls = blogsSnapshot.docs
+            .map(doc => {
+              const data = doc.data();
+              const slug = data.slug || doc.id;
+              const publishedAt = data.publishedAt || data.updatedAt || data.createdAt;
+              const lastmod = publishedAt ? new Date(publishedAt).toISOString().split('T')[0] : today;
+              
+              return {
+                url: `blog/${slug}`,
+                lastmod,
+                priority: '0.7',
+                changefreq: 'monthly'
+              };
+            })
+            .filter(item => item.url); // Only include if slug exists
+        } catch (err) {
+          console.error('Error fetching blogs for sitemap:', err);
+        }
+      }
+
+      // Generate XML
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9
+        http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
+${staticPages.map(page => `  <url>
+    <loc>${baseUrl}/${page.url}</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>${page.changefreq}</changefreq>
+    <priority>${page.priority}</priority>
+  </url>`).join('\n')}
+${blogUrls.map(blog => `  <url>
+    <loc>${baseUrl}/${blog.url}</loc>
+    <lastmod>${blog.lastmod}</lastmod>
+    <changefreq>${blog.changefreq}</changefreq>
+    <priority>${blog.priority}</priority>
+  </url>`).join('\n')}
+</urlset>`;
+
+      res.header('Content-Type', 'application/xml');
+      res.send(xml);
+    } catch (error) {
+      console.error('Sitemap generation error:', error);
+      // Fallback to static sitemap
+      const sitemapPath = existsSync(path.join(distPath, "sitemap.xml"))
+        ? path.join(distPath, "sitemap.xml")
+        : path.join(publicPath, "sitemap.xml");
+      return res.sendFile(sitemapPath);
+    }
   });
 
   app.get("/robots.txt", (req, res) => {
