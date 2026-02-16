@@ -369,6 +369,20 @@ const formatText = (text: string) => {
   return safe;
 };
 
+const parseDualSuggestion = (explanation: string) => {
+  const match = explanation.match(/^\s*([^:|]+?)\s*:\s*([^|]+?)\s*\|\s*English\s*:\s*(.+?)\s*$/iu);
+  if (match) {
+    return {
+      isDual: true,
+      nativeLabel: match[1].trim(),
+      nativeText: match[2].trim(),
+      english: match[3].trim(),
+      explanation: explanation.replace(match[0], "").trim() || null,
+    };
+  }
+  return { isDual: false, nativeLabel: "", nativeText: "", english: "", explanation };
+};
+
 const highlightText = (text: string, changeList: Change[]) => {
   let safeText = formatText(text);
   if (!changeList.length) return safeText;
@@ -420,10 +434,12 @@ const SuggestionCard = React.memo(({
   change: Change; 
   index: number; 
   isActive: boolean; 
-  onAccept: (idx: number) => void; 
+  onAccept: (idx: number, correctedOverride?: string) => void; 
   onIgnore: (idx: number) => void;
   setRef: (el: HTMLDivElement | null) => void;
 }) => {
+  const suggestion = parseDualSuggestion(change.explanation || '');
+
   return (
     <div
       ref={setRef}
@@ -433,19 +449,41 @@ const SuggestionCard = React.memo(({
           : "border-border"
       }`}
     >
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-2">
         <div>
           <div className="text-xs font-semibold text-muted-foreground mb-1">Original</div>
-          <div className="text-base font-medium text-foreground">{change.original}</div>
+          <div className="text-base font-medium text-foreground break-words whitespace-pre-wrap leading-relaxed">
+            {change.original}
+          </div>
         </div>
         <div>
           <div className="text-xs font-semibold text-muted-foreground mb-1">Suggestion</div>
-          <div className="text-base font-medium text-success">{change.corrected}</div>
+          <div className="text-base font-medium text-success break-words whitespace-pre-wrap leading-relaxed">
+            {change.corrected}
+          </div>
         </div>
       </div>
-      <div className="mt-3 text-sm text-muted-foreground">
-        {change.explanation}
-      </div>
+      {suggestion.isDual ? (
+        <div className="mt-3 space-y-2">
+          <div className="flex items-start gap-3 text-sm">
+            <div className="flex-1 rounded-md bg-accent/10 px-3 py-2 border border-accent/20">
+              <div className="text-xs font-semibold text-muted-foreground mb-1">{suggestion.nativeLabel}</div>
+              <div className="font-medium text-foreground">{suggestion.nativeText}</div>
+            </div>
+            <div className="flex-1 rounded-md bg-blue-50 dark:bg-blue-900/20 px-3 py-2 border border-blue-200 dark:border-blue-800">
+              <div className="text-xs font-semibold text-muted-foreground mb-1">English</div>
+              <div className="font-medium text-foreground">{suggestion.english}</div>
+            </div>
+          </div>
+          {suggestion.explanation && (
+            <div className="text-sm text-muted-foreground">{suggestion.explanation}</div>
+          )}
+        </div>
+      ) : (
+        <div className="mt-3 text-sm text-muted-foreground">
+          {change.explanation}
+        </div>
+      )}
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {change.status === "accepted" ? (
           <span className="text-xs font-semibold text-success">Accepted</span>
@@ -453,9 +491,20 @@ const SuggestionCard = React.memo(({
           <span className="text-xs font-semibold text-muted-foreground">Ignored</span>
         ) : (
           <>
-            <Button size="sm" variant="accent" onClick={() => onAccept(index)}>
-              Accept
-            </Button>
+            {suggestion.isDual ? (
+              <>
+                <Button size="sm" variant="accent" onClick={() => onAccept(index, suggestion.nativeText)}>
+                  {`Accept ${suggestion.nativeLabel}`}
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => onAccept(index, suggestion.english)}>
+                  Accept English
+                </Button>
+              </>
+            ) : (
+              <Button size="sm" variant="accent" onClick={() => onAccept(index)}>
+                Accept
+              </Button>
+            )}
             <Button size="sm" variant="outline" onClick={() => onIgnore(index)}>
               Ignore
             </Button>
@@ -1057,11 +1106,29 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId }: Proofreadi
     }
     
     try {
+      // Get auth token for authenticated users
+      const auth = getFirebaseAuth();
+      let authToken = null;
+      if (auth && auth.currentUser) {
+        try {
+          authToken = await auth.currentUser.getIdToken();
+        } catch (error) {
+          console.warn('Failed to get auth token:', error);
+        }
+      }
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+
+      // Add Authorization header if user is authenticated
+      if (authToken) {
+        headers["Authorization"] = `Bearer ${authToken}`;
+      }
+
       const response = await fetch("/api/proofread", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers,
         body: JSON.stringify({
           text: textToCheck,
           language,
@@ -1118,7 +1185,44 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId }: Proofreadi
       }
 
       const normalizedCorrected = String(data.corrected_text || "").trim().normalize("NFC");
-      if (normalizedCorrected === normalizedInput) {
+      const nextChanges: Change[] = Array.isArray(data.changes)
+        ? data.changes
+            .map((change: Change) => ({ ...change, status: "pending" as const }))
+            .filter((change) => {
+              if (!change.original || !change.corrected) return false;
+
+              // Keep dual loanword suggestions even if Tamil corrected text equals original,
+              // because user may still choose the English accept option.
+              const dualSuggestion = parseDualSuggestion(String(change.explanation || ""));
+              if (!dualSuggestion.isDual && normalizeText(change.original) === normalizeText(change.corrected)) {
+                return false;
+              }
+
+              // CRITICAL: Only include suggestions whose original text actually exists in the input
+              // This prevents crashes when accepting suggestions that can't be found
+              if (!normalizedInput.includes(change.original)) {
+                // Try a tolerant search that normalizes smart quotes / apostrophes (common mismatch)
+                const inputSearch = normalizeForSearch(normalizedInput);
+                const originalSearch = normalizeForSearch(change.original);
+
+                let idx = inputSearch.indexOf(originalSearch);
+                if (idx === -1) {
+                  idx = inputSearch.toLowerCase().indexOf(originalSearch.toLowerCase());
+                }
+
+                if (idx === -1) return false;
+
+                // Map change.original to the exact substring from the user's input so accept/ignore/highlight works.
+                // This is especially important for punctuation-only fixes (quotes) where codepoint differs.
+                change.original = normalizedInput.slice(idx, idx + change.original.length);
+              }
+              return true;
+            })
+        : [];
+
+      // If there are no actionable changes AND corrected text is same, mark as clean.
+      // If changes exist (including dual loanword options), show them even when corrected_text equals input.
+      if (normalizedCorrected === normalizedInput && nextChanges.length === 0) {
         setCorrectedText(normalizedInput);
         setBaseText(normalizedInput);
         setChanges([]);
@@ -1128,34 +1232,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId }: Proofreadi
           return [...next, inputHash].slice(-200);
         });
       } else {
-        setCorrectedText(normalizedCorrected);
-        const nextChanges: Change[] = Array.isArray(data.changes)
-          ? data.changes
-              .map((change: Change) => ({ ...change, status: "pending" as const }))
-              .filter((change) => {
-                if (!change.original || !change.corrected) return false;
-                if (normalizeText(change.original) === normalizeText(change.corrected)) return false;
-                // CRITICAL: Only include suggestions whose original text actually exists in the input
-                // This prevents crashes when accepting suggestions that can't be found
-                if (!normalizedInput.includes(change.original)) {
-                  // Try a tolerant search that normalizes smart quotes / apostrophes (common mismatch)
-                  const inputSearch = normalizeForSearch(normalizedInput);
-                  const originalSearch = normalizeForSearch(change.original);
-
-                  let idx = inputSearch.indexOf(originalSearch);
-                  if (idx === -1) {
-                    idx = inputSearch.toLowerCase().indexOf(originalSearch.toLowerCase());
-                  }
-
-                  if (idx === -1) return false;
-
-                  // Map change.original to the exact substring from the user's input so accept/ignore/highlight works.
-                  // This is especially important for punctuation-only fixes (quotes) where codepoint differs.
-                  change.original = normalizedInput.slice(idx, idx + change.original.length);
-                }
-                return true;
-              })
-          : [];
+        setCorrectedText(normalizedCorrected || normalizedInput);
         setBaseText(normalizedInput);
         setChanges(nextChanges);
       }
@@ -1421,12 +1498,16 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId }: Proofreadi
     await html2pdf().set(options).from(target).save();
   };
 
-  const handleAccept = useCallback((index: number) => {
+  const handleAccept = useCallback((index: number, correctedOverride?: string) => {
     const acceptedChange = changes[index];
+    const appliedChange: Change = correctedOverride
+      ? { ...acceptedChange, corrected: correctedOverride }
+      : acceptedChange;
+
     const updated: Change[] = changes.map((change, idx) => {
       // Accept the selected suggestion
       if (idx === index) {
-        return { ...change, status: "accepted" as const };
+        return { ...appliedChange, status: "accepted" as const };
       }
       // Auto-ignore other suggestions with the same original text
       if (change.original === acceptedChange.original && change.status === "pending") {
@@ -1438,7 +1519,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId }: Proofreadi
     // Apply ONLY the newly accepted change.
     // Previously this re-applied every accepted change over the full document on each click,
     // which can freeze the browser on long texts.
-    const updatedText = applySingleAcceptedChange(inputText, acceptedChange);
+    const updatedText = applySingleAcceptedChange(inputText, appliedChange);
 
     // CRITICAL: After applying the change, re-validate all pending suggestions
     // to check if their original text still exists in the updated text.
@@ -1912,36 +1993,82 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId }: Proofreadi
               </div>
               
               <div className="space-y-3">
-                {selectedWordDialog.suggestions.map(({ change, index }, idx) => (
-                  <div key={idx} className="border border-border rounded-lg p-4 bg-card hover:shadow-md transition-shadow">
-                    <div className="space-y-2">
-                      <div>
-                        <div className="text-xs font-semibold text-muted-foreground mb-1">Original</div>
-                        <div className="text-base font-medium text-foreground break-words whitespace-pre-wrap">
-                          {selectedWordDialog.original}
+                {selectedWordDialog.suggestions.map(({ change, index }, idx) => {
+                  const suggestion = parseDualSuggestion(change.explanation || '');
+
+                  return (
+                    <div key={idx} className="border border-border rounded-lg p-4 bg-card hover:shadow-md transition-shadow">
+                      <div className="space-y-2">
+                        <div>
+                          <div className="text-xs font-semibold text-muted-foreground mb-1">Original</div>
+                          <div className="text-base font-medium text-foreground break-words whitespace-pre-wrap">
+                            {selectedWordDialog.original}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs font-semibold text-muted-foreground mb-1">Suggestion</div>
+                          <div className="text-base font-medium text-success break-words whitespace-pre-wrap">
+                            {change.corrected}
+                          </div>
                         </div>
                       </div>
-                      <div>
-                        <div className="text-xs font-semibold text-muted-foreground mb-1">Suggestion</div>
-                        <div className="text-base font-medium text-success break-words whitespace-pre-wrap">
-                          {change.corrected}
+                      {suggestion.isDual ? (
+                        <div className="mt-3 space-y-2">
+                          <div className="flex items-start gap-3 text-sm">
+                            <div className="flex-1 rounded-md bg-accent/10 px-3 py-2 border border-accent/20">
+                              <div className="text-xs font-semibold text-muted-foreground mb-1">{suggestion.nativeLabel}</div>
+                              <div className="font-medium text-foreground break-words">{suggestion.nativeText}</div>
+                            </div>
+                            <div className="flex-1 rounded-md bg-blue-50 dark:bg-blue-900/20 px-3 py-2 border border-blue-200 dark:border-blue-800">
+                              <div className="text-xs font-semibold text-muted-foreground mb-1">English</div>
+                              <div className="font-medium text-foreground break-words">{suggestion.english}</div>
+                            </div>
+                          </div>
+                          {suggestion.explanation && (
+                            <div className="text-sm text-muted-foreground break-words whitespace-pre-wrap">{suggestion.explanation}</div>
+                          )}
                         </div>
-                      </div>
-                    </div>
-                    <div className="text-sm text-muted-foreground mt-3 break-words whitespace-pre-wrap">
-                      {change.explanation}
-                    </div>
-                    <div className="mt-4 flex flex-wrap items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="accent"
-                        onClick={() => {
-                          handleAccept(index);
-                          setSelectedWordDialog({ open: false, suggestions: [], original: "" });
-                        }}
-                      >
-                        Accept
-                      </Button>
+                      ) : (
+                        <div className="text-sm text-muted-foreground mt-3 break-words whitespace-pre-wrap">
+                          {change.explanation}
+                        </div>
+                      )}
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                      {suggestion.isDual ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="accent"
+                            onClick={() => {
+                              handleAccept(index, suggestion.nativeText);
+                              setSelectedWordDialog({ open: false, suggestions: [], original: "" });
+                            }}
+                          >
+                            {`Accept ${suggestion.nativeLabel}`}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => {
+                              handleAccept(index, suggestion.english);
+                              setSelectedWordDialog({ open: false, suggestions: [], original: "" });
+                            }}
+                          >
+                            Accept English
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="accent"
+                          onClick={() => {
+                            handleAccept(index);
+                            setSelectedWordDialog({ open: false, suggestions: [], original: "" });
+                          }}
+                        >
+                          Accept
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"
@@ -1954,7 +2081,8 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId }: Proofreadi
                       </Button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
               
               <div className="flex justify-end pt-2">

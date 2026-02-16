@@ -1875,6 +1875,21 @@ SPECIFIC FOR TAMIL:
 - Strictly follow 'Valinam Migum/Miga' rules.
 - Fix run-on words (Otrumizhal) (e.g., 'இன்னும்கடுமையாக' -> 'இன்னும் கடுமையாக').
 - Join postpositions correctly when natural (e.g., "எடப்பாடியுடன்", "என்றெல்லாம்").
+- COMMON WORD VALIDATION: Double-check frequently used words for correctness:
+  * "எதிரபார்க்கப்படுகிறது" (incorrect) → "எதிர்பார்க்கப்படுகிறது" (correct)
+  * Pay special attention to words with compound formation and sandhi rules
+- VERB FORMS: Validate passive and compound verb forms carefully
+
+LOANWORD DETECTION (ALL LANGUAGES):
+- If an English word is written/transliterated in a non-English script/language, provide dual options.
+- In the explanation field, MUST use this exact pattern:
+  "<InputLanguageName>: <input-language-form> | English: <english-word>"
+- Replace <InputLanguageName> with the actual language name (e.g., Tamil, Hindi, Telugu, Arabic, Bengali, Kannada, Malayalam, etc.).
+- Examples:
+  * "பெனஷன்" → explanation: "Tamil: பென்ஷன் | English: pension"
+  * "मोबाइल" → explanation: "Hindi: मोबाइल | English: mobile"
+  * "సర్వీస్" → explanation: "Telugu: సర్వీస్ | English: service"
+- This is required for ANY language, not only Tamil.
 
 OUTPUT FORMAT (MANDATORY):
 Return ONLY a valid JSON object in this exact shape:
@@ -2266,6 +2281,72 @@ const addMissingQuoteChecks = (text, changes) => {
   return augmented;
 };
 
+const addTamilFallbackSuggestions = (text, changes, language) => {
+  const lang = String(language || "").toLowerCase();
+  const hasTamilScript = /[\u0B80-\u0BFF]/.test(String(text || ""));
+  if (!hasTamilScript && lang !== "ta" && lang !== "tamil") {
+    return changes;
+  }
+
+  const existingOriginals = new Set(
+    (Array.isArray(changes) ? changes : [])
+      .map((c) => String(c?.original || "").trim())
+      .filter(Boolean)
+  );
+
+  const fallbackRules = [
+    { original: "எதிரபார்க்கப்படுகிறது", corrected: "எதிர்பார்க்கப்படுகிறது", explanation: "எழுத்துப்பிழை திருத்தம்: கூட்டு வடிவத்தில் 'ப்' சேர்க்கப்பட்டது." },
+    { original: "பெனஷன்", corrected: "பென்ஷன்", explanation: "Tamil: பென்ஷன் | English: pension" },
+    { original: "ஹாஸ்பிடல்", corrected: "ஹாஸ்பிட்டல்", explanation: "Tamil: ஹாஸ்பிட்டல் | English: hospital" },
+    { original: "கம்ப்யூட்டர்", corrected: "கம்ப்யூட்டர்", explanation: "Tamil: கம்ப்யூட்டர் | English: computer" },
+    { original: "இன்சூரன்ஸ்", corrected: "இன்ஷூரன்ஸ்", explanation: "Tamil: இன்ஷூரன்ஸ் | English: insurance" },
+    { original: "மொபைல்", corrected: "மொபைல்", explanation: "Tamil: மொபைல் | English: mobile" },
+    { original: "சர்வீஸ்", corrected: "சர்வீஸ்", explanation: "Tamil: சர்வீஸ் | English: service" },
+    { original: "சென்டர்", corrected: "சென்டர்", explanation: "Tamil: சென்டர் | English: center" },
+    { original: "சர்வீஸ் சென்டர்", corrected: "சர்வீஸ் சென்டர்", explanation: "Tamil: சர்வீஸ் சென்டர் | English: service center" },
+  ];
+
+  const loanwordByOriginal = new Map(
+    fallbackRules
+      .filter((rule) => String(rule.explanation || "").toLowerCase().includes("english:"))
+      .map((rule) => [rule.original, rule])
+  );
+
+  // If Gemini already returned a mapped loanword change, force dual Tamil+English explanation.
+  const normalizedExisting = (Array.isArray(changes) ? changes : []).map((change) => {
+    const original = String(change?.original || "").trim();
+    const mapped = loanwordByOriginal.get(original);
+    if (!mapped) return change;
+
+    const explanation = String(change?.explanation || "");
+    if (/Tamil:\s*[^|]+\|\s*English:\s*.+/i.test(explanation)) {
+      return change;
+    }
+
+    return {
+      ...change,
+      corrected: mapped.corrected,
+      explanation: mapped.explanation,
+    };
+  });
+
+  const augmented = [...normalizedExisting];
+
+  for (const rule of fallbackRules) {
+    if (!String(text).includes(rule.original)) continue;
+    if (existingOriginals.has(rule.original)) continue;
+
+    augmented.push({
+      original: rule.original,
+      corrected: rule.corrected,
+      explanation: rule.explanation,
+    });
+    existingOriginals.add(rule.original);
+  }
+
+  return augmented;
+};
+
 /**
  * Extension: Get user statistics
  */
@@ -2595,107 +2676,132 @@ app.post("/api/proofread", async (req, res) => {
 
     const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    const prompt = buildPrompt(text, language, {
-      nameCorrections: req.body?.nameCorrections,
-    });
-
-    const callGemini = async (maxTokens) => {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: prompt }],
-            },
-          ],
-          generationConfig: {
-            temperature: 0,
-            topP: 0.6,
-            responseMimeType: "application/json",
-            maxOutputTokens: maxTokens,
-          },
-          systemInstruction: {
-            parts: [{ text: "Return ONLY valid JSON. Analyze EVERY line of the input text thoroughly. Do not add extra text." }],
-          },
-        }),
-      });
-      return response;
+    const proofreadCacheVersion = "v1";
+    const normalizedTextForCache = String(text || "").normalize("NFC").trim();
+    const proofreadCacheKeyPayload = {
+      v: proofreadCacheVersion,
+      model,
+      language: language || "auto",
+      text: normalizedTextForCache,
+      nameCorrections: req.body?.nameCorrections || null,
     };
+    const proofreadCacheKey = `proofread:${crypto
+      .createHash("sha256")
+      .update(JSON.stringify(proofreadCacheKeyPayload))
+      .digest("hex")}`;
 
-    let response = await callGemini(8192);
+    let result = getCache(proofreadCacheKey);
+    if (!result) {
+      const prompt = buildPrompt(text, language, {
+        nameCorrections: req.body?.nameCorrections,
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("API error:", errorText);
-      
-      // If location not supported, return helpful error message
-      if (errorText.includes("User location is not supported") || errorText.includes("FAILED_PRECONDITION")) {
-        return res.status(503).json({ 
-          message: "Proofreading service is temporarily unavailable in your region. Please try again later or contact support.",
-          error: "REGION_NOT_SUPPORTED" 
+      const adaptiveMaxTokens =
+        words.length <= 80 ? 2048 :
+        words.length <= 220 ? 3072 :
+        words.length <= 600 ? 6144 :
+        8192;
+      const retryMaxTokens = Math.min(12288, adaptiveMaxTokens * 2);
+
+      const callGemini = async (maxTokens) => {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: "user",
+                parts: [{ text: prompt }],
+              },
+            ],
+            generationConfig: {
+              temperature: 0,
+              topP: 0.6,
+              responseMimeType: "application/json",
+              maxOutputTokens: maxTokens,
+            },
+            systemInstruction: {
+              parts: [{ text: "Return ONLY valid JSON. Analyze EVERY line of the input text thoroughly. Do not add extra text." }],
+            },
+          }),
         });
-      }
-      
-      return res.status(500).json({ message: "API error" });
-    }
+        return response;
+      };
 
-    let data = await response.json();
-    let raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!raw) {
-      console.error("API response missing content:", JSON.stringify(data));
-      return res.status(500).json({ message: "Invalid API response" });
-    }
-    let parsed = parseGeminiJson(raw);
-    if (!parsed) {
-      // Retry once with maximum token limit if parsing failed
-      console.log("First parse failed, retrying with 16384 tokens...");
-      response = await callGemini(16384);
+      let response = await callGemini(adaptiveMaxTokens);
+
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("API error (retry):", errorText);
-        
-        // If location not supported, return helpful error message  
+        console.error("API error:", errorText);
+
         if (errorText.includes("User location is not supported") || errorText.includes("FAILED_PRECONDITION")) {
-          return res.status(503).json({ 
+          return res.status(503).json({
             message: "Proofreading service is temporarily unavailable in your region. Please try again later or contact support.",
-            error: "REGION_NOT_SUPPORTED" 
+            error: "REGION_NOT_SUPPORTED"
           });
         }
-        
+
         return res.status(500).json({ message: "API error" });
       }
-      data = await response.json();
-      raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      parsed = parseGeminiJson(raw);
+
+      let data = await response.json();
+      let raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!raw) {
+        console.error("API response missing content:", JSON.stringify(data));
+        return res.status(500).json({ message: "Invalid API response" });
+      }
+
+      let parsed = parseGeminiJson(raw);
+      if (!parsed) {
+        console.log(`First parse failed, retrying with ${retryMaxTokens} tokens...`);
+        response = await callGemini(retryMaxTokens);
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("API error (retry):", errorText);
+
+          if (errorText.includes("User location is not supported") || errorText.includes("FAILED_PRECONDITION")) {
+            return res.status(503).json({
+              message: "Proofreading service is temporarily unavailable in your region. Please try again later or contact support.",
+              error: "REGION_NOT_SUPPORTED"
+            });
+          }
+
+          return res.status(500).json({ message: "API error" });
+        }
+        data = await response.json();
+        raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        parsed = parseGeminiJson(raw);
+      }
+
+      if (!parsed) {
+        console.error("Failed to parse API response:", raw);
+        return res.status(500).json({ message: "Failed to parse API response" });
+      }
+
+      const correctedText =
+        typeof parsed.corrected_text === "string" && parsed.corrected_text.trim().length
+          ? parsed.corrected_text
+          : text;
+
+      let changes = Array.isArray(parsed.changes)
+        ? parsed.changes.filter((change) => {
+            if (!change || typeof change !== "object") return false;
+            if (typeof change.original !== "string" || change.original.length === 0) return false;
+            if (typeof change.corrected !== "string") return false;
+            return true;
+          })
+        : [];
+
+      changes = addMissingQuoteChecks(text, changes);
+      changes = addTamilFallbackSuggestions(text, changes, language);
+
+      result = {
+        corrected_text: correctedText,
+        changes,
+      };
+
+      setCache(proofreadCacheKey, result);
     }
-    if (!parsed) {
-      console.error("Failed to parse API response:", raw);
-      return res.status(500).json({ message: "Failed to parse API response" });
-    }
-
-    const correctedText =
-      typeof parsed.corrected_text === "string" && parsed.corrected_text.trim().length
-        ? parsed.corrected_text
-        : text;
-
-    let changes = Array.isArray(parsed.changes)
-      ? parsed.changes.filter((change) => {
-          if (!change || typeof change !== "object") return false;
-          if (typeof change.original !== "string" || change.original.length === 0) return false;
-          if (typeof change.corrected !== "string") return false;
-          return true;
-        })
-      : [];
-
-    // Apply post-processing safety net to catch unbalanced quotes
-    changes = addMissingQuoteChecks(text, changes);
-
-    const result = {
-      corrected_text: correctedText,
-      changes,
-    };
     if (freeDailyContext) {
       await freeDailyContext.userRef.set(
         {
