@@ -674,6 +674,29 @@ const Admin = () => {
     loadCustomLanguages();
   }, [user]);
 
+  // Load SEO pages when switching to SEO tab
+  useEffect(() => {
+    if (!user || activeTab !== "seo") return;
+    
+    const loadSeoPages = async () => {
+      const db = getFirebaseDb();
+      if (!db) return;
+      
+      setSeoLoading(true);
+      try {
+        const snapshot = await getDocs(collection(db, "seoPages"));
+        const pages = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any));
+        setSeoPages(pages);
+      } catch (error) {
+        console.error("Error loading SEO pages:", error);
+      } finally {
+        setSeoLoading(false);
+      }
+    };
+
+    loadSeoPages();
+  }, [user, activeTab]);
+
   // Merge default and custom languages for use in selectors
   const allLanguages = useMemo(() => {
     const customLangOptions = customLanguages.map(lang => ({
@@ -3832,20 +3855,30 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                             return;
                           }
 
-                          // Check if URL slug already exists (for new pages)
-                          if (!seoEditingId) {
-                            const existingDoc = await getDoc(doc(db, "seoPages", seoUrlSlug));
-                            if (existingDoc.exists()) {
-                              toast.error(`URL "${seoUrlSlug}" is already taken. Choose a different one.`);
-                              return;
-                            }
-                          }
-
                           setSeoSaving(true);
                           try {
+                            let finalUrlSlug = seoUrlSlug;
+                            
+                            // Auto-increment URL slug if already exists (for new pages only)
+                            if (!seoEditingId) {
+                              let existingDoc = await getDoc(doc(db, "seoPages", finalUrlSlug));
+                              let counter = 1;
+                              
+                              while (existingDoc.exists()) {
+                                finalUrlSlug = `${seoUrlSlug}${counter}`;
+                                existingDoc = await getDoc(doc(db, "seoPages", finalUrlSlug));
+                                counter++;
+                              }
+                              
+                              // Show info if URL was auto-incremented
+                              if (finalUrlSlug !== seoUrlSlug) {
+                                toast.info(`URL slug changed to "${finalUrlSlug}" (original was taken)`);
+                              }
+                            }
+
                             const langName = allLanguages.find(l => l.code === seoLanguageCode)?.name || seoLanguageCode;
                             const pageData = {
-                              urlSlug: seoUrlSlug,
+                              urlSlug: finalUrlSlug,
                               languageCode: seoLanguageCode,
                               languageName: langName,
                               title: seoTitle,
@@ -3858,7 +3891,7 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                               ...(seoEditingId ? {} : { createdAt: new Date().toISOString() }),
                             };
 
-                            await setDoc(doc(db, "seoPages", seoUrlSlug), pageData);
+                            await setDoc(doc(db, "seoPages", seoEditingId || finalUrlSlug), pageData);
                             toast.success(seoEditingId ? "SEO page updated!" : "SEO page created!");
 
                             // Reload list
