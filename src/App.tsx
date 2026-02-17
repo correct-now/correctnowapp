@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { HelmetProvider } from "react-helmet-async";
 import Index from "./pages/Index";
 import Editor from "./pages/Editor";
 import Auth from "./pages/Auth";
@@ -25,6 +26,7 @@ import BlogPostFirestore from "./pages/BlogPostFirestore";
 import BlogPostPublic from "./pages/BlogPostPublic";
 import NotFound from "./pages/NotFound";
 import Languages from "./pages/Languages";
+import LanguageLanding from "./pages/LanguageLanding";
 import { initDocsSync } from "@/lib/docs";
 import { startSessionEnforcement } from "@/lib/session";
 
@@ -54,38 +56,42 @@ const App = () => {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <ScrollToTop />
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/editor" element={<Editor />} />
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/pricing" element={<Pricing />} />
-            <Route path="/payment" element={<Payment />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/admin" element={<Admin />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/about" element={<AboutUs />} />
-            <Route path="/contact" element={<ContactUs />} />
-            <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-            <Route path="/disclaimer" element={<Disclaimer />} />
-            <Route path="/refund-policy" element={<RefundPolicy />} />
-            <Route path="/features" element={<FeaturesPage />} />
-            <Route path="/languages" element={<Languages />} />
-            <Route path="/terms" element={<Terms />} />
-            <Route path="/blog" element={<Blog />} />
-            <Route path="/blog/:slug" element={<BlogPostPublic />} />
-            <Route path="/blog-md/:slug" element={<BlogPost />} />
-            <Route path="/blogs" element={<Blog />} />
-            <Route path="/blogs/:id" element={<BlogPostFirestore />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+      <HelmetProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <ScrollToTop />
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/editor" element={<Editor />} />
+              <Route path="/auth" element={<Auth />} />
+              <Route path="/pricing" element={<Pricing />} />
+              <Route path="/payment" element={<Payment />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/admin" element={<Admin />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/about" element={<AboutUs />} />
+              <Route path="/contact" element={<ContactUs />} />
+              <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+              <Route path="/disclaimer" element={<Disclaimer />} />
+              <Route path="/refund-policy" element={<RefundPolicy />} />
+              <Route path="/features" element={<FeaturesPage />} />
+              <Route path="/languages" element={<Languages />} />
+              <Route path="/terms" element={<Terms />} />
+              <Route path="/blog" element={<Blog />} />
+              <Route path="/blog/:slug" element={<BlogPostPublic />} />
+              <Route path="/blog-md/:slug" element={<BlogPost />} />
+              <Route path="/blogs" element={<Blog />} />
+              <Route path="/blogs/:id" element={<BlogPostFirestore />} />
+              {/* SEO Language Landing Pages - must be before catch-all */}
+              <Route path="/:languageCode" element={<LanguageLanding />} />
+              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </HelmetProvider>
     </QueryClientProvider>
   );
 };

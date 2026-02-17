@@ -29,9 +29,16 @@ import {
   Coins,
   UserPlus,
   Upload,
+  Globe,
+  Plus,
+  Edit,
+  Trash2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -67,6 +74,7 @@ import {
   updateSuggestionStatus,
   type SuggestionItem,
 } from "@/lib/suggestions";
+import { LANGUAGE_OPTIONS } from "@/components/LanguageSelector";
 
 type AdminUser = {
   id: string;
@@ -123,7 +131,7 @@ const Admin = () => {
   const [loggingIn, setLoggingIn] = useState(false);
 
   const [activeTab, setActiveTab] = useState<
-    "overview" | "users" | "suggestions" | "billing" | "blog" | "settings"
+    "overview" | "users" | "suggestions" | "billing" | "blog" | "seo" | "settings"
   >("overview");
   const [searchQuery, setSearchQuery] = useState("");
   const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
@@ -155,6 +163,33 @@ const Admin = () => {
   const [couponPercent, setCouponPercent] = useState("");
   const [couponSaving, setCouponSaving] = useState(false);
   const [couponLoading, setCouponLoading] = useState(false);
+
+  // SEO Pages management
+  const [seoPages, setSeoPages] = useState<Array<{
+    id: string;
+    urlSlug: string;
+    languageCode: string;
+    languageName: string;
+    title: string;
+    metaDescription: string;
+    keywords: string;
+    h1: string;
+    description: string;
+    active: boolean;
+    createdAt: string;
+    updatedAt: string;
+  }>>([]);
+  const [seoLoading, setSeoLoading] = useState(false);
+  const [seoSaving, setSeoSaving] = useState(false);
+  const [seoEditingId, setSeoEditingId] = useState<string | null>(null);
+  const [seoUrlSlug, setSeoUrlSlug] = useState("");
+  const [seoLanguageCode, setSeoLanguageCode] = useState("");
+  const [seoTitle, setSeoTitle] = useState("");
+  const [seoMetaDescription, setSeoMetaDescription] = useState("");
+  const [seoKeywords, setSeoKeywords] = useState("");
+  const [seoH1, setSeoH1] = useState("");
+  const [seoDescription, setSeoDescription] = useState("");
+  const [seoActive, setSeoActive] = useState(true);
 
   // Admin creation
   const [newAdminEmail, setNewAdminEmail] = useState("");
@@ -1712,6 +1747,7 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                 { id: "overview", icon: BarChart3, label: "Dashboard" },
                 { id: "users", icon: Users, label: "Users" },
                 { id: "suggestions", icon: MessageSquare, label: "Suggestions" },
+                { id: "seo", icon: Globe, label: "SEO Pages" },
                 { id: "blog", icon: FileText, label: "Blog" },
                 { id: "billing", icon: CreditCard, label: "Billing & Plans" },
                 { id: "settings", icon: Settings, label: "Settings" },
@@ -3285,6 +3321,388 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                         )}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "seo" && (
+              <div className="space-y-8">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h1 className="text-2xl font-bold text-foreground mb-1">
+                      SEO Language Pages
+                    </h1>
+                    <p className="text-muted-foreground">
+                      Create SEO-optimized landing pages for each language
+                    </p>
+                  </div>
+                  <Button variant="default" onClick={() => {
+                    setSeoEditingId(null);
+                    setSeoUrlSlug("");
+                    setSeoLanguageCode("");
+                    setSeoTitle("");
+                    setSeoMetaDescription("");
+                    setSeoKeywords("");
+                    setSeoH1("");
+                    setSeoDescription("");
+                    setSeoActive(true);
+                  }}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    New SEO Page
+                  </Button>
+                </div>
+
+                <div className="grid lg:grid-cols-2 gap-6">
+                  {/* Form */}
+                  <div className="bg-card rounded-xl border border-border p-6 space-y-4">
+                    <h3 className="text-lg font-semibold text-foreground">
+                      {seoEditingId ? "Edit SEO Page" : "Create New SEO Page"}
+                    </h3>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">URL Slug (Custom)</label>
+                      <Input
+                        value={seoUrlSlug}
+                        onChange={(e) => {
+                          const slugified = e.target.value
+                            .toLowerCase()
+                            .replace(/[^a-z0-9\-]/g, "-")
+                            .replace(/-+/g, "-")
+                            .replace(/^-|-$/g, "");
+                          setSeoUrlSlug(slugified);
+                        }}
+                        placeholder="tamil-grammar" 
+                        disabled={!!seoEditingId}
+                      />
+                      {seoUrlSlug && (
+                        <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                          ✓ URL: correctnow.app/{seoUrlSlug}
+                        </p>
+                      )}
+                      {!seoUrlSlug && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Custom URL for this page (e.g., "tamil", "hindi-checker", "grammar-ta")
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Language</label>
+                      <select
+                        value={seoLanguageCode}
+                        onChange={(e) => {
+                          const code = e.target.value;
+                          const lang = LANGUAGE_OPTIONS.find(l => l.code === code);
+                          setSeoLanguageCode(code);
+                          if (lang && !seoEditingId) {
+                            // Auto-fill defaults for new pages
+                            if (!seoUrlSlug) {
+                              setSeoUrlSlug(code); // Default URL to language code
+                            }
+                            setSeoTitle(`${lang.name} Grammar Checker - CorrectNow`);
+                            setSeoH1(`${lang.name} Grammar Checker`);
+                            setSeoMetaDescription(`Free online ${lang.name} grammar checker and proofreading tool. Check your ${lang.name} text for spelling, grammar, and style mistakes instantly.`);
+                            setSeoKeywords(`${lang.name} grammar checker, ${lang.name} spell check, ${lang.name} proofreading, online grammar check, ${code} grammar`);
+                            setSeoDescription(`Free online ${lang.name} grammar checker and proofreading tool. Check your ${lang.name} text for spelling, grammar, and style mistakes instantly.`);
+                          }
+                        }}
+                        disabled={!!seoEditingId}
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground"
+                      >
+                        <option value="">Select a language...</option>
+                        {LANGUAGE_OPTIONS.filter(lang => lang.code !== "auto").map(lang => (
+                          <option key={lang.code} value={lang.code}>
+                            {lang.name} ({lang.code})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Language for grammar checking (pre-selected for users)
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Page Title (SEO)</label>
+                      <Input
+                        value={seoTitle}
+                        onChange={(e) => setSeoTitle(e.target.value)}
+                        placeholder="Tamil Grammar Checker - CorrectNow"
+                        maxLength={60}
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {seoTitle.length}/60 - Shows in browser tab & search results
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Meta Description</label>
+                      <Textarea
+                        value={seoMetaDescription}
+                        onChange={(e) => setSeoMetaDescription(e.target.value)}
+                        placeholder="Free online Tamil grammar checker and proofreading tool..."
+                        maxLength={160}
+                        rows={3}
+                        className="resize-none"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {seoMetaDescription.length}/160 - Appears in Google search results
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Keywords (comma-separated)</label>
+                      <Textarea
+                        value={seoKeywords}
+                        onChange={(e) => setSeoKeywords(e.target.value)}
+                        placeholder="tamil grammar checker, tamil spell check, tamil proofreading"
+                        rows={2}
+                        className="resize-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">H1 Heading</label>
+                      <Input
+                        value={seoH1}
+                        onChange={(e) => setSeoH1(e.target.value)}
+                        placeholder="Tamil Grammar Checker"
+                        maxLength={70}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Page Description Text</label>
+                      <Textarea
+                        value={seoDescription}
+                        onChange={(e) => setSeoDescription(e.target.value)}
+                        placeholder="Free online Tamil grammar checker and proofreading tool. Check your Tamil text for spelling, grammar, and style mistakes instantly."
+                        rows={3}
+                        className="resize-none"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="seo-active"
+                        checked={seoActive}
+                        onChange={(e) => setSeoActive(e.target.checked)}
+                        className="w-4 h-4"
+                      />
+                      <label htmlFor="seo-active" className="text-sm font-medium">
+                        Active (page will be publicly accessible)
+                      </label>
+                    </div>
+
+                    <div className="flex gap-3 pt-2">
+                      <Button
+                        onClick={async () => {
+                          if (!seoUrlSlug || !seoLanguageCode || !seoTitle) {
+                            toast.error("Please fill in URL slug, language, and title");
+                            return;
+                          }
+
+                          const db = getFirebaseDb();
+                          if (!db) {
+                            toast.error("Database not available");
+                            return;
+                          }
+
+                          // Check if URL slug already exists (for new pages)
+                          if (!seoEditingId) {
+                            const existingDoc = await getDoc(doc(db, "seoPages", seoUrlSlug));
+                            if (existingDoc.exists()) {
+                              toast.error(`URL "${seoUrlSlug}" is already taken. Choose a different one.`);
+                              return;
+                            }
+                          }
+
+                          setSeoSaving(true);
+                          try {
+                            const langName = LANGUAGE_OPTIONS.find(l => l.code === seoLanguageCode)?.name || seoLanguageCode;
+                            const pageData = {
+                              urlSlug: seoUrlSlug,
+                              languageCode: seoLanguageCode,
+                              languageName: langName,
+                              title: seoTitle,
+                              metaDescription: seoMetaDescription,
+                              keywords: seoKeywords,
+                              h1: seoH1,
+                              description: seoDescription,
+                              active: seoActive,
+                              updatedAt: new Date().toISOString(),
+                              ...(seoEditingId ? {} : { createdAt: new Date().toISOString() }),
+                            };
+
+                            await setDoc(doc(db, "seoPages", seoUrlSlug), pageData);
+                            toast.success(seoEditingId ? "SEO page updated!" : "SEO page created!");
+
+                            // Reload list
+                            const snapshot = await getDocs(collection(db, "seoPages"));
+                            const pages = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any));
+                            setSeoPages(pages);
+
+                            // Reset form
+                            setSeoEditingId(null);
+                            setSeoUrlSlug("");
+                            setSeoLanguageCode("");
+                            setSeoTitle("");
+                            setSeoMetaDescription("");
+                            setSeoKeywords("");
+                            setSeoH1("");
+                            setSeoDescription("");
+                            setSeoActive(true);
+                          } catch (error) {
+                            console.error("Failed to save SEO page:", error);
+                            toast.error("Failed to save SEO page");
+                          } finally {
+                            setSeoSaving(false);
+                          }
+                        }}
+                        disabled={seoSaving || !seoUrlSlug || !seoLanguageCode || !seoTitle}
+                        className="flex-1"
+                      >
+                        {seoSaving ? "Saving..." : seoEditingId ? "Update Page" : "Create Page"}
+                      </Button>
+                      {seoEditingId && (
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setSeoEditingId(null);
+                            setSeoUrlSlug("");
+                            setSeoLanguageCode("");
+                            setSeoTitle("");
+                            setSeoMetaDescription("");
+                            setSeoKeywords("");
+                            setSeoH1("");
+                            setSeoDescription("");
+                            setSeoActive(true);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* List */}
+                  <div className="bg-card rounded-xl border border-border p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-foreground">
+                        Existing SEO Pages ({seoPages.length})
+                      </h3>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          const db = getFirebaseDb();
+                          if (!db) return;
+                          setSeoLoading(true);
+                          try {
+                            const snapshot = await getDocs(collection(db, "seoPages"));
+                            const pages = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any));
+                            setSeoPages(pages);
+                          } catch (error) {
+                            console.error("Failed to load SEO pages:", error);
+                            toast.error("Failed to load SEO pages");
+                          } finally {
+                            setSeoLoading(false);
+                          }
+                        }}
+                      >
+                        {seoLoading ? "Loading..." : "Refresh"}
+                      </Button>
+                    </div>
+
+                    <div className="space-y-3 max-h-[600px] overflow-y-auto">
+                      {seoPages.length > 0 ? (
+                        seoPages.map(page => (
+                          <div
+                            key={page.id}
+                            className="p-4 rounded-lg border border-border hover:border-accent/50 transition-colors"
+                          >
+                            <div className="flex items-start justify-between mb-2">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h4 className="font-medium text-foreground">
+                                    {page.languageName}
+                                  </h4>
+                                  <Badge variant={page.active ? "default" : "secondary"}>
+                                    {page.active ? "Active" : "Inactive"}
+                                  </Badge>
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                  /{page.urlSlug || page.languageCode}
+                                </p>
+                              </div>
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setSeoEditingId(page.id);
+                                    setSeoUrlSlug(page.urlSlug || page.languageCode);
+                                    setSeoLanguageCode(page.languageCode);
+                                    setSeoTitle(page.title);
+                                    setSeoMetaDescription(page.metaDescription);
+                                    setSeoKeywords(page.keywords);
+                                    setSeoH1(page.h1);
+                                    setSeoDescription(page.description);
+                                    setSeoActive(page.active);
+                                  }}
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={async () => {
+                                    if (!confirm(`Delete SEO page for ${page.languageName}?`)) return;
+                                    const db = getFirebaseDb();
+                                    if (!db) return;
+                                    try {
+                                      await deleteDoc(doc(db, "seoPages", page.id));
+                                      setSeoPages(prev => prev.filter(p => p.id !== page.id));
+                                      toast.success("SEO page deleted");
+                                    } catch (error) {
+                                      console.error("Failed to delete SEO page:", error);
+                                      toast.error("Failed to delete");
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4 text-destructive" />
+                                </Button>
+                              </div>
+                            </div>
+                            <p className="text-sm text-muted-foreground line-clamp-2">
+                              {page.metaDescription}
+                            </p>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-12">
+                          <Globe className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+                          <p className="text-sm text-muted-foreground">
+                            No SEO pages yet. Create your first one!
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-4 pt-4 border-t border-border">
+                      <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
+                        <p className="text-xs text-blue-700 dark:text-blue-300 font-medium mb-1">
+                          💡 SEO Benefits:
+                        </p>
+                        <ul className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
+                          <li>• Unique URLs for each language improve search rankings</li>
+                          <li>• Pre-selected language improves user experience</li>
+                          <li>• Auto-updates sitemap at /api/sitemap.xml</li>
+                          <li>• Captures language-specific search queries</li>
+                        </ul>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -413,6 +413,7 @@ interface ProofreadingEditorProps {
   editorRef: React.RefObject<HTMLDivElement>;
   initialText?: string;
   initialDocId?: string;
+  initialLanguage?: string;
 }
 
 declare global {
@@ -517,7 +518,7 @@ const SuggestionCard = React.memo(({
 
 SuggestionCard.displayName = 'SuggestionCard';
 
-const ProofreadingEditor = ({ editorRef, initialText, initialDocId }: ProofreadingEditorProps) => {
+const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLanguage }: ProofreadingEditorProps) => {
   const [planName, setPlanName] = useState<"Free" | "Pro">("Free");
   const [wordLimit, setWordLimit] = useState(FREE_WORD_LIMIT);
   const [credits, setCredits] = useState(0);
@@ -571,17 +572,25 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId }: Proofreadi
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const storedLanguage = window.localStorage.getItem("correctnow:language");
-      if (storedLanguage) {
-        setLanguage(storedLanguage);
-        setLanguageMode(storedLanguage === "auto" ? "auto" : "manual");
+      // If initialLanguage is provided (e.g., from SEO landing page), use that
+      if (initialLanguage) {
+        setLanguage(initialLanguage);
+        setLanguageMode(initialLanguage === "auto" ? "auto" : "manual");
         setShouldBlinkLanguage(true);
         window.setTimeout(() => setShouldBlinkLanguage(false), 12000);
       } else {
-        setShowLanguageDialog(true);
+        const storedLanguage = window.localStorage.getItem("correctnow:language");
+        if (storedLanguage) {
+          setLanguage(storedLanguage);
+          setLanguageMode(storedLanguage === "auto" ? "auto" : "manual");
+          setShouldBlinkLanguage(true);
+          window.setTimeout(() => setShouldBlinkLanguage(false), 12000);
+        } else {
+          setShowLanguageDialog(true);
+        }
       }
     }
-  }, []);
+  }, [initialLanguage]);
 
   useEffect(() => {
     if (language) {

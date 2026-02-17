@@ -2884,6 +2884,36 @@ if (existsSync(distPath)) {
         }
       }
 
+      // Fetch all active SEO language pages from Firestore
+      let seoPageUrls = [];
+      if (adminDb) {
+        try {
+          const seoSnapshot = await adminDb.collection('seoPages')
+            .where('active', '==', true)
+            .get();
+          
+          seoPageUrls = seoSnapshot.docs
+            .map(doc => {
+              const data = doc.data();
+              const urlSlug = data.urlSlug || data.languageCode || doc.id;
+              const updatedAt = data.updatedAt || data.createdAt;
+              const lastmod = updatedAt ? new Date(updatedAt).toISOString().split('T')[0] : today;
+              
+              return {
+                url: urlSlug,
+                lastmod,
+                priority: '0.9', // High priority for language pages (good for SEO)
+                changefreq: 'weekly'
+              };
+            })
+            .filter(item => item.url);
+          
+          console.log(`✓ Added ${seoPageUrls.length} active SEO language pages to sitemap`);
+        } catch (err) {
+          console.error('Error fetching SEO pages for sitemap:', err);
+        }
+      }
+
       // Generate XML
       const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
@@ -2895,6 +2925,12 @@ ${staticPages.map(page => `  <url>
     <lastmod>${today}</lastmod>
     <changefreq>${page.changefreq}</changefreq>
     <priority>${page.priority}</priority>
+  </url>`).join('\n')}
+${seoPageUrls.map(seoPage => `  <url>
+    <loc>${baseUrl}/${seoPage.url}</loc>
+    <lastmod>${seoPage.lastmod}</lastmod>
+    <changefreq>${seoPage.changefreq}</changefreq>
+    <priority>${seoPage.priority}</priority>
   </url>`).join('\n')}
 ${blogUrls.map(blog => `  <url>
     <loc>${baseUrl}/${blog.url}</loc>
