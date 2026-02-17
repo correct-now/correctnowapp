@@ -31,8 +31,10 @@ const LanguageLanding = () => {
   const [notFound, setNotFound] = useState(false);
 
   const languageInfo = useMemo(() => {
-    return LANGUAGE_OPTIONS.find((lang) => lang.code === languageCode);
-  }, [languageCode]);
+    // Use languageCode from SEO data if available, otherwise from URL parameter
+    const code = seoData?.languageCode || languageCode;
+    return LANGUAGE_OPTIONS.find((lang) => lang.code === code);
+  }, [languageCode, seoData]);
 
   useEffect(() => {
     const loadSEOData = async () => {
@@ -91,7 +93,7 @@ const LanguageLanding = () => {
     );
   }
 
-  if (notFound || !languageInfo) {
+  if (notFound) {
     return (
       <div className="min-h-screen flex flex-col">
         <Header />
@@ -114,14 +116,38 @@ const LanguageLanding = () => {
     );
   }
 
-  const defaultTitle = `${languageInfo.name} Grammar Checker - CorrectNow`;
-  const defaultDescription = `Free online ${languageInfo.name} grammar checker and proofreading tool. Check your ${languageInfo.name} text for spelling, grammar, and style mistakes instantly.`;
-  const defaultKeywords = `${languageInfo.name} grammar checker, ${languageInfo.name} spell check, ${languageInfo.name} proofreading, online grammar check, ${languageCode} grammar`;
+  // If no language info found even after loading SEO data, show not found
+  if (!loading && !languageInfo) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Header />
+        <main className="flex-1 flex items-center justify-center">
+          <div className="text-center max-w-md px-4">
+            <h1 className="text-4xl font-bold mb-4">Invalid Language</h1>
+            <p className="text-muted-foreground mb-6">
+              The language code for this page is not valid.
+            </p>
+            <Link
+              to="/"
+              className="inline-block px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+            >
+              Go to Homepage
+            </Link>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  const defaultTitle = `${languageInfo?.name || "Language"} Grammar Checker - CorrectNow`;
+  const defaultDescription = `Free online ${languageInfo?.name || "grammar"} checker and proofreading tool. Check your ${languageInfo?.name || ""} text for spelling, grammar, and style mistakes instantly.`;
+  const defaultKeywords = `${languageInfo?.name || "language"} grammar checker, ${languageInfo?.name || "language"} spell check, ${languageInfo?.name || "language"} proofreading, online grammar check, ${seoData?.languageCode || languageCode} grammar`;
 
   const pageTitle = seoData?.title || defaultTitle;
   const metaDescription = seoData?.metaDescription || defaultDescription;
   const keywords = seoData?.keywords || defaultKeywords;
-  const h1Text = seoData?.h1 || `${languageInfo.name} Grammar Checker`;
+  const h1Text = seoData?.h1 || `${languageInfo?.name || "Language"} Grammar Checker`;
   const descriptionText = seoData?.description || defaultDescription;
 
   return (
@@ -135,7 +161,7 @@ const LanguageLanding = () => {
         <meta property="og:title" content={pageTitle} />
         <meta property="og:description" content={metaDescription} />
         <meta property="og:type" content="website" />
-        <meta property="og:url" content={`https://correctnow.app/${languageCode}`} />
+        <meta property="og:url" content={`https://correctnow.app/${seoData?.urlSlug || languageCode}`} />
         
         {/* Twitter Card */}
         <meta name="twitter:card" content="summary_large_image" />
@@ -143,22 +169,22 @@ const LanguageLanding = () => {
         <meta name="twitter:description" content={metaDescription} />
         
         {/* Canonical URL */}
-        <link rel="canonical" href={`https://correctnow.app/${languageCode}`} />
+        <link rel="canonical" href={`https://correctnow.app/${seoData?.urlSlug || languageCode}`} />
         
         {/* Language */}
-        <html lang={languageCode === "auto" ? "en" : languageCode} />
+        <html lang={seoData?.languageCode === "auto" ? "en" : seoData?.languageCode || languageCode} />
       </Helmet>
 
       <Header />
 
       <main className="flex-1">
         {/* SEO Content Section */}
-        <section className="bg-gradient-to-b from-background to-muted/20 py-8 sm:py-12">
+        <section className="bg-gradient-to-b from-background to-muted/20 py-8 sm:py-12 pb-12 sm:pb-16">
           <div className="container max-w-4xl mx-auto px-4 text-center">
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4">
               {h1Text}
             </h1>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-4">
               {descriptionText}
             </p>
           </div>
@@ -169,49 +195,51 @@ const LanguageLanding = () => {
           editorRef={editorRef}
           initialText=""
           initialDocId={undefined}
-          initialLanguage={languageCode}
+          initialLanguage={seoData?.languageCode}
         />
 
         {/* Additional SEO Content */}
-        <section className="container max-w-4xl mx-auto px-4 py-12">
-          <div className="prose prose-slate max-w-none dark:prose-invert">
-            <h2>Why Use CorrectNow for {languageInfo.name}?</h2>
-            <ul>
-              <li>
-                <strong>AI-Powered:</strong> Advanced language models ensure accurate grammar and spelling corrections
-              </li>
-              <li>
-                <strong>Instant Results:</strong> Get real-time suggestions as you type
-              </li>
-              <li>
-                <strong>Free to Use:</strong> Check up to 200 words for free, upgrade for more
-              </li>
-              <li>
-                <strong>Privacy First:</strong> Your text is processed securely and never stored without permission
-              </li>
-            </ul>
+        {languageInfo && (
+          <section className="container max-w-4xl mx-auto px-4 py-12">
+            <div className="prose prose-slate max-w-none dark:prose-invert">
+              <h2>Why Use CorrectNow for {languageInfo.name}?</h2>
+              <ul>
+                <li>
+                  <strong>AI-Powered:</strong> Advanced language models ensure accurate grammar and spelling corrections
+                </li>
+                <li>
+                  <strong>Instant Results:</strong> Get real-time suggestions as you type
+                </li>
+                <li>
+                  <strong>Free to Use:</strong> Check up to 200 words for free, upgrade for more
+                </li>
+                <li>
+                  <strong>Privacy First:</strong> Your text is processed securely and never stored without permission
+                </li>
+              </ul>
 
-            <h2>How to Use the {languageInfo.name} Grammar Checker</h2>
-            <ol>
-              <li>Type or paste your {languageInfo.name} text in the editor above</li>
-              <li>Click the "Check Grammar" button</li>
-              <li>Review the suggestions and accept or ignore them</li>
-              <li>Copy your corrected text or download it as a PDF</li>
-            </ol>
+              <h2>How to Use the {languageInfo.name} Grammar Checker</h2>
+              <ol>
+                <li>Type or paste your {languageInfo.name} text in the editor above</li>
+                <li>Click the "Check Grammar" button</li>
+                <li>Review the suggestions and accept or ignore them</li>
+                <li>Copy your corrected text or download it as a PDF</li>
+              </ol>
 
-            <h2>Features</h2>
-            <p>
-              CorrectNow's {languageInfo.name} grammar checker uses advanced AI to detect:
-            </p>
-            <ul>
-              <li>Spelling mistakes</li>
-              <li>Grammar errors</li>
-              <li>Punctuation issues</li>
-              <li>Style improvements</li>
-              <li>Word choice suggestions</li>
-            </ul>
-          </div>
-        </section>
+              <h2>Features</h2>
+              <p>
+                CorrectNow's {languageInfo.name} grammar checker uses advanced AI to detect:
+              </p>
+              <ul>
+                <li>Spelling mistakes</li>
+                <li>Grammar errors</li>
+                <li>Punctuation issues</li>
+                <li>Style improvements</li>
+                <li>Word choice suggestions</li>
+              </ul>
+            </div>
+          </section>
+        )}
       </main>
 
       <Footer />
