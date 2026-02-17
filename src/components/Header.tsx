@@ -154,6 +154,12 @@ const Header = () => {
             >
               Languages
             </Link>
+            <Link
+              to="/contact"
+              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Contact
+            </Link>
           </nav>
 
           <div className="flex w-full md:w-auto items-center justify-center md:justify-end gap-2">
@@ -211,6 +217,12 @@ const Header = () => {
             className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-full bg-muted/40 hover:bg-muted"
           >
             Languages
+          </Link>
+          <Link
+            to="/contact"
+            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-full bg-muted/40 hover:bg-muted"
+          >
+            Contact
           </Link>
         </nav>
       </div>
