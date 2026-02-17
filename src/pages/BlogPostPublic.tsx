@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import DOMPurify from "dompurify";
 
 import Header from "@/components/Header";
@@ -90,11 +91,6 @@ const BlogPostPublic = () => {
     });
   }, [post?.id]);
 
-  useEffect(() => {
-    if (!post?.title) return;
-    document.title = `${post.title} | CorrectNow Blog`;
-  }, [post?.title]);
-
   const safeHtml = useMemo(() => {
     const html = post?.contentHtml || "";
     if (!html) return "";
@@ -136,6 +132,70 @@ const BlogPostPublic = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      {post && (
+        <Helmet>
+          <title>{post.title} | CorrectNow Blog</title>
+          <meta 
+            name="description" 
+            content={post.contentText?.slice(0, 160) || `Read ${post.title} on CorrectNow Blog`} 
+          />
+          <meta name="keywords" content="grammar checker, writing tips, AI proofreading, CorrectNow" />
+          
+          {/* Open Graph */}
+          <meta property="og:title" content={post.title} />
+          <meta 
+            property="og:description" 
+            content={post.contentText?.slice(0, 160) || `Read ${post.title} on CorrectNow Blog`} 
+          />
+          <meta property="og:type" content="article" />
+          <meta property="og:url" content={`https://correctnow.app/blog/${post.slug || post.id}`} />
+          {post.coverImageUrl && <meta property="og:image" content={post.coverImageUrl} />}
+          {post.publishedAt && <meta property="article:published_time" content={post.publishedAt} />}
+          {post.updatedAt && <meta property="article:modified_time" content={post.updatedAt} />}
+          
+          {/* Twitter Card */}
+          <meta name="twitter:card" content="summary_large_image" />
+          <meta name="twitter:title" content={post.title} />
+          <meta 
+            name="twitter:description" 
+            content={post.contentText?.slice(0, 160) || `Read ${post.title} on CorrectNow Blog`} 
+          />
+          {post.coverImageUrl && <meta name="twitter:image" content={post.coverImageUrl} />}
+          
+          {/* Canonical URL */}
+          <link rel="canonical" href={`https://correctnow.app/blog/${post.slug || post.id}`} />
+          
+          {/* Article Structured Data (Schema.org) */}
+          <script type="application/ld+json">
+            {JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "BlogPosting",
+              "headline": post.title,
+              "description": post.contentText?.slice(0, 160) || post.title,
+              "image": post.coverImageUrl || "https://correctnow.app/Icon/correctnow logo final2.png",
+              "datePublished": post.publishedAt || post.createdAt,
+              "dateModified": post.updatedAt || post.publishedAt || post.createdAt,
+              "author": {
+                "@type": "Organization",
+                "name": "CorrectNow"
+              },
+              "publisher": {
+                "@type": "Organization",
+                "name": "CorrectNow",
+                "logo": {
+                  "@type": "ImageObject",
+                  "url": "https://correctnow.app/Icon/correctnow logo final2.png"
+                }
+              },
+              "mainEntityOfPage": {
+                "@type": "WebPage",
+                "@id": `https://correctnow.app/blog/${post.slug || post.id}`
+              }
+            })}
+          </script>
+        </Helmet>
+      )}
+      
       <Header />
 
       <main className="flex-1">
