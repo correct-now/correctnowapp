@@ -13,7 +13,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Check, ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Tooltip,
   TooltipContent,
@@ -21,6 +21,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { getFirebaseDb } from "@/lib/firebase";
+import { collection, getDocs } from "firebase/firestore";
 
 interface LanguageSelectorProps {
   value: string;
@@ -198,9 +200,39 @@ export const LANGUAGE_OPTIONS = [
 
 const LanguageSelector = ({ value, onChange, open, onOpenChange, showTooltip = false, highlight = false }: LanguageSelectorProps) => {
   const [internalOpen, setInternalOpen] = useState(false);
+  const [allLanguages, setAllLanguages] = useState(LANGUAGE_OPTIONS);
   const isControlled = open !== undefined;
   const isOpen = open ?? internalOpen;
-  const uniqueLanguages = Array.from(new Map(LANGUAGE_OPTIONS.map((lang) => [lang.code, lang])).values());
+
+  // Fetch custom languages from Firestore and merge with default languages
+  useEffect(() => {
+    const fetchCustomLanguages = async () => {
+      try {
+        const db = getFirebaseDb();
+        if (!db) return;
+
+        const querySnapshot = await getDocs(collection(db, "customLanguages"));
+        const customLangs = querySnapshot.docs.map(doc => ({
+          code: doc.data().code,
+          name: doc.data().name,
+        }));
+
+        // Merge default and custom languages, removing duplicates by code
+        const merged = [...LANGUAGE_OPTIONS, ...customLangs];
+        const uniqueMap = new Map(merged.map(lang => [lang.code, lang]));
+        const uniqueLanguages = Array.from(uniqueMap.values());
+        
+        setAllLanguages(uniqueLanguages);
+      } catch (error) {
+        console.error("Error fetching custom languages:", error);
+        setAllLanguages(LANGUAGE_OPTIONS);
+      }
+    };
+
+    fetchCustomLanguages();
+  }, []);
+
+  const uniqueLanguages = Array.from(new Map(allLanguages.map((lang) => [lang.code, lang])).values());
   const selectedLanguage = uniqueLanguages.find((lang) => lang.code === value);
 
   const handleOpenChange = (nextOpen: boolean) => {

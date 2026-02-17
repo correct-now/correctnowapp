@@ -131,7 +131,7 @@ const Admin = () => {
   const [loggingIn, setLoggingIn] = useState(false);
 
   const [activeTab, setActiveTab] = useState<
-    "overview" | "users" | "suggestions" | "billing" | "blog" | "seo" | "settings"
+    "overview" | "users" | "suggestions" | "billing" | "blog" | "seo" | "languages" | "settings"
   >("overview");
   const [searchQuery, setSearchQuery] = useState("");
   const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
@@ -190,6 +190,19 @@ const Admin = () => {
   const [seoH1, setSeoH1] = useState("");
   const [seoDescription, setSeoDescription] = useState("");
   const [seoActive, setSeoActive] = useState(true);
+
+  // Languages management
+  const [customLanguages, setCustomLanguages] = useState<Array<{
+    id: string;
+    code: string;
+    name: string;
+    createdAt: string;
+  }>>([]);
+  const [languagesLoading, setLanguagesLoading] = useState(false);
+  const [newLanguageCode, setNewLanguageCode] = useState("");
+  const [newLanguageName, setNewLanguageName] = useState("");
+  const [bulkLanguages, setBulkLanguages] = useState("");
+  const [savingLanguage, setSavingLanguage] = useState(false);
 
   // Admin creation
   const [newAdminEmail, setNewAdminEmail] = useState("");
@@ -631,6 +644,48 @@ const Admin = () => {
       blogEditorRef.current.innerHTML = blogContentHtml;
     }
   }, [blogEditorKey]);
+
+  // Load custom languages
+  useEffect(() => {
+    if (!user) return;
+    
+    const loadCustomLanguages = async () => {
+      const db = getFirebaseDb();
+      if (!db) return;
+      
+      setLanguagesLoading(true);
+      try {
+        const snapshot = await getDocs(collection(db, "customLanguages"));
+        const langs = snapshot.docs.map(doc => ({
+          id: doc.id,
+          code: doc.data().code || doc.id,
+          name: doc.data().name || "",
+          createdAt: doc.data().createdAt || new Date().toISOString(),
+        })).sort((a, b) => a.name.localeCompare(b.name));
+        
+        setCustomLanguages(langs);
+      } catch (error) {
+        console.error("Error loading custom languages:", error);
+      } finally {
+        setLanguagesLoading(false);
+      }
+    };
+
+    loadCustomLanguages();
+  }, [user]);
+
+  // Merge default and custom languages for use in selectors
+  const allLanguages = useMemo(() => {
+    const customLangOptions = customLanguages.map(lang => ({
+      code: lang.code,
+      name: lang.name,
+    }));
+    
+    // Merge and deduplicate by code
+    const merged = [...LANGUAGE_OPTIONS, ...customLangOptions];
+    const uniqueMap = new Map(merged.map(lang => [lang.code, lang]));
+    return Array.from(uniqueMap.values());
+  }, [customLanguages]);
 
   const handleCreateCoupon = async () => {
     const db = getFirebaseDb();
@@ -1748,6 +1803,7 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                 { id: "users", icon: Users, label: "Users" },
                 { id: "suggestions", icon: MessageSquare, label: "Suggestions" },
                 { id: "seo", icon: Globe, label: "SEO Pages" },
+                { id: "languages", icon: Globe, label: "Languages" },
                 { id: "blog", icon: FileText, label: "Blog" },
                 { id: "billing", icon: CreditCard, label: "Billing & Plans" },
                 { id: "settings", icon: Settings, label: "Settings" },
@@ -3114,6 +3170,274 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
               </div>
             )}
 
+            {activeTab === "languages" && (
+              <div className="space-y-8">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h1 className="text-2xl font-bold text-foreground mb-1">
+                      Languages Management
+                    </h1>
+                    <p className="text-muted-foreground">
+                      Add and manage custom languages for your grammar checker
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid lg:grid-cols-2 gap-6">
+                  {/* Single Language Form */}
+                  <div className="bg-card rounded-xl border border-border p-6 space-y-4">
+                    <h3 className="text-lg font-semibold text-foreground">Add Single Language</h3>
+                    
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Language Code</label>
+                      <Input
+                        value={newLanguageCode}
+                        onChange={(e) => setNewLanguageCode(e.target.value.toLowerCase().trim())}
+                        placeholder="ta"
+                        maxLength={10}
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Unique language code (e.g., "ta", "hi", "es")
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Language Name</label>
+                      <Input
+                        value={newLanguageName}
+                        onChange={(e) => setNewLanguageName(e.target.value)}
+                        placeholder="Tamil (தமிழ்)"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Display name for this language
+                      </p>
+                    </div>
+
+                    <Button 
+                      onClick={async () => {
+                        if (!newLanguageCode || !newLanguageName) {
+                          toast.error("Please enter both language code and name");
+                          return;
+                        }
+
+                        const db = getFirebaseDb();
+                        if (!db) {
+                          toast.error("Database not initialized");
+                          return;
+                        }
+
+                        setSavingLanguage(true);
+                        try {
+                          // Check if language code already exists
+                          const existingDoc = await getDoc(doc(db, "customLanguages", newLanguageCode));
+                          if (existingDoc.exists()) {
+                            toast.error(`Language code "${newLanguageCode}" already exists`);
+                            return;
+                          }
+
+                          await setDoc(doc(db, "customLanguages", newLanguageCode), {
+                            code: newLanguageCode,
+                            name: newLanguageName,
+                            createdAt: new Date().toISOString(),
+                          });
+
+                          setCustomLanguages(prev => [...prev, {
+                            id: newLanguageCode,
+                            code: newLanguageCode,
+                            name: newLanguageName,
+                            createdAt: new Date().toISOString(),
+                          }].sort((a, b) => a.name.localeCompare(b.name)));
+
+                          setNewLanguageCode("");
+                          setNewLanguageName("");
+                          toast.success("Language added successfully");
+                        } catch (error) {
+                          console.error("Error adding language:", error);
+                          toast.error("Failed to add language");
+                        } finally {
+                          setSavingLanguage(false);
+                        }
+                      }}
+                      disabled={savingLanguage || !newLanguageCode || !newLanguageName}
+                      className="w-full"
+                    >
+                      {savingLanguage ? "Adding..." : "Add Language"}
+                    </Button>
+                  </div>
+
+                  {/* Bulk Language Form */}
+                  <div className="bg-card rounded-xl border border-border p-6 space-y-4">
+                    <h3 className="text-lg font-semibold text-foreground">Add Bulk Languages</h3>
+                    
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Comma-Separated Languages</label>
+                      <Textarea
+                        value={bulkLanguages}
+                        onChange={(e) => setBulkLanguages(e.target.value)}
+                        placeholder="ta:Tamil (தமிழ்), hi:Hindi (हिन्दी), es:Spanish (Español)"
+                        rows={6}
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Format: code:name, code:name, ... (duplicates will be skipped)
+                      </p>
+                    </div>
+
+                    <Button 
+                      onClick={async () => {
+                        if (!bulkLanguages.trim()) {
+                          toast.error("Please enter languages to add");
+                          return;
+                        }
+
+                        const db = getFirebaseDb();
+                        if (!db) {
+                          toast.error("Database not initialized");
+                          return;
+                        }
+
+                        setSavingLanguage(true);
+                        try {
+                          const entries = bulkLanguages
+                            .split(",")
+                            .map(entry => entry.trim())
+                            .filter(entry => entry.includes(":"));
+
+                          let added = 0;
+                          let skipped = 0;
+                          const newLangs: typeof customLanguages = [];
+
+                          for (const entry of entries) {
+                            const [code, name] = entry.split(":").map(s => s.trim());
+                            if (!code || !name) continue;
+
+                            const lowerCode = code.toLowerCase();
+                            
+                            // Check if already exists
+                            const existingDoc = await getDoc(doc(db, "customLanguages", lowerCode));
+                            if (existingDoc.exists()) {
+                              skipped++;
+                              continue;
+                            }
+
+                            await setDoc(doc(db, "customLanguages", lowerCode), {
+                              code: lowerCode,
+                              name: name,
+                              createdAt: new Date().toISOString(),
+                            });
+
+                            newLangs.push({
+                              id: lowerCode,
+                              code: lowerCode,
+                              name: name,
+                              createdAt: new Date().toISOString(),
+                            });
+                            added++;
+                          }
+
+                          if (newLangs.length > 0) {
+                            setCustomLanguages(prev => [...prev, ...newLangs].sort((a, b) => a.name.localeCompare(b.name)));
+                          }
+
+                          setBulkLanguages("");
+                          toast.success(`Added ${added} language(s). Skipped ${skipped} duplicate(s).`);
+                        } catch (error) {
+                          console.error("Error adding bulk languages:", error);
+                          toast.error("Failed to add languages");
+                        } finally {
+                          setSavingLanguage(false);
+                        }
+                      }}
+                      disabled={savingLanguage || !bulkLanguages.trim()}
+                      className="w-full"
+                    >
+                      {savingLanguage ? "Adding..." : "Add Bulk Languages"}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Default Languages */}
+                <div className="bg-card rounded-xl border border-border p-6">
+                  <h3 className="text-lg font-semibold text-foreground mb-2">Default Languages ({LANGUAGE_OPTIONS.length})</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    These are the built-in languages available in the system. They are available in all language selectors.
+                  </p>
+                  
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-96 overflow-y-auto">
+                    {LANGUAGE_OPTIONS.map((lang) => (
+                      <div
+                        key={lang.code}
+                        className="flex items-center gap-3 p-2 rounded-lg border border-border bg-muted/30"
+                      >
+                        <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary/10 text-primary font-mono text-xs font-semibold">
+                          {lang.code}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-foreground truncate">{lang.name}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Custom Languages List */}
+                <div className="bg-card rounded-xl border border-border p-6">
+                  <h3 className="text-lg font-semibold text-foreground mb-2">Custom Languages ({customLanguages.length})</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Languages you've added. These will appear alongside default languages in all language selectors.
+                  </p>
+                  
+                  {languagesLoading ? (
+                    <p className="text-sm text-muted-foreground">Loading languages...</p>
+                  ) : customLanguages.length > 0 ? (
+                    <div className="grid gap-2">
+                      {customLanguages.map((lang) => (
+                        <div
+                          key={lang.id}
+                          className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-accent/5 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-accent/10 text-accent font-mono font-semibold">
+                              {lang.code}
+                            </div>
+                            <div>
+                              <div className="font-medium text-foreground">{lang.name}</div>
+                              <div className="text-xs text-muted-foreground">
+                                Added {new Date(lang.createdAt).toLocaleDateString()}
+                              </div>
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={async () => {
+                              const confirmed = window.confirm(`Delete language "${lang.name}" (${lang.code})?`);
+                              if (!confirmed) return;
+
+                              const db = getFirebaseDb();
+                              if (!db) return;
+
+                              try {
+                                await deleteDoc(doc(db, "customLanguages", lang.id));
+                                setCustomLanguages(prev => prev.filter(l => l.id !== lang.id));
+                                toast.success("Language deleted");
+                              } catch (error) {
+                                console.error("Error deleting language:", error);
+                                toast.error("Failed to delete language");
+                              }
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No custom languages added yet.</p>
+                  )}
+                </div>
+              </div>
+            )}
+
             {activeTab === "billing" && (
               <div className="space-y-6">
                 <div>
@@ -3392,7 +3716,7 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                         value={seoLanguageCode}
                         onChange={(e) => {
                           const code = e.target.value;
-                          const lang = LANGUAGE_OPTIONS.find(l => l.code === code);
+                          const lang = allLanguages.find(l => l.code === code);
                           setSeoLanguageCode(code);
                           if (lang && !seoEditingId) {
                             // Auto-fill defaults for new pages
@@ -3410,7 +3734,7 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                         className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground"
                       >
                         <option value="">Select a language...</option>
-                        {LANGUAGE_OPTIONS.filter(lang => lang.code !== "auto").map(lang => (
+                        {allLanguages.filter(lang => lang.code !== "auto").map(lang => (
                           <option key={lang.code} value={lang.code}>
                             {lang.name} ({lang.code})
                           </option>
@@ -3519,7 +3843,7 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
 
                           setSeoSaving(true);
                           try {
-                            const langName = LANGUAGE_OPTIONS.find(l => l.code === seoLanguageCode)?.name || seoLanguageCode;
+                            const langName = allLanguages.find(l => l.code === seoLanguageCode)?.name || seoLanguageCode;
                             const pageData = {
                               urlSlug: seoUrlSlug,
                               languageCode: seoLanguageCode,
