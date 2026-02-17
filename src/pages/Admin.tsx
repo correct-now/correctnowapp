@@ -2828,10 +2828,9 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                             // Auto-slugify as user types
                             const slugified = e.target.value
                               .toLowerCase()
-                              .replace(/['"\`]/g, "")
-                              .replace(/[^a-z0-9]+/g, "-")
+                              .replace(/[^a-z0-9\-]/g, "-")
                               .replace(/-+/g, "-")
-                              .replace(/^-|-$/g, "");
+                              .replace(/^-/, ""); // Only remove leading hyphen, allow trailing while typing
                             setBlogCustomSlug(slugified);
                           }}
                           placeholder="my-seo-friendly-url"
@@ -3369,7 +3368,7 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                             .toLowerCase()
                             .replace(/[^a-z0-9\-]/g, "-")
                             .replace(/-+/g, "-")
-                            .replace(/^-|-$/g, "");
+                            .replace(/^-/, ""); // Only remove leading hyphen, allow trailing while typing
                           setSeoUrlSlug(slugified);
                         }}
                         placeholder="tamil-grammar" 

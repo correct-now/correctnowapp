@@ -1542,6 +1542,68 @@ app.post("/api/auth/send-password-reset", async (req, res) => {
   }
 });
 
+// Contact form endpoint
+app.post("/api/contact", async (req, res) => {
+  try {
+    const { name, email, subject, message } = req.body;
+
+    // Validate required fields
+    if (!name || !email || !message) {
+      return res.status(400).json({ error: "Name, email, and message are required" });
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: "Invalid email address" });
+    }
+
+    // Prepare email content
+    const emailSubject = subject?.trim() 
+      ? `Contact Form: ${subject}` 
+      : "New Contact Form Submission";
+
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333; border-bottom: 2px solid #4f46e5; padding-bottom: 10px;">
+          New Contact Form Submission
+        </h2>
+        <div style="margin: 20px 0;">
+          <p style="margin: 10px 0;"><strong>From:</strong> ${name}</p>
+          <p style="margin: 10px 0;"><strong>Email:</strong> ${email}</p>
+          ${subject ? `<p style="margin: 10px 0;"><strong>Subject:</strong> ${subject}</p>` : ''}
+        </div>
+        <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+          <p style="margin: 0;"><strong>Message:</strong></p>
+          <p style="margin: 10px 0; white-space: pre-wrap;">${message}</p>
+        </div>
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666; font-size: 12px;">
+          <p>This message was sent via the CorrectNow contact form.</p>
+          <p>Reply to: ${email}</p>
+        </div>
+      </div>
+    `;
+
+    // Send email using Brevo
+    await sendBrevoEmail({
+      to: "info@correctnow.app",
+      subject: emailSubject,
+      html: emailHtml,
+    });
+
+    return res.json({ 
+      success: true, 
+      message: "Your message has been sent successfully" 
+    });
+
+  } catch (err) {
+    console.error("Contact form error:", err);
+    return res.status(500).json({ 
+      error: "Failed to send message. Please try again or email us directly at info@correctnow.app" 
+    });
+  }
+});
+
 app.get("/api/stripe/config", (_req, res) => {
   const publishableKey = process.env.STRIPE_PUBLISHABLE_KEY;
   if (!publishableKey) {

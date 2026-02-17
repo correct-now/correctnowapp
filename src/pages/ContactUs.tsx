@@ -1,9 +1,87 @@
+import { useState } from "react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Mail, CreditCard, Clock, Shield, Globe, HelpCircle, CheckCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
+import { Mail, CreditCard, Clock, Shield, Globe, HelpCircle, CheckCircle, Send } from "lucide-react";
 
 const ContactUs = () => {
+  const { toast } = useToast();
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    subject: "",
+    message: ""
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Basic validation
+    if (!formData.name.trim() || !formData.email.trim() || !formData.message.trim()) {
+      toast({
+        title: "Missing fields",
+        description: "Please fill in all required fields.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email)) {
+      toast({
+        title: "Invalid email",
+        description: "Please enter a valid email address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch('/api/contact', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        toast({
+          title: "Message sent!",
+          description: "We'll get back to you within 24-48 business hours.",
+        });
+        // Reset form
+        setFormData({
+          name: "",
+          email: "",
+          subject: "",
+          message: ""
+        });
+      } else {
+        throw new Error(result.error || "Failed to send message");
+      }
+    } catch (error) {
+      console.error("Contact form error:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to send message. Please try again or email us directly.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header />
@@ -32,6 +110,105 @@ const ContactUs = () => {
             <p className="text-lg text-muted-foreground text-center">
               Whether you have a question about CorrectNow, need assistance with your account, or have a billing-related inquiry, please reach out to us using the appropriate contact option below.
             </p>
+          </div>
+        </section>
+
+        {/* Contact Form */}
+        <section className="pb-16 md:pb-20">
+          <div className="container max-w-3xl">
+            <Card className="border-2">
+              <CardHeader>
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-accent">
+                    <Send className="w-6 h-6 text-accent-foreground" />
+                  </div>
+                  <CardTitle className="text-2xl">Send Us a Message</CardTitle>
+                </div>
+                <p className="text-muted-foreground">
+                  Fill out the form below and we'll get back to you within 24-48 business hours.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  <div className="grid gap-6 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <label htmlFor="name" className="text-sm font-medium">
+                        Name <span className="text-destructive">*</span>
+                      </label>
+                      <Input
+                        id="name"
+                        placeholder="Your name"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        disabled={isSubmitting}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="email" className="text-sm font-medium">
+                        Email <span className="text-destructive">*</span>
+                      </label>
+                      <Input
+                        id="email"
+                        type="email"
+                        placeholder="your@email.com"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        disabled={isSubmitting}
+                        required
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label htmlFor="subject" className="text-sm font-medium">
+                      Subject
+                    </label>
+                    <Input
+                      id="subject"
+                      placeholder="What is this regarding?"
+                      value={formData.subject}
+                      onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
+                      disabled={isSubmitting}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="message" className="text-sm font-medium">
+                      Message <span className="text-destructive">*</span>
+                    </label>
+                    <Textarea
+                      id="message"
+                      placeholder="How can we help you?"
+                      value={formData.message}
+                      onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+                      disabled={isSubmitting}
+                      className="min-h-[150px] resize-y"
+                      required
+                    />
+                  </div>
+
+                  <Button 
+                    type="submit" 
+                    size="lg" 
+                    className="w-full"
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <span className="animate-spin mr-2">⏳</span>
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4 mr-2" />
+                        Send Message
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
           </div>
         </section>
 
