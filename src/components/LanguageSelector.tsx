@@ -241,7 +241,7 @@ const LanguageSelector = ({ value, onChange, open, onOpenChange, showTooltip = f
         avoidCollisions={false}
       >
         <Command>
-          <CommandInput placeholder="Type to search..." autoFocus />
+          <CommandInput placeholder="Type to search..." />
           <CommandList className="max-h-[55vh] overflow-y-auto">
             <CommandEmpty>No languages found.</CommandEmpty>
             <CommandGroup>
