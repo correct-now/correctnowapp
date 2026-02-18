@@ -414,6 +414,7 @@ interface ProofreadingEditorProps {
   initialText?: string;
   initialDocId?: string;
   initialLanguage?: string;
+  noPaddingTop?: boolean;
 }
 
 declare global {
@@ -518,7 +519,7 @@ const SuggestionCard = React.memo(({
 
 SuggestionCard.displayName = 'SuggestionCard';
 
-const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLanguage }: ProofreadingEditorProps) => {
+const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLanguage, noPaddingTop }: ProofreadingEditorProps) => {
   const [planName, setPlanName] = useState<"Free" | "Pro">("Free");
   const [wordLimit, setWordLimit] = useState(FREE_WORD_LIMIT);
   const [credits, setCredits] = useState(0);
@@ -1650,7 +1651,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
   return (
     <section
       ref={editorRef}
-      className="relative -mt-10 md:-mt-14 py-8 md:py-14 lg:py-20 bg-gradient-to-b from-background to-secondary/40"
+      className={`relative -mt-10 md:-mt-14 bg-gradient-to-b from-background to-secondary/40 ${noPaddingTop ? 'pt-0 pb-8 md:pb-14 lg:pb-20' : 'py-8 md:py-14 lg:py-20'}`}
     >
       <div className="container max-w-[1700px] px-3 sm:px-4 md:px-6 lg:pr-0">
         <div className="w-full mx-auto">
