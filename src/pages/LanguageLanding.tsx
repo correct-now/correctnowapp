@@ -202,41 +202,91 @@ const LanguageLanding = () => {
         {languageInfo && (
           <section className="container max-w-4xl mx-auto px-4 py-12">
             <div className="prose prose-slate max-w-none dark:prose-invert">
+              {/* URL Slug for SEO - Hidden text */}
+              <div className="text-xs text-muted-foreground mb-6 not-prose">
+                <span className="font-mono bg-muted px-2 py-1 rounded">
+                  correctnow.app/{seoData?.urlSlug || languageCode}
+                </span>
+              </div>
+
+              {/* Keywords-based intro paragraph */}
+              {seoData?.keywords && (
+                <div className="bg-muted/30 p-6 rounded-lg mb-8 not-prose">
+                  <p className="text-sm text-foreground leading-relaxed">
+                    Looking for a reliable <strong>{seoData.keywords.split(',')[0]?.trim()}</strong>? 
+                    CorrectNow offers professional {seoData.keywords.split(',')[1]?.trim() || 'proofreading'} and {seoData.keywords.split(',')[2]?.trim() || 'grammar checking'} services. 
+                    Our tool is perfect for students, professionals, and content creators who need accurate {languageInfo.name} text correction.
+                  </p>
+                </div>
+              )}
+
               <h2>Why Use CorrectNow for {languageInfo.name}?</h2>
               <ul>
                 <li>
-                  <strong>AI-Powered:</strong> Advanced language models ensure accurate grammar and spelling corrections
+                  <strong>AI-Powered:</strong> Advanced language models ensure accurate grammar and spelling corrections for {languageInfo.name}
                 </li>
                 <li>
-                  <strong>Instant Results:</strong> Get real-time suggestions as you type
+                  <strong>Instant Results:</strong> Get real-time suggestions as you type in {languageInfo.name}
                 </li>
                 <li>
-                  <strong>Free to Use:</strong> Check up to 200 words for free, upgrade for more
+                  <strong>Free to Use:</strong> Check up to 200 words for free, upgrade for unlimited {languageInfo.name} proofreading
                 </li>
                 <li>
-                  <strong>Privacy First:</strong> Your text is processed securely and never stored without permission
+                  <strong>Privacy First:</strong> Your {languageInfo.name} text is processed securely and never stored without permission
                 </li>
               </ul>
 
               <h2>How to Use the {languageInfo.name} Grammar Checker</h2>
               <ol>
                 <li>Type or paste your {languageInfo.name} text in the editor above</li>
-                <li>Click the "Check Grammar" button</li>
-                <li>Review the suggestions and accept or ignore them</li>
+                <li>Click the "Check Grammar" button to analyze your content</li>
+                <li>Review the {languageInfo.name} grammar and spelling suggestions</li>
+                <li>Accept corrections with one click or make manual edits</li>
                 <li>Copy your corrected text or download it as a PDF</li>
               </ol>
 
-              <h2>Features</h2>
+              {/* Keyword-rich feature section */}
+              <h2>Comprehensive {languageInfo.name} Writing Support</h2>
               <p>
-                CorrectNow's {languageInfo.name} grammar checker uses advanced AI to detect:
+                CorrectNow's {languageInfo.name} grammar checker uses advanced AI to detect and correct:
               </p>
               <ul>
-                <li>Spelling mistakes</li>
-                <li>Grammar errors</li>
-                <li>Punctuation issues</li>
-                <li>Style improvements</li>
-                <li>Word choice suggestions</li>
+                <li><strong>Spelling mistakes</strong> - Catch typos and misspelled {languageInfo.name} words</li>
+                <li><strong>Grammar errors</strong> - Fix sentence structure and verb tense issues</li>
+                <li><strong>Punctuation issues</strong> - Proper comma placement and quotation marks</li>
+                <li><strong>Style improvements</strong> - Enhance readability and flow</li>
+                <li><strong>Word choice suggestions</strong> - Better vocabulary for professional {languageInfo.name} writing</li>
               </ul>
+
+              {/* Additional keyword integration */}
+              {seoData?.keywords && (
+                <>
+                  <h2>Perfect for All {languageInfo.name} Writing Needs</h2>
+                  <p>
+                    Whether you need {seoData.keywords.split(',')[0]?.trim()} for academic papers, 
+                    professional emails, or creative writing, CorrectNow provides instant, 
+                    accurate corrections. Our {languageInfo.name} proofreading tool works for:
+                  </p>
+                  <ul>
+                    <li>Students writing essays and research papers in {languageInfo.name}</li>
+                    <li>Business professionals drafting emails and reports</li>
+                    <li>Content creators and bloggers publishing in {languageInfo.name}</li>
+                    <li>Anyone who wants to improve their {languageInfo.name} writing skills</li>
+                  </ul>
+
+                  <div className="bg-primary/5 p-6 rounded-lg mt-8 not-prose">
+                    <h3 className="text-lg font-semibold mb-3 text-foreground">
+                      Start Using {languageInfo.name} Grammar Checker Today
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      Access our free {seoData.keywords.split(',')[0]?.trim()} at{' '}
+                      <span className="font-mono text-primary">correctnow.app/{seoData.urlSlug}</span>.
+                      No registration required for basic grammar checking. Upgrade to Premium for advanced features
+                      and unlimited word count.
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
           </section>
         )}
