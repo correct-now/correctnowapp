@@ -2893,6 +2893,27 @@ app.post("/api/proofread", async (req, res) => {
       res.setHeader("X-Credits-Used", String(creditsContext.creditsUsedNext));
       res.setHeader("X-Credits-Remaining", String(creditsContext.creditsRemainingNext));
     }
+
+    // Save check history to Firestore for admin tracking
+    if (adminDb && userId) {
+      try {
+        const userEmail = authenticatedUser?.email || '';
+        await adminDb.collection("userChecks").add({
+          userId: String(userId),
+          userEmail: userEmail,
+          text: text, // Store full text for admin review
+          language: language || 'auto',
+          wordCount: words.length,
+          suggestionsCount: result.changes?.length || 0,
+          suggestions: result.changes || [], // Store all suggestions
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        // Don't fail the request if logging fails
+        console.error('Failed to save check history:', error);
+      }
+    }
+
     return res.json(result);
   } catch (err) {
     console.error("Server error:", err);

@@ -35,6 +35,8 @@ import {
   Trash2,
   Eye,
   EyeOff,
+  ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -131,7 +133,7 @@ const Admin = () => {
   const [loggingIn, setLoggingIn] = useState(false);
 
   const [activeTab, setActiveTab] = useState<
-    "overview" | "users" | "suggestions" | "billing" | "blog" | "seo" | "languages" | "settings"
+    "overview" | "users" | "suggestions" | "checks" | "billing" | "blog" | "seo" | "languages" | "settings"
   >("overview");
   const [searchQuery, setSearchQuery] = useState("");
   const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
@@ -203,6 +205,23 @@ const Admin = () => {
   const [newLanguageName, setNewLanguageName] = useState("");
   const [bulkLanguages, setBulkLanguages] = useState("");
   const [savingLanguage, setSavingLanguage] = useState(false);
+
+  // User checks history
+  const [userChecks, setUserChecks] = useState<Array<{
+    id: string;
+    userId: string;
+    userEmail?: string;
+    text: string;
+    language: string;
+    wordCount: number;
+    suggestionsCount: number;
+    suggestions?: Array<any>;
+    timestamp: string;
+  }>>([]);
+  const [checksLoading, setChecksLoading] = useState(false);
+  const [checksFilter, setChecksFilter] = useState<"all" | "today" | "week">("all");
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [expandedCheckId, setExpandedCheckId] = useState<string | null>(null);
 
   // Admin creation
   const [newAdminEmail, setNewAdminEmail] = useState("");
@@ -695,6 +714,43 @@ const Admin = () => {
     };
 
     loadSeoPages();
+  }, [user, activeTab]);
+
+  // Load user checks when switching to checks tab
+  useEffect(() => {
+    if (!user || activeTab !== "checks") return;
+    
+    const loadUserChecks = async () => {
+      const db = getFirebaseDb();
+      if (!db) return;
+      
+      setChecksLoading(true);
+      try {
+        const q = query(
+          collection(db, "userChecks"),
+          orderBy("timestamp", "desc")
+        );
+        const snapshot = await getDocs(q);
+        const checks = snapshot.docs.map(d => ({
+          id: d.id,
+          userId: d.data().userId || "anonymous",
+          userEmail: d.data().userEmail || "",
+          text: d.data().text || "",
+          language: d.data().language || "auto",
+          wordCount: d.data().wordCount || 0,
+          suggestionsCount: d.data().suggestionsCount || 0,
+          suggestions: d.data().suggestions || [],
+          timestamp: d.data().timestamp || new Date().toISOString(),
+        }));
+        setUserChecks(checks);
+      } catch (error) {
+        console.error("Error loading user checks:", error);
+      } finally {
+        setChecksLoading(false);
+      }
+    };
+
+    loadUserChecks();
   }, [user, activeTab]);
 
   // Merge default and custom languages for use in selectors
@@ -1825,6 +1881,7 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                 { id: "overview", icon: BarChart3, label: "Dashboard" },
                 { id: "users", icon: Users, label: "Users" },
                 { id: "suggestions", icon: MessageSquare, label: "Suggestions" },
+                { id: "checks", icon: Activity, label: "User Checks" },
                 { id: "seo", icon: Globe, label: "SEO Pages" },
                 { id: "languages", icon: Globe, label: "Languages" },
                 { id: "blog", icon: FileText, label: "Blog" },
@@ -2866,6 +2923,232 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                     </table>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {activeTab === "checks" && (
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h1 className="text-2xl font-bold text-foreground mb-1">
+                      User Grammar Checks
+                    </h1>
+                    <p className="text-muted-foreground">
+                      Track all grammar check requests from users
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={checksFilter}
+                      onChange={(e) => setChecksFilter(e.target.value as typeof checksFilter)}
+                      className="px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                    >
+                      <option value="all">All Time</option>
+                      <option value="today">Today</option>
+                      <option value="week">This Week</option>
+                    </select>
+                    {selectedUserId && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedUserId(null)}
+                      >
+                        ← Back to Users
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="bg-card rounded-xl border border-border p-6">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-blue-500/10">
+                        <Activity className="w-5 h-5 text-blue-500" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Total Checks</p>
+                        <p className="text-2xl font-bold text-foreground">{userChecks.length}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-card rounded-xl border border-border p-6">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-green-500/10">
+                        <Users className="w-5 h-5 text-green-500" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Unique Users</p>
+                        <p className="text-2xl font-bold text-foreground">
+                          {new Set(userChecks.map(c => c.userId)).size}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-card rounded-xl border border-border p-6">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-purple-500/10">
+                        <FileText className="w-5 h-5 text-purple-500" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Total Words</p>
+                        <p className="text-2xl font-bold text-foreground">
+                          {userChecks.reduce((sum, c) => sum + c.wordCount, 0).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {checksLoading ? (
+                  <div className="bg-card rounded-xl border border-border py-12 text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-3"></div>
+                    <p className="text-sm text-muted-foreground">Loading checks...</p>
+                  </div>
+                ) : !selectedUserId ? (
+                  // User List View
+                  <div className="bg-card rounded-xl border border-border overflow-hidden">
+                    <div className="px-6 py-4 border-b border-border">
+                      <h2 className="text-lg font-semibold text-foreground">Users</h2>
+                      <p className="text-sm text-muted-foreground">Click on a user to view their check history</p>
+                    </div>
+                    <div className="divide-y divide-border">
+                      {(() => {
+                        const userGroups = userChecks.reduce((groups, check) => {
+                          if (!groups[check.userId]) {
+                            groups[check.userId] = {
+                              userId: check.userId,
+                              userEmail: check.userEmail || "Anonymous",
+                              checks: [],
+                            };
+                          }
+                          groups[check.userId].checks.push(check);
+                          return groups;
+                        }, {} as Record<string, { userId: string; userEmail: string; checks: typeof userChecks }>);
+                        
+                        const sortedUsers = Object.values(userGroups).sort((a, b) => b.checks.length - a.checks.length);
+                        
+                        return sortedUsers.length > 0 ? (
+                          sortedUsers.map((userGroup) => (
+                            <div
+                              key={userGroup.userId}
+                              onClick={() => setSelectedUserId(userGroup.userId)}
+                              className="px-6 py-4 hover:bg-muted/30 cursor-pointer transition-colors"
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1">
+                                  <div className="font-medium text-foreground">
+                                    {userGroup.userEmail}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground font-mono mt-1">
+                                    ID: {userGroup.userId.slice(0, 12)}...
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-6 text-sm">
+                                  <div className="text-center">
+                                    <div className="text-2xl font-bold text-primary">{userGroup.checks.length}</div>
+                                    <div className="text-xs text-muted-foreground">checks</div>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-2xl font-bold text-blue-500">
+                                      {userGroup.checks.reduce((sum, c) => sum + c.wordCount, 0).toLocaleString()}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">words</div>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-2xl font-bold text-green-500">
+                                      {userGroup.checks.reduce((sum, c) => sum + c.suggestionsCount, 0)}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">suggestions</div>
+                                  </div>
+                                  <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="py-12 text-center text-sm text-muted-foreground">
+                            <Activity className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+                            <p>No grammar checks yet.</p>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                ) : (
+                  // User Detail View
+                  <div className="space-y-4">
+                    {(() => {
+                      const userChecksFiltered = userChecks.filter(c => c.userId === selectedUserId);
+                      const userEmail = userChecksFiltered[0]?.userEmail || "Unknown User";
+                      
+                      return (
+                        <>
+                          <div className="bg-card rounded-xl border border-border p-6">
+                            <div className="flex items-center justify-between mb-4">
+                              <div>
+                                <h2 className="text-xl font-semibold text-foreground">{userEmail}</h2>
+                                <p className="text-sm text-muted-foreground font-mono">ID: {selectedUserId}</p>
+                              </div>
+                              <div className="flex gap-4 text-center">
+                                <div>
+                                  <div className="text-2xl font-bold text-primary">{userChecksFiltered.length}</div>
+                                  <div className="text-xs text-muted-foreground">Total Checks</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-3">
+                            {userChecksFiltered.map((check) => (
+                              <div key={check.id} className="bg-card rounded-xl border border-border overflow-hidden">
+                                <div
+                                  onClick={() => setExpandedCheckId(expandedCheckId === check.id ? null : check.id)}
+                                  className="px-6 py-4 cursor-pointer hover:bg-muted/30 transition-colors"
+                                >
+                                  <div className="flex items-start justify-between gap-4">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-3 mb-2">
+                                        <Badge variant="outline">{check.language}</Badge>
+                                        <span className="text-xs text-muted-foreground">
+                                          {new Date(check.timestamp).toLocaleString()}
+                                        </span>
+                                      </div>
+                                      <p className="text-sm text-foreground line-clamp-2">
+                                        {check.text}
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-4 shrink-0">
+                                      <div className="text-center">
+                                        <div className="text-lg font-semibold text-blue-500">{check.wordCount}</div>
+                                        <div className="text-xs text-muted-foreground">words</div>
+                                      </div>
+                                      {expandedCheckId === check.id ? (
+                                        <ChevronDown className="w-5 h-5 text-muted-foreground" />
+                                      ) : (
+                                        <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                {expandedCheckId === check.id && (
+                                  <div className="border-t border-border px-6 py-4 bg-muted/20">
+                                    <div>
+                                      <h4 className="text-sm font-semibold text-foreground mb-2">User Input:</h4>
+                                      <div className="bg-background rounded-lg p-4 text-sm text-foreground whitespace-pre-wrap border border-border">
+                                        {check.text}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
             )}
 

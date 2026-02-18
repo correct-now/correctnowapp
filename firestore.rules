@@ -79,6 +79,11 @@ service cloud.firestore {
       allow create: if isSignedIn();
       allow read, update: if isSignedIn() && request.auth.uid == resource.data.userId;
     }
+
+    match /userChecks/{checkId} {
+      allow read: if isAdmin(); // Only admins can view user check history
+      allow write: if false; // Written by server only
+    }
   } 
 }
  
