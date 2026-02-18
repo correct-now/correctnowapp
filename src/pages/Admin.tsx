@@ -331,6 +331,9 @@ const Admin = () => {
           amount: user.plan === "Pro" ? "₹500" : "₹0",
           status: statusLabel,
           date: user.updatedAt || user.createdAt || new Date().toISOString(),
+          subscriptionUpdatedAt: user.subscriptionUpdatedAt,
+          createdAt: user.createdAt,
+          userId: user.id,
         };
       })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -3919,31 +3922,85 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-border">
-                          <th className="text-left py-3 text-sm font-medium text-muted-foreground">Customer</th>
-                          <th className="text-left py-3 text-sm font-medium text-muted-foreground">Plan</th>
-                          <th className="text-left py-3 text-sm font-medium text-muted-foreground">Amount</th>
-                          <th className="text-left py-3 text-sm font-medium text-muted-foreground">Status</th>
-                          <th className="text-left py-3 text-sm font-medium text-muted-foreground">Date</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Customer</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Plan</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Amount</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Subscription Date</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Last Updated</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">User ID</th>
                         </tr>
                       </thead>
                       <tbody>
                         {billingRows.length ? (
                           billingRows.map((payment) => (
-                            <tr key={`${payment.name}-${payment.date}`} className="border-b border-border last:border-0">
-                              <td className="py-3 text-sm text-foreground">{payment.name}</td>
-                              <td className="py-3 text-sm text-foreground">{payment.plan}</td>
-                              <td className="py-3 text-sm text-foreground">{payment.amount}</td>
-                              <td className="py-3 text-sm">
-                                <Badge variant="secondary">{payment.status}</Badge>
+                            <tr key={`${payment.name}-${payment.date}`} className="border-b border-border last:border-0 hover:bg-muted/30">
+                              <td className="py-3 px-4 text-sm text-foreground font-medium">{payment.name}</td>
+                              <td className="py-3 px-4">
+                                <Badge variant={payment.plan === "Pro" ? "default" : "outline"}>
+                                  {payment.plan}
+                                </Badge>
                               </td>
-                              <td className="py-3 text-sm text-muted-foreground">
-                                {new Date(payment.date).toLocaleDateString()}
+                              <td className="py-3 px-4 text-sm font-semibold text-foreground">{payment.amount}</td>
+                              <td className="py-3 px-4 text-sm">
+                                <Badge variant={
+                                  payment.status === "Paid" ? "secondary" :
+                                  payment.status === "Past Due" ? "destructive" :
+                                  "outline"
+                                }>
+                                  {payment.status}
+                                </Badge>
+                              </td>
+                              <td className="py-3 px-4 text-sm text-muted-foreground">
+                                {payment.subscriptionUpdatedAt ? (
+                                  <div>
+                                    <div className="font-medium text-foreground">
+                                      {new Date(payment.subscriptionUpdatedAt).toLocaleDateString('en-IN', {
+                                        day: '2-digit',
+                                        month: 'short',
+                                        year: 'numeric'
+                                      })}
+                                    </div>
+                                    <div className="text-xs">
+                                      {new Date(payment.subscriptionUpdatedAt).toLocaleTimeString('en-IN', {
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        hour12: true
+                                      })}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">—</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 text-sm text-muted-foreground">
+                                <div>
+                                  <div className="font-medium text-foreground">
+                                    {new Date(payment.date).toLocaleDateString('en-IN', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      year: 'numeric'
+                                    })}
+                                  </div>
+                                  <div className="text-xs">
+                                    {new Date(payment.date).toLocaleTimeString('en-IN', {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                      hour12: true
+                                    })}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3 px-4 text-xs font-mono text-muted-foreground">
+                                <div className="max-w-[120px] truncate" title={payment.userId}>
+                                  {payment.userId}
+                                </div>
                               </td>
                             </tr>
                           ))
                         ) : (
                           <tr>
-                            <td className="py-8 text-center text-sm text-muted-foreground" colSpan={5}>
+                            <td className="py-8 text-center text-sm text-muted-foreground" colSpan={7}>
                               No billing activity yet.
                             </td>
                           </tr>
