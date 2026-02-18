@@ -193,11 +193,14 @@ const Admin = () => {
   const [seoH1, setSeoH1] = useState("");
   const [seoDescription, setSeoDescription] = useState("");
   const [seoActive, setSeoActive] = useState(true);
+  const [seoSearch, setSeoSearch] = useState("");
+  const [seoPage, setSeoPage] = useState(1);
+  const SEO_PAGE_SIZE = 50;
   const [bulkSeoDialogOpen, setBulkSeoDialogOpen] = useState(false);
-  const [selectedLanguagesForBulk, setSelectedLanguagesForBulk] = useState<string[]>([]);
   const [bulkSeoCreating, setBulkSeoCreating] = useState(false);
-  const [bulkSlugTemplate, setBulkSlugTemplate] = useState("{lang}-grammar-checker-online");
-  const [bulkCustomSlugs, setBulkCustomSlugs] = useState<Record<string, string>>({});
+  const [bulkLangCode, setBulkLangCode] = useState("");
+  const [bulkLangSearch, setBulkLangSearch] = useState("");
+  const [bulkSlugsText, setBulkSlugsText] = useState("");
 
   // Languages management
   const [customLanguages, setCustomLanguages] = useState<Array<{
@@ -4141,8 +4144,9 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                   <div className="flex gap-3">
                     <Button variant="outline" onClick={() => {
                       setBulkSeoDialogOpen(true);
-                      setSelectedLanguagesForBulk([]);
-                      setBulkCustomSlugs({});
+                      setBulkLangCode("");
+                      setBulkLangSearch("");
+                      setBulkSlugsText("");
                     }}>
                       <Upload className="w-4 h-4 mr-2" />
                       Bulk Create
@@ -4409,7 +4413,7 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
 
                   {/* List */}
                   <div className="bg-card rounded-xl border border-border p-6">
-                    <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center justify-between mb-3">
                       <h3 className="text-lg font-semibold text-foreground">
                         Existing SEO Pages ({seoPages.length})
                       </h3>
@@ -4424,6 +4428,7 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                             const snapshot = await getDocs(collection(db, "seoPages"));
                             const pages = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any));
                             setSeoPages(pages);
+                            setSeoPage(1);
                           } catch (error) {
                             console.error("Failed to load SEO pages:", error);
                             toast.error("Failed to load SEO pages");
@@ -4436,91 +4441,192 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                       </Button>
                     </div>
 
-                    <div className="space-y-3 max-h-[600px] overflow-y-auto">
-                      {seoPages.length > 0 ? (
-                        seoPages.map(page => (
-                          <div
-                            key={page.id}
-                            className="p-4 rounded-lg border border-border hover:border-accent/50 transition-colors"
-                          >
-                            <div className="flex items-start justify-between mb-2">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <h4 className="font-medium text-foreground">
-                                    {page.languageName}
-                                  </h4>
-                                  <Badge variant={page.active ? "default" : "secondary"}>
-                                    {page.active ? "Active" : "Inactive"}
-                                  </Badge>
+                    {/* Search */}
+                    <div className="relative mb-4">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                      <Input
+                        className="pl-9 text-sm"
+                        placeholder="Search by language name, code, or slug…"
+                        value={seoSearch}
+                        onChange={e => { setSeoSearch(e.target.value); setSeoPage(1); }}
+                      />
+                    </div>
+
+                    {(() => {
+                      const filtered = [...seoPages]
+                        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+                        .filter(page => {
+                          const q = seoSearch.toLowerCase();
+                          return (
+                            !q ||
+                            page.languageName?.toLowerCase().includes(q) ||
+                            page.languageCode?.toLowerCase().includes(q) ||
+                            (page.urlSlug || page.languageCode)?.toLowerCase().includes(q) ||
+                            page.title?.toLowerCase().includes(q)
+                          );
+                        });
+                      const totalPages = Math.max(1, Math.ceil(filtered.length / SEO_PAGE_SIZE));
+                      const paginated = filtered.slice((seoPage - 1) * SEO_PAGE_SIZE, seoPage * SEO_PAGE_SIZE);
+
+                      return (
+                        <>
+                          {/* Results info */}
+                          {seoSearch && (
+                            <p className="text-xs text-muted-foreground mb-3">
+                              {filtered.length} result{filtered.length !== 1 ? "s" : ""} for “{seoSearch}”
+                            </p>
+                          )}
+
+                          <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+                            {paginated.length > 0 ? (
+                              paginated.map(page => (
+                                <div
+                                  key={page.id}
+                                  className="p-4 rounded-lg border border-border hover:border-accent/50 transition-colors"
+                                >
+                                  <div className="flex items-start justify-between mb-2">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <h4 className="font-medium text-foreground">
+                                          {page.languageName}
+                                        </h4>
+                                        <Badge variant={page.active ? "default" : "secondary"}>
+                                          {page.active ? "Active" : "Inactive"}
+                                        </Badge>
+                                      </div>
+                                      <p className="text-sm text-muted-foreground">
+                                        /{page.urlSlug || page.languageCode}
+                                      </p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => window.open(`/${page.urlSlug || page.languageCode}`, '_blank')}
+                                        title="Open in new tab"
+                                      >
+                                        <ExternalLink className="w-4 h-4" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => {
+                                          setSeoEditingId(page.id);
+                                          setSeoUrlSlug(page.urlSlug || page.languageCode);
+                                          setSeoLanguageCode(page.languageCode);
+                                          setSeoTitle(page.title);
+                                          setSeoMetaDescription(page.metaDescription);
+                                          setSeoKeywords(page.keywords);
+                                          setSeoH1(page.h1);
+                                          setSeoDescription(page.description);
+                                          setSeoActive(page.active);
+                                        }}
+                                      >
+                                        <Edit className="w-4 h-4" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={async () => {
+                                          if (!confirm(`Delete SEO page for ${page.languageName}?`)) return;
+                                          const db = getFirebaseDb();
+                                          if (!db) return;
+                                          try {
+                                            await deleteDoc(doc(db, "seoPages", page.id));
+                                            setSeoPages(prev => prev.filter(p => p.id !== page.id));
+                                            toast.success("SEO page deleted");
+                                          } catch (error) {
+                                            console.error("Failed to delete SEO page:", error);
+                                            toast.error("Failed to delete");
+                                          }
+                                        }}
+                                      >
+                                        <Trash2 className="w-4 h-4 text-destructive" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                  <p className="text-sm text-muted-foreground line-clamp-2">
+                                    {page.metaDescription}
+                                  </p>
                                 </div>
+                              ))
+                            ) : (
+                              <div className="text-center py-12">
+                                <Globe className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
                                 <p className="text-sm text-muted-foreground">
-                                  /{page.urlSlug || page.languageCode}
+                                  {seoSearch ? `No pages match "${seoSearch}"` : "No SEO pages yet. Create your first one!"}
                                 </p>
                               </div>
-                              <div className="flex gap-2">
+                            )}
+                          </div>
+
+                          {/* Pagination */}
+                          {totalPages > 1 && (
+                            <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
+                              <p className="text-xs text-muted-foreground">
+                                Showing {(seoPage - 1) * SEO_PAGE_SIZE + 1}–{Math.min(seoPage * SEO_PAGE_SIZE, filtered.length)} of {filtered.length}
+                              </p>
+                              <div className="flex items-center gap-1">
                                 <Button
-                                  variant="ghost"
+                                  variant="outline"
                                   size="sm"
-                                  onClick={() => {
-                                    const url = `/${page.urlSlug || page.languageCode}`;
-                                    window.open(url, '_blank');
-                                  }}
-                                  title="Open in new tab"
+                                  onClick={() => setSeoPage(1)}
+                                  disabled={seoPage === 1}
                                 >
-                                  <ExternalLink className="w-4 h-4" />
+                                  «
                                 </Button>
                                 <Button
-                                  variant="ghost"
+                                  variant="outline"
                                   size="sm"
-                                  onClick={() => {
-                                    setSeoEditingId(page.id);
-                                    setSeoUrlSlug(page.urlSlug || page.languageCode);
-                                    setSeoLanguageCode(page.languageCode);
-                                    setSeoTitle(page.title);
-                                    setSeoMetaDescription(page.metaDescription);
-                                    setSeoKeywords(page.keywords);
-                                    setSeoH1(page.h1);
-                                    setSeoDescription(page.description);
-                                    setSeoActive(page.active);
-                                  }}
+                                  onClick={() => setSeoPage(p => Math.max(1, p - 1))}
+                                  disabled={seoPage === 1}
                                 >
-                                  <Edit className="w-4 h-4" />
+                                  ‹
+                                </Button>
+                                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                                  .filter(p => p === 1 || p === totalPages || Math.abs(p - seoPage) <= 2)
+                                  .reduce<(number | "...")[]>((acc, p, i, arr) => {
+                                    if (i > 0 && (p as number) - (arr[i - 1] as number) > 1) acc.push("...");
+                                    acc.push(p);
+                                    return acc;
+                                  }, [])
+                                  .map((p, i) =>
+                                    p === "..." ? (
+                                      <span key={`ellipsis-${i}`} className="px-1 text-muted-foreground text-sm">…</span>
+                                    ) : (
+                                      <Button
+                                        key={p}
+                                        variant={seoPage === p ? "default" : "outline"}
+                                        size="sm"
+                                        onClick={() => setSeoPage(p as number)}
+                                        className="min-w-[32px]"
+                                      >
+                                        {p}
+                                      </Button>
+                                    )
+                                  )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setSeoPage(p => Math.min(totalPages, p + 1))}
+                                  disabled={seoPage === totalPages}
+                                >
+                                  ›
                                 </Button>
                                 <Button
-                                  variant="ghost"
+                                  variant="outline"
                                   size="sm"
-                                  onClick={async () => {
-                                    if (!confirm(`Delete SEO page for ${page.languageName}?`)) return;
-                                    const db = getFirebaseDb();
-                                    if (!db) return;
-                                    try {
-                                      await deleteDoc(doc(db, "seoPages", page.id));
-                                      setSeoPages(prev => prev.filter(p => p.id !== page.id));
-                                      toast.success("SEO page deleted");
-                                    } catch (error) {
-                                      console.error("Failed to delete SEO page:", error);
-                                      toast.error("Failed to delete");
-                                    }
-                                  }}
+                                  onClick={() => setSeoPage(totalPages)}
+                                  disabled={seoPage === totalPages}
                                 >
-                                  <Trash2 className="w-4 h-4 text-destructive" />
+                                  »
                                 </Button>
                               </div>
                             </div>
-                            <p className="text-sm text-muted-foreground line-clamp-2">
-                              {page.metaDescription}
-                            </p>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="text-center py-12">
-                          <Globe className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
-                          <p className="text-sm text-muted-foreground">
-                            No SEO pages yet. Create your first one!
-                          </p>
-                        </div>
-                      )}
-                    </div>
+                          )}
+                        </>
+                      );
+                    })()}
 
                     <div className="mt-4 pt-4 border-t border-border">
                       <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
@@ -4540,195 +4646,97 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
 
                 {/* Bulk Create Dialog */}
                 <Dialog open={bulkSeoDialogOpen} onOpenChange={setBulkSeoDialogOpen}>
-                  <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                  <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle>Bulk Create SEO Pages</DialogTitle>
                       <DialogDescription>
-                        Select languages to create SEO pages for. Pages will be created with default content that you can edit later.
+                        Pick one language, then enter multiple URL slugs — one per line. A separate SEO page will be created for each slug.
                       </DialogDescription>
                     </DialogHeader>
-                    
-                    <div className="space-y-4">
 
-                      {/* URL Slug Pattern */}
-                      <div className="bg-muted/40 rounded-lg border border-border p-4 space-y-3">
-                        <div>
-                          <label className="block text-sm font-semibold mb-1">
-                            URL Slug Pattern
-                          </label>
-                          <p className="text-xs text-muted-foreground mb-2">
-                            Use <code className="bg-muted px-1 rounded">{'{lang}'}</code> as a placeholder for the language code.
-                            Each selected language will get a URL based on this pattern.
-                          </p>
-                          <div className="flex gap-2 items-center">
-                            <span className="text-sm text-muted-foreground shrink-0">correctnow.app/</span>
-                            <Input
-                              value={bulkSlugTemplate}
-                              onChange={(e) => {
-                                const val = e.target.value.toLowerCase().replace(/[^a-z0-9-{}]/g, "");
-                                setBulkSlugTemplate(val);
-                              }}
-                              placeholder="{lang}-grammar-checker-online"
-                              className="flex-1 font-mono text-sm"
-                            />
-                          </div>
-                          {bulkSlugTemplate && (
-                            <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                              Preview: <span className="font-mono font-medium">/{bulkSlugTemplate.replace(/\{lang\}/g, "ar")}</span>, <span className="font-mono font-medium">/{bulkSlugTemplate.replace(/\{lang\}/g, "ja")}</span>, ...
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex gap-2 flex-wrap">
-                          {[
-                            "{lang}-grammar-checker-online",
-                            "best-grammar-checker-{lang}",
-                            "{lang}-spell-check",
-                            "{lang}-proofreading",
-                            "{lang}",
-                          ].map(preset => (
-                            <button
-                              key={preset}
-                              type="button"
-                              onClick={() => setBulkSlugTemplate(preset)}
-                              className={`text-xs px-2 py-1 rounded border transition-all ${
-                                bulkSlugTemplate === preset
-                                  ? "border-primary bg-primary/10 text-primary font-medium"
-                                  : "border-border hover:border-primary/50 text-muted-foreground"
-                              }`}
-                            >
-                              {preset}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
+                    <div className="space-y-5">
 
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm text-muted-foreground">
-                          {selectedLanguagesForBulk.length} language(s) selected
-                        </p>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              const availableLanguages = allLanguages
-                                .filter(lang => lang.code !== "auto")
-                                .filter(lang => !seoPages.some(page => page.languageCode === lang.code))
-                                .map(lang => lang.code);
-                              setSelectedLanguagesForBulk(availableLanguages);
-                            }}
-                          >
-                            Select All Available
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setSelectedLanguagesForBulk([])}
-                          >
-                            Clear All
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2 max-h-96 overflow-y-auto border border-border rounded-lg p-4">
-                        {allLanguages
-                          .filter(lang => lang.code !== "auto")
-                          .filter(lang => !seoPages.some(page => page.languageCode === lang.code))
-                          .map(lang => {
-                            const isSelected = selectedLanguagesForBulk.includes(lang.code);
-                            const derivedSlug = bulkSlugTemplate
-                              ? bulkSlugTemplate.replace(/\{lang\}/g, lang.code)
-                              : lang.code;
-                            const customSlug = bulkCustomSlugs[lang.code];
-                            const effectiveSlug = customSlug !== undefined ? customSlug : derivedSlug;
-                            
-                            return (
+                      {/* Step 1 – Language picker */}
+                      <div className="space-y-2">
+                        <label className="block text-sm font-semibold">Step 1 — Select Language</label>
+                        {/* Search */}
+                        <Input
+                          placeholder="Search language…"
+                          value={bulkLangSearch}
+                          onChange={e => setBulkLangSearch(e.target.value)}
+                          className="text-sm"
+                        />
+                        <div className="border border-border rounded-lg max-h-48 overflow-y-auto divide-y divide-border">
+                          {allLanguages
+                            .filter(l => l.code !== "auto")
+                            .filter(l =>
+                              bulkLangSearch === "" ||
+                              l.name.toLowerCase().includes(bulkLangSearch.toLowerCase()) ||
+                              l.code.toLowerCase().includes(bulkLangSearch.toLowerCase())
+                            )
+                            .map(l => (
                               <div
-                                key={lang.code}
-                                className={`rounded-lg border-2 transition-all ${
-                                  isSelected
-                                    ? "border-primary bg-primary/5"
-                                    : "border-border hover:border-primary/40"
+                                key={l.code}
+                                onClick={() => setBulkLangCode(l.code)}
+                                className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${
+                                  bulkLangCode === l.code
+                                    ? "bg-primary/10 text-primary"
+                                    : "hover:bg-muted/60"
                                 }`}
                               >
-                                {/* Top row: checkbox + name */}
-                                <div
-                                  className="flex items-center gap-3 p-3 cursor-pointer"
-                                  onClick={() => {
-                                    if (isSelected) {
-                                      setSelectedLanguagesForBulk(prev => prev.filter(c => c !== lang.code));
-                                    } else {
-                                      setSelectedLanguagesForBulk(prev => [...prev, lang.code]);
-                                    }
-                                  }}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    readOnly
-                                    className="w-4 h-4 shrink-0"
-                                  />
-                                  <div className="flex-1 min-w-0">
-                                    <div className="text-sm font-medium text-foreground">
-                                      {lang.name}
-                                    </div>
-                                    <div className="text-xs text-muted-foreground">
-                                      {lang.code}
-                                    </div>
-                                  </div>
-                                  {isSelected && (
-                                    <div className="text-xs text-muted-foreground font-mono shrink-0 max-w-[180px] truncate">
-                                      /{effectiveSlug}
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* Slug override row – only when selected */}
-                                {isSelected && (
-                                  <div className="px-3 pb-3" onClick={e => e.stopPropagation()}>
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="text-xs text-muted-foreground shrink-0">slug:</span>
-                                      <input
-                                        type="text"
-                                        value={effectiveSlug}
-                                        onChange={(e) => {
-                                          const val = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "");
-                                          setBulkCustomSlugs(prev => ({ ...prev, [lang.code]: val }));
-                                        }}
-                                        placeholder={derivedSlug}
-                                        className="flex-1 text-xs font-mono px-2 py-1 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
-                                      />
-                                      {customSlug !== undefined && customSlug !== derivedSlug && (
-                                        <button
-                                          type="button"
-                                          title="Reset to template"
-                                          onClick={() => {
-                                            setBulkCustomSlugs(prev => {
-                                              const next = { ...prev };
-                                              delete next[lang.code];
-                                              return next;
-                                            });
-                                          }}
-                                          className="text-xs text-muted-foreground hover:text-foreground px-1"
-                                        >
-                                          ↺
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
+                                <div className={`w-3 h-3 rounded-full border-2 shrink-0 ${
+                                  bulkLangCode === l.code ? "border-primary bg-primary" : "border-border"
+                                }`} />
+                                <span className="text-sm flex-1">{l.name}</span>
+                                <span className="text-xs text-muted-foreground font-mono">{l.code}</span>
                               </div>
-                            );
-                          })}
-                        {allLanguages.filter(lang => lang.code !== "auto" && !seoPages.some(page => page.languageCode === lang.code)).length === 0 && (
-                          <div className="col-span-full text-center py-8 text-sm text-muted-foreground">
-                            All languages already have SEO pages created!
-                          </div>
+                            ))}
+                          {allLanguages.filter(l => l.code !== "auto" && (
+                            bulkLangSearch === "" ||
+                            l.name.toLowerCase().includes(bulkLangSearch.toLowerCase()) ||
+                            l.code.toLowerCase().includes(bulkLangSearch.toLowerCase())
+                          )).length === 0 && (
+                            <p className="text-sm text-muted-foreground text-center py-4">No languages found</p>
+                          )}
+                        </div>
+                        {bulkLangCode && (
+                          <p className="text-xs text-green-600 dark:text-green-400">
+                            Selected: <span className="font-semibold">{allLanguages.find(l => l.code === bulkLangCode)?.name}</span> ({bulkLangCode})
+                          </p>
                         )}
+                      </div>
+
+                      {/* Step 2 – Slugs */}
+                      <div className="space-y-2">
+                        <label className="block text-sm font-semibold">Step 2 — Enter URL Slugs (one per line)</label>
+                        <p className="text-xs text-muted-foreground">
+                          Each slug becomes a unique page at <span className="font-mono">correctnow.app/your-slug</span>. Use only lowercase letters, numbers and hyphens.
+                        </p>
+                        <textarea
+                          value={bulkSlugsText}
+                          onChange={e => setBulkSlugsText(e.target.value)}
+                          placeholder={`tamil-grammar-checker\nbest-tamil-spell-check\ntamil-proofreading-tool\nonline-tamil-grammar`}
+                          rows={7}
+                          className="w-full font-mono text-sm px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary resize-y"
+                        />
+                        {(() => {
+                          const slugs = bulkSlugsText
+                            .split("\n")
+                            .map(s => s.trim().toLowerCase().replace(/[^a-z0-9-]/g, ""))
+                            .filter(Boolean);
+                          return slugs.length > 0 ? (
+                            <p className="text-xs text-muted-foreground">
+                              {slugs.length} slug{slugs.length > 1 ? "s" : ""} detected —{" "}
+                              {slugs.map(s => (
+                                <span key={s} className="font-mono text-foreground bg-muted px-1 rounded mr-1">/{s}</span>
+                              ))}
+                            </p>
+                          ) : null;
+                        })()}
                       </div>
                     </div>
 
-                    <DialogFooter>
+                    <DialogFooter className="mt-2">
                       <Button
                         variant="outline"
                         onClick={() => setBulkSeoDialogOpen(false)}
@@ -4738,73 +4746,68 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                       </Button>
                       <Button
                         onClick={async () => {
-                          if (selectedLanguagesForBulk.length === 0) {
-                            toast.error("Please select at least one language");
+                          if (!bulkLangCode) {
+                            toast.error("Please select a language");
+                            return;
+                          }
+                          const slugs = bulkSlugsText
+                            .split("\n")
+                            .map(s => s.trim().toLowerCase().replace(/[^a-z0-9-]/g, ""))
+                            .filter(Boolean);
+                          if (slugs.length === 0) {
+                            toast.error("Please enter at least one URL slug");
                             return;
                           }
 
                           const db = getFirebaseDb();
-                          if (!db) {
-                            toast.error("Database not available");
-                            return;
-                          }
+                          if (!db) { toast.error("Database not available"); return; }
+
+                          const lang = allLanguages.find(l => l.code === bulkLangCode);
+                          if (!lang) return;
 
                           setBulkSeoCreating(true);
                           try {
                             let created = 0;
-                            let skipped = 0;
-                            const slugConflicts: string[] = [];
+                            const autoRenamed: string[] = [];
 
-                            for (const langCode of selectedLanguagesForBulk) {
-                              const lang = allLanguages.find(l => l.code === langCode);
-                              if (!lang) continue;
-
-                              // Compute the final slug for this language
-                              const derivedSlug = bulkSlugTemplate
-                                ? bulkSlugTemplate.replace(/\{lang\}/g, langCode)
-                                : langCode;
-                              const finalSlug = (bulkCustomSlugs[langCode] || derivedSlug).trim() || langCode;
-
-                              // Check if slug is already used
-                              const existingDoc = await getDoc(doc(db, "seoPages", finalSlug));
-                              if (existingDoc.exists()) {
-                                slugConflicts.push(`/${finalSlug} (${lang.name})`);
-                                skipped++;
-                                continue;
+                            for (const slug of slugs) {
+                              // Find a free slug — try original, then slug1, slug2, …
+                              let finalSlug = slug;
+                              let attempt = 1;
+                              while ((await getDoc(doc(db, "seoPages", finalSlug))).exists()) {
+                                finalSlug = `${slug}${attempt}`;
+                                attempt++;
                               }
-
-                              // Create page with default content
-                              const pageData = {
+                              if (finalSlug !== slug) {
+                                autoRenamed.push(`${slug} → ${finalSlug}`);
+                              }
+                              await setDoc(doc(db, "seoPages", finalSlug), {
                                 urlSlug: finalSlug,
-                                languageCode: langCode,
+                                languageCode: lang.code,
                                 languageName: lang.name,
                                 title: `${lang.name} Grammar Checker - CorrectNow`,
                                 metaDescription: `Free online ${lang.name} grammar checker and proofreading tool. Check your ${lang.name} text for spelling, grammar, and style mistakes instantly.`,
-                                keywords: `${lang.name} grammar checker, ${lang.name} spell check, ${lang.name} proofreading, online grammar check, ${langCode} grammar`,
+                                keywords: `${lang.name} grammar checker, ${lang.name} spell check, ${lang.name} proofreading, online grammar check, ${lang.code} grammar`,
                                 h1: `${lang.name} Grammar Checker`,
                                 description: `Free online ${lang.name} grammar checker and proofreading tool. Check your ${lang.name} text for spelling, grammar, and style mistakes instantly.`,
                                 active: true,
                                 createdAt: new Date().toISOString(),
                                 updatedAt: new Date().toISOString(),
-                              };
-
-                              await setDoc(doc(db, "seoPages", finalSlug), pageData);
+                              });
                               created++;
                             }
 
-                            // Reload pages
                             const snapshot = await getDocs(collection(db, "seoPages"));
-                            const pages = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any));
-                            setSeoPages(pages);
+                            setSeoPages(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any)));
 
-                            if (slugConflicts.length > 0) {
-                              toast.warning(`Created ${created} page(s). Skipped ${skipped} with existing slugs: ${slugConflicts.join(", ")}`);
+                            if (autoRenamed.length > 0) {
+                              toast.success(`Created ${created} page(s) for ${lang.name}. Auto-renamed: ${autoRenamed.join(", ")}`);
                             } else {
-                              toast.success(`Created ${created} SEO page(s)${skipped > 0 ? `, skipped ${skipped} existing` : ''}`);
+                              toast.success(`Created ${created} SEO page(s) for ${lang.name}`);
                             }
                             setBulkSeoDialogOpen(false);
-                            setSelectedLanguagesForBulk([]);
-                            setBulkCustomSlugs({});
+                            setBulkLangCode("");
+                            setBulkSlugsText("");
                           } catch (error) {
                             console.error("Failed to bulk create SEO pages:", error);
                             toast.error("Failed to create SEO pages");
@@ -4812,12 +4815,9 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                             setBulkSeoCreating(false);
                           }
                         }}
-                        disabled={bulkSeoCreating || selectedLanguagesForBulk.length === 0}
+                        disabled={bulkSeoCreating || !bulkLangCode || !bulkSlugsText.trim()}
                       >
-                        {bulkSeoCreating 
-                          ? `Creating ${selectedLanguagesForBulk.length} page(s)...` 
-                          : `Create ${selectedLanguagesForBulk.length} SEO Page(s)`
-                        }
+                        {bulkSeoCreating ? "Creating…" : `Create Pages`}
                       </Button>
                     </DialogFooter>
                   </DialogContent>
