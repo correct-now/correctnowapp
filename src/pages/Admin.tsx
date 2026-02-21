@@ -37,7 +37,23 @@ import {
   EyeOff,
   ChevronRight,
   ChevronDown,
+  ChevronUp,
   ExternalLink,
+  Shield,
+  Ban,
+  AlertTriangle,
+  Crown,
+  RefreshCw,
+  UserX,
+  ShieldCheck,
+  ArrowUpDown,
+  SortAsc,
+  SortDesc,
+  Zap,
+  Info,
+  Mail,
+  Phone as PhoneIcon,
+  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -285,18 +301,59 @@ const Admin = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<string | null>(null);
 
+  // Enhanced user filters & sort
+  const [planFilter, setPlanFilter] = useState<"all" | "free" | "pro">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "deactivated">("all");
+  const [dateFilter, setDateFilter] = useState<"all" | "7days" | "30days" | "90days">("all");
+  const [sortBy, setSortBy] = useState<"newest" | "oldest" | "name" | "credits">("newest");
+
+  // User profile modal
+  const [viewingUser, setViewingUser] = useState<AdminUser | null>(null);
+
+  // Suspend user
+  const [suspendingUserId, setSuspendingUserId] = useState<string | null>(null);
+
   // All hooks must be called before any conditional returns
-  const filteredUsers = users.filter((user) => {
-    const matchesSearch =
-      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase());
-    const normalizedCategory = (user.category || "uncategorized").toLowerCase();
-    const normalizedFilter = categoryFilter.trim().toLowerCase();
-    const matchesCategory = normalizedFilter
-      ? normalizedCategory === normalizedFilter
-      : true;
-    return matchesSearch && matchesCategory;
-  });
+  const filteredUsers = useMemo(() => {
+    const now = Date.now();
+    const dayMs = 86400000;
+    const dateThresholds: Record<string, number> = {
+      "7days": now - 7 * dayMs,
+      "30days": now - 30 * dayMs,
+      "90days": now - 90 * dayMs,
+    };
+
+    let list = users.filter((u) => {
+      const matchesSearch =
+        u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (u.phone || "").includes(searchQuery);
+      const normalizedCategory = (u.category || "uncategorized").toLowerCase();
+      const normalizedFilter = categoryFilter.trim().toLowerCase();
+      const matchesCategory = normalizedFilter ? normalizedCategory === normalizedFilter : true;
+      const matchesPlan =
+        planFilter === "all" ||
+        (planFilter === "pro" && u.plan === "Pro") ||
+        (planFilter === "free" && u.plan !== "Pro");
+      const matchesStatus =
+        statusFilter === "all" ||
+        (statusFilter === "active" && u.status !== "deactivated") ||
+        (statusFilter === "deactivated" && u.status === "deactivated");
+      const joinedTs = u.createdAt ? new Date(u.createdAt).getTime() : 0;
+      const matchesDate =
+        dateFilter === "all" || joinedTs >= (dateThresholds[dateFilter] ?? 0);
+      return matchesSearch && matchesCategory && matchesPlan && matchesStatus && matchesDate;
+    });
+
+    list.sort((a, b) => {
+      if (sortBy === "newest") return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      if (sortBy === "oldest") return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+      if (sortBy === "name") return a.name.localeCompare(b.name);
+      if (sortBy === "credits") return (b.credits || 0) - (a.credits || 0);
+      return 0;
+    });
+    return list;
+  }, [users, searchQuery, categoryFilter, planFilter, statusFilter, dateFilter, sortBy]);
 
   const filteredSuggestions = useMemo(() => {
     if (!suggestionSearch.trim()) return suggestions;
@@ -309,6 +366,8 @@ const Admin = () => {
   }, [suggestions, suggestionSearch]);
 
   const proUsers = users.filter((user) => user.plan === "Pro").length;
+  const freeUsers = users.filter((user) => user.plan !== "Pro").length;
+  const suspendedUsers = users.filter((user) => user.status === "deactivated").length;
   const totalUsers = users.length;
   const conversionRate = totalUsers ? Math.round((proUsers / totalUsers) * 100) : 0;
   const monthlyRevenue = proUsers * 500;
@@ -499,8 +558,31 @@ const Admin = () => {
       setUsers((prev) =>
         prev.map((u) => (u.id === userId ? { ...u, status: "active" } : u))
       );
+      if (viewingUser?.id === userId) setViewingUser(prev => prev ? { ...prev, status: "active" } : prev);
+      toast.success("User reactivated");
     } finally {
       setReactivatingUserId(null);
+    }
+  };
+
+  const handleSuspendUser = async (userId: string) => {
+    const db = getFirebaseDb();
+    if (!db) return;
+    setSuspendingUserId(userId);
+    try {
+      await updateDoc(doc(db, "users", userId), {
+        status: "deactivated",
+        updatedAt: new Date().toISOString(),
+      });
+      setUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, status: "deactivated" } : u))
+      );
+      if (viewingUser?.id === userId) setViewingUser(prev => prev ? { ...prev, status: "deactivated" } : prev);
+      toast.success("User suspended");
+    } catch (err) {
+      toast.error("Failed to suspend user");
+    } finally {
+      setSuspendingUserId(null);
     }
   };
 
@@ -2035,153 +2117,147 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
           {/* Main Content */}
           <main className="flex-1 min-w-0">
             {activeTab === "overview" && (
-              <div className="space-y-8">
-                <div>
-                  <h1 className="text-2xl font-bold text-foreground mb-1">
-                    Admin Dashboard
-                  </h1>
-                  <p className="text-muted-foreground">
-                    Overview of platform activity and metrics
-                  </p>
-                </div>
-
-                {/* Stats Grid */}
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div className="bg-card rounded-xl border border-border p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm text-muted-foreground">
-                        Total Users
-                      </span>
-                      <Users className="w-5 h-5 text-accent" />
-                    </div>
-                    <p className="text-3xl font-bold text-foreground">
-                      {totalUsers.toLocaleString()}
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Total registered users
-                    </p>
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-2xl font-bold text-foreground mb-1">Admin Dashboard</h1>
+                    <p className="text-muted-foreground">Platform overview — real-time metrics</p>
                   </div>
-
-                  <div className="bg-card rounded-xl border border-border p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm text-muted-foreground">
-                        Active Pro Users
-                      </span>
-                      <Activity className="w-5 h-5 text-accent" />
-                    </div>
-                    <p className="text-3xl font-bold text-foreground">
-                      {proUsers}
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Pro plan subscribers
-                    </p>
-                  </div>
-
-                  <div className="bg-card rounded-xl border border-border p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm text-muted-foreground">
-                        Checks Today
-                      </span>
-                      <CheckCircle className="w-5 h-5 text-accent" />
-                    </div>
-                    <p className="text-3xl font-bold text-foreground">
-                      {checksToday.toLocaleString()}
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Total all time: {totalDocs.toLocaleString()}
-                    </p>
-                  </div>
-
-                  <div className="bg-card rounded-xl border border-border p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm text-muted-foreground">
-                        Words Processed
-                      </span>
-                      <FileText className="w-5 h-5 text-accent" />
-                    </div>
-                    <p className="text-3xl font-bold text-foreground">
-                      {wordsToday >= 1000 
-                        ? `${(wordsToday / 1000).toFixed(1)}K` 
-                        : wordsToday}
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Today (Total: {(totalWords / 1000).toFixed(0)}K)
-                    </p>
-                  </div>
-
-                  <div className="bg-card rounded-xl border border-border p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm text-muted-foreground">
-                        Pro Subscribers
-                      </span>
-                      <TrendingUp className="w-5 h-5 text-accent" />
-                    </div>
-                    <p className="text-3xl font-bold text-foreground">
-                      {proUsers}
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {conversionRate}% conversion
-                    </p>
-                  </div>
-
-                  <div className="bg-card rounded-xl border border-border p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm text-muted-foreground">
-                        Monthly Revenue
-                      </span>
-                      <TrendingUp className="w-5 h-5 text-accent" />
-                    </div>
-                    <p className="text-3xl font-bold text-foreground">
-                      ₹{monthlyRevenue.toLocaleString("en-IN")}
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Based on active Pro users
-                    </p>
+                  <div className="text-xs text-muted-foreground bg-muted/60 px-3 py-1.5 rounded-full">
+                    {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
                   </div>
                 </div>
 
-                {/* Daily Stats Table */}
+                {/* Primary KPI row */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  {[
+                    { label: "Total Users", value: totalUsers.toLocaleString(), sub: `+${newUsersToday} today`, icon: <Users className="w-5 h-5" />, color: "text-blue-500", bg: "bg-blue-500/10" },
+                    { label: "Pro Subscribers", value: proUsers.toLocaleString(), sub: `${conversionRate}% conversion`, icon: <Crown className="w-5 h-5" />, color: "text-yellow-500", bg: "bg-yellow-500/10" },
+                    { label: "Free Users", value: freeUsers.toLocaleString(), sub: "Potential upgrades", icon: <Zap className="w-5 h-5" />, color: "text-green-500", bg: "bg-green-500/10" },
+                    { label: "Suspended", value: suspendedUsers.toLocaleString(), sub: "Deactivated accounts", icon: <UserX className="w-5 h-5" />, color: "text-red-500", bg: "bg-red-500/10" },
+                  ].map(card => (
+                    <div key={card.label} className="bg-card rounded-xl border border-border p-5">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm text-muted-foreground">{card.label}</span>
+                        <div className={`${card.bg} ${card.color} p-2 rounded-lg`}>{card.icon}</div>
+                      </div>
+                      <p className="text-3xl font-bold text-foreground">{card.value}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{card.sub}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Secondary KPI row */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  {[
+                    { label: "Checks Today", value: checksToday.toLocaleString(), sub: `${totalDocs.toLocaleString()} all time`, icon: <CheckCircle className="w-5 h-5" />, color: "text-purple-500", bg: "bg-purple-500/10" },
+                    { label: "Words Today", value: wordsToday >= 1000 ? `${(wordsToday/1000).toFixed(1)}K` : wordsToday.toString(), sub: `${(totalWords/1000).toFixed(0)}K total`, icon: <FileText className="w-5 h-5" />, color: "text-indigo-500", bg: "bg-indigo-500/10" },
+                    { label: "Monthly Revenue", value: `₹${monthlyRevenue.toLocaleString("en-IN")}`, sub: "Based on Pro users × ₹500", icon: <TrendingUp className="w-5 h-5" />, color: "text-emerald-500", bg: "bg-emerald-500/10" },
+                    { label: "Conversion Rate", value: `${conversionRate}%`, sub: "Free → Pro", icon: <BarChart3 className="w-5 h-5" />, color: "text-orange-500", bg: "bg-orange-500/10" },
+                  ].map(card => (
+                    <div key={card.label} className="bg-card rounded-xl border border-border p-5">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm text-muted-foreground">{card.label}</span>
+                        <div className={`${card.bg} ${card.color} p-2 rounded-lg`}>{card.icon}</div>
+                      </div>
+                      <p className="text-3xl font-bold text-foreground">{card.value}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{card.sub}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* User breakdown + Quick stats side-by-side */}
+                <div className="grid lg:grid-cols-3 gap-4">
+
+                  {/* User Plan Breakdown */}
+                  <div className="bg-card rounded-xl border border-border p-6 space-y-4">
+                    <h3 className="text-sm font-semibold text-foreground">User Plan Breakdown</h3>
+                    <div className="space-y-3">
+                      {[
+                        { label: "Pro", count: proUsers, color: "bg-yellow-500" },
+                        { label: "Free", count: freeUsers, color: "bg-blue-400" },
+                        { label: "Suspended", count: suspendedUsers, color: "bg-red-500" },
+                      ].map(item => (
+                        <div key={item.label}>
+                          <div className="flex items-center justify-between text-sm mb-1">
+                            <span className="text-muted-foreground">{item.label}</span>
+                            <span className="font-medium">{item.count}</span>
+                          </div>
+                          <div className="w-full bg-muted rounded-full h-2">
+                            <div
+                              className={`${item.color} h-2 rounded-full transition-all`}
+                              style={{ width: `${totalUsers ? Math.round((item.count / totalUsers) * 100) : 0}%` }}
+                            />
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {totalUsers ? Math.round((item.count / totalUsers) * 100) : 0}% of total
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Activity Summary */}
+                  <div className="bg-card rounded-xl border border-border p-6 space-y-4">
+                    <h3 className="text-sm font-semibold text-foreground">Activity Summary</h3>
+                    <div className="space-y-3">
+                      {[
+                        { label: "New Users Today", value: `+${newUsersToday}`, color: "text-green-500" },
+                        { label: "Total Documents", value: totalDocs.toLocaleString(), color: "text-blue-500" },
+                        { label: "Total Words Processed", value: `${(totalWords/1000).toFixed(1)}K`, color: "text-purple-500" },
+                        { label: "Words Per Check", value: totalDocs ? Math.round(totalWords / totalDocs).toLocaleString() : "—", color: "text-orange-500" },
+                        { label: "Avg Credits/User", value: users.length ? Math.round(users.reduce((s,u) => s + (u.credits||0), 0) / users.length).toLocaleString() : "—", color: "text-indigo-500" },
+                      ].map(item => (
+                        <div key={item.label} className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">{item.label}</span>
+                          <span className={`text-sm font-semibold ${item.color}`}>{item.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Quick Actions */}
+                  <div className="bg-card rounded-xl border border-border p-6 space-y-3">
+                    <h3 className="text-sm font-semibold text-foreground">Quick Actions</h3>
+                    <div className="space-y-2">
+                      {[
+                        { label: "Manage Users", tab: "users" as const, icon: <Users className="w-4 h-4" /> },
+                        { label: "SEO Pages", tab: "seo" as const, icon: <Globe className="w-4 h-4" /> },
+                        { label: "Blog Posts", tab: "blog" as const, icon: <FileText className="w-4 h-4" /> },
+                        { label: "Billing", tab: "billing" as const, icon: <CreditCard className="w-4 h-4" /> },
+                        { label: "Settings", tab: "settings" as const, icon: <Settings className="w-4 h-4" /> },
+                      ].map(a => (
+                        <button
+                          key={a.label}
+                          onClick={() => setActiveTab(a.tab)}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-muted/60 transition-colors text-left border border-border"
+                        >
+                          <span className="text-muted-foreground">{a.icon}</span>
+                          {a.label}
+                          <ChevronRight className="w-3 h-3 ml-auto text-muted-foreground" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Daily Activity row */}
                 <div className="bg-card rounded-xl border border-border p-6">
-                  <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-lg font-semibold text-foreground">
-                      Daily Activity
-                    </h2>
-                    <Button variant="outline" size="sm">
-                      <Download className="w-4 h-4 mr-2" />
-                      Export
-                    </Button>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-sm font-semibold text-foreground">Today at a Glance</h2>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-left py-3 text-sm font-medium text-muted-foreground">
-                            Date
-                          </th>
-                          <th className="text-left py-3 text-sm font-medium text-muted-foreground">
-                            Checks
-                          </th>
-                          <th className="text-left py-3 text-sm font-medium text-muted-foreground">
-                            Words
-                          </th>
-                          <th className="text-left py-3 text-sm font-medium text-muted-foreground">
-                            New Users
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr className="border-b border-border last:border-0">
-                          <td className="py-3 text-sm text-foreground">Today</td>
-                          <td className="py-3 text-sm text-foreground">{checksToday}</td>
-                          <td className="py-3 text-sm text-foreground">
-                            {wordsToday >= 1000 
-                              ? `${(wordsToday / 1000).toFixed(1)}K` 
-                              : wordsToday}
-                          </td>
-                          <td className="py-3 text-sm text-foreground">+{newUsersToday}</td>
-                        </tr>
-                      </tbody>
-                    </table>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    {[
+                      { label: "New Signups", value: `+${newUsersToday}` },
+                      { label: "Checks Run", value: checksToday.toLocaleString() },
+                      { label: "Words Checked", value: wordsToday >= 1000 ? `${(wordsToday/1000).toFixed(1)}K` : wordsToday.toString() },
+                      { label: "Avg Words/Check", value: checksToday ? Math.round(wordsToday / checksToday).toLocaleString() : "—" },
+                    ].map(s => (
+                      <div key={s.label} className="bg-muted/30 rounded-lg p-4 text-center">
+                        <p className="text-2xl font-bold text-foreground">{s.value}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -2234,23 +2310,27 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                 </div>
 
                 {/* Search & Filter */}
-                  <div className="flex flex-col sm:flex-row gap-4">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search users..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-10"
-                    />
-                  </div>
-                    <div className="flex items-center gap-2">
+                <div className="bg-card rounded-xl border border-border p-4 space-y-3">
+                  <div className="flex flex-wrap gap-3 items-center">
+                    {/* Search */}
+                    <div className="relative flex-1 min-w-[180px]">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search name, email, phone..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-10 h-9"
+                      />
+                    </div>
+
+                    {/* Category */}
+                    <div className="flex items-center gap-1">
                       <Input
                         list="admin-category-filter"
-                        placeholder="Filter category..."
+                        placeholder="Category..."
                         value={categoryFilter}
                         onChange={(e) => setCategoryFilter(e.target.value)}
-                        className="h-10 w-48"
+                        className="h-9 w-36 text-sm"
                       />
                       <datalist id="admin-category-filter">
                         <option value="College" />
@@ -2258,6 +2338,83 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                         <option value="Uncategorized" />
                       </datalist>
                     </div>
+
+                    {/* Plan filter */}
+                    <select
+                      value={planFilter}
+                      onChange={(e) => setPlanFilter(e.target.value as "all" | "free" | "pro")}
+                      className="h-9 px-3 rounded-md border border-border bg-background text-sm text-foreground cursor-pointer"
+                    >
+                      <option value="all">All Plans</option>
+                      <option value="pro">Pro Only</option>
+                      <option value="free">Free Only</option>
+                    </select>
+
+                    {/* Status filter */}
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value as "all" | "active" | "deactivated")}
+                      className="h-9 px-3 rounded-md border border-border bg-background text-sm text-foreground cursor-pointer"
+                    >
+                      <option value="all">All Status</option>
+                      <option value="active">Active</option>
+                      <option value="deactivated">Suspended</option>
+                    </select>
+
+                    {/* Date filter */}
+                    <select
+                      value={dateFilter}
+                      onChange={(e) => setDateFilter(e.target.value as "all" | "7days" | "30days" | "90days")}
+                      className="h-9 px-3 rounded-md border border-border bg-background text-sm text-foreground cursor-pointer"
+                    >
+                      <option value="all">All Time</option>
+                      <option value="7days">Last 7 Days</option>
+                      <option value="30days">Last 30 Days</option>
+                      <option value="90days">Last 90 Days</option>
+                    </select>
+
+                    {/* Sort */}
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value as "newest" | "oldest" | "name" | "credits")}
+                      className="h-9 px-3 rounded-md border border-border bg-background text-sm text-foreground cursor-pointer"
+                    >
+                      <option value="newest">Newest First</option>
+                      <option value="oldest">Oldest First</option>
+                      <option value="name">Name A–Z</option>
+                      <option value="credits">Most Credits</option>
+                    </select>
+
+                    {/* Reset */}
+                    {(searchQuery || categoryFilter || planFilter !== "all" || statusFilter !== "all" || dateFilter !== "all" || sortBy !== "newest") && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-9 text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          setSearchQuery("");
+                          setCategoryFilter("");
+                          setPlanFilter("all");
+                          setStatusFilter("all");
+                          setDateFilter("all");
+                          setSortBy("newest");
+                        }}
+                      >
+                        <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                        Reset
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Stats summary */}
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground pt-1 border-t border-border">
+                    <span>
+                      Showing <span className="font-semibold text-foreground">{filteredUsers.length}</span> of <span className="font-semibold text-foreground">{users.length}</span> users
+                    </span>
+                    <span className="flex items-center gap-1"><Crown className="w-3 h-3 text-yellow-500" /> Pro: <span className="font-semibold text-foreground">{filteredUsers.filter(u => u.plan === "Pro").length}</span></span>
+                    <span className="flex items-center gap-1"><Zap className="w-3 h-3 text-blue-400" /> Free: <span className="font-semibold text-foreground">{filteredUsers.filter(u => u.plan !== "Pro").length}</span></span>
+                    <span className="flex items-center gap-1"><UserX className="w-3 h-3 text-red-500" /> Suspended: <span className="font-semibold text-foreground">{filteredUsers.filter(u => u.status === "deactivated").length}</span></span>
+                  </div>
                 </div>
 
                 {/* Users Table */}
@@ -2451,6 +2608,14 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                             </td>
                             <td className="py-4 px-6 text-right">
                               <div className="flex items-center justify-end gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setViewingUser(user)}
+                                >
+                                  <Info className="w-3.5 h-3.5 mr-1" />
+                                  View
+                                </Button>
                                 {user.status === "deactivated" && (
                                   <Button
                                     variant="outline"
@@ -2934,6 +3099,75 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
+
+                {/* User Profile Modal */}
+                <Dialog open={!!viewingUser} onOpenChange={(open) => { if (!open) setViewingUser(null); }}>
+                  <DialogContent className="max-w-2xl">
+                    {viewingUser && (
+                      <>
+                        <DialogHeader>
+                          <DialogTitle>
+                            <div className="flex items-center gap-3">
+                              <div className="w-12 h-12 rounded-full bg-accent/20 flex items-center justify-center text-lg font-bold text-accent">
+                                {(viewingUser.name || viewingUser.email || "?")[0].toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="text-lg font-semibold text-foreground">{viewingUser.name || "—"}</p>
+                                <p className="text-sm text-muted-foreground font-normal">{viewingUser.email}</p>
+                              </div>
+                              <div className="ml-auto flex gap-2">
+                                <Badge variant={viewingUser.plan === "Pro" ? "default" : "outline"} className={viewingUser.plan === "Pro" ? "bg-yellow-500 text-white" : ""}>
+                                  {viewingUser.plan === "Pro" ? <Crown className="w-3 h-3 mr-1" /> : <Zap className="w-3 h-3 mr-1" />}
+                                  {viewingUser.plan || "Free"}
+                                </Badge>
+                                <Badge variant={viewingUser.status === "deactivated" ? "destructive" : "outline"}>
+                                  {viewingUser.status === "deactivated" ? "Suspended" : "Active"}
+                                </Badge>
+                              </div>
+                            </div>
+                          </DialogTitle>
+                        </DialogHeader>
+
+                        <div className="grid sm:grid-cols-2 gap-4 mt-2">
+                          {/* Account Info */}
+                          <div className="bg-muted/40 rounded-lg p-4 space-y-2">
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Account Info</p>
+                            {[
+                              { label: "User ID", value: viewingUser.id },
+                              { label: "Phone", value: viewingUser.phone || "—" },
+                              { label: "Category", value: viewingUser.category || "—" },
+                              { label: "Joined", value: viewingUser.createdAt ? new Date(viewingUser.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—" },
+                              { label: "Last Updated", value: viewingUser.updatedAt ? new Date(viewingUser.updatedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—" },
+                            ].map(row => (
+                              <div key={row.label} className="flex justify-between gap-2">
+                                <span className="text-xs text-muted-foreground shrink-0">{row.label}</span>
+                                <span className="text-xs text-foreground font-medium text-right truncate max-w-[180px]">{row.value}</span>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Credits & Usage */}
+                          <div className="bg-muted/40 rounded-lg p-4 space-y-2">
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Credits & Usage</p>
+                            {[
+                              { label: "Credits", value: (viewingUser.credits || 0).toLocaleString() },
+                              { label: "Credits Used", value: (viewingUser.creditsUsed || 0).toLocaleString() },
+                              { label: "Addon Credits", value: (viewingUser.addonCredits || 0).toLocaleString() },
+                              { label: "Admin Credits", value: (viewingUser.adminCredits || 0).toLocaleString() },
+                              { label: "Word Limit", value: viewingUser.wordLimit ? viewingUser.wordLimit.toLocaleString() : "—" },
+                            ].map(row => (
+                              <div key={row.label} className="flex justify-between gap-2">
+                                <span className="text-xs text-muted-foreground shrink-0">{row.label}</span>
+                                <span className="text-xs text-foreground font-medium">{row.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </DialogContent>
+                </Dialog>
+
               </div>
             )}
 
