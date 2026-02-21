@@ -139,6 +139,9 @@ type Coupon = {
   percent: number;
   active: boolean;
   createdAt?: string;
+  expiresAt?: string;
+  maxUsage?: number;
+  usageCount?: number;
 };
 
 const Admin = () => {
@@ -180,8 +183,11 @@ const Admin = () => {
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [couponCode, setCouponCode] = useState("");
   const [couponPercent, setCouponPercent] = useState("");
+  const [couponExpiry, setCouponExpiry] = useState("");
+  const [couponMaxUsage, setCouponMaxUsage] = useState("");
   const [couponSaving, setCouponSaving] = useState(false);
   const [couponLoading, setCouponLoading] = useState(false);
+  const [billingSearch, setBillingSearch] = useState("");
 
   // SEO Pages management
   const [seoPages, setSeoPages] = useState<Array<{
@@ -377,7 +383,7 @@ const Admin = () => {
     const now = new Date();
     return date.toDateString() === now.toDateString();
   };
-  const newUsersToday = users.filter((user) => isToday(user.createdAt) || isToday(user.updatedAt)).length;
+  const newUsersToday = users.filter((user) => isToday(user.createdAt)).length;
 
   const billingRows = useMemo(() => {
     return users
@@ -990,18 +996,23 @@ const Admin = () => {
         toast.error("Coupon code already exists");
         return;
       }
-      await setDoc(ref, {
+      const newCouponData: Omit<Coupon, 'id'> = {
         code,
         percent,
         active: true,
         createdAt: new Date().toISOString(),
-      });
+        ...(couponExpiry ? { expiresAt: couponExpiry } : {}),
+        ...(couponMaxUsage && Number(couponMaxUsage) > 0 ? { maxUsage: Number(couponMaxUsage), usageCount: 0 } : {}),
+      };
+      await setDoc(ref, newCouponData);
       setCoupons((prev) => [
-        { id: code, code, percent, active: true, createdAt: new Date().toISOString() },
+        { id: code, ...newCouponData },
         ...prev,
       ]);
       setCouponCode("");
       setCouponPercent("");
+      setCouponExpiry("");
+      setCouponMaxUsage("");
       toast.success("Coupon created");
     } catch (err) {
       console.error("Failed to create coupon", err);
@@ -2260,6 +2271,38 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                     ))}
                   </div>
                 </div>
+
+                {/* Smart Insights */}
+                {(() => {
+                  const pastDueCount = users.filter(u => String(u.subscriptionStatus || "").toLowerCase() === "past_due").length;
+                  const newThisWeek = users.filter(u => u.createdAt && Date.now() - new Date(u.createdAt).getTime() < 7 * 86400000).length;
+                  const dormant = users.filter(u => u.plan !== "Pro" && u.updatedAt && Date.now() - new Date(u.updatedAt).getTime() > 30 * 86400000).length;
+                  const insights: { type: "warn" | "good" | "info"; text: string }[] = [];
+                  if (pastDueCount > 0) insights.push({ type: "warn", text: `${pastDueCount} user${pastDueCount > 1 ? "s are" : " is"} past due — churn risk. Go to Billing to review.` });
+                  if (newUsersToday > 0) insights.push({ type: "good", text: `${newUsersToday} new signup${newUsersToday > 1 ? "s" : ""} today — growth is happening.` });
+                  if (newThisWeek > 0) insights.push({ type: "info", text: `${newThisWeek} user${newThisWeek > 1 ? "s" : ""} joined in the last 7 days.` });
+                  if (conversionRate > 0) insights.push({ type: conversionRate >= 20 ? "good" : "info", text: `Conversion rate is ${conversionRate}% — ${conversionRate >= 20 ? "strong performance" : "room to grow with better onboarding or discounts"}.` });
+                  if (dormant > 0) insights.push({ type: "warn", text: `${dormant} free user${dormant > 1 ? "s have" : " has"} been inactive for 30+ days — consider a re-engagement offer.` });
+                  if (proUsers > 0) insights.push({ type: "good", text: `MRR ₹${monthlyRevenue.toLocaleString("en-IN")} — ARR estimate ₹${(monthlyRevenue * 12).toLocaleString("en-IN")}.` });
+                  if (insights.length === 0) return null;
+                  return (
+                    <div className="bg-card rounded-xl border border-border p-5">
+                      <h2 className="text-sm font-semibold text-foreground mb-3">⚡ Smart Insights</h2>
+                      <div className="space-y-2">
+                        {insights.map((ins, i) => (
+                          <div key={i} className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg text-sm ${
+                            ins.type === "warn" ? "bg-red-500/8 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800/50" :
+                            ins.type === "good" ? "bg-emerald-500/8 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50" :
+                            "bg-blue-500/8 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800/50"
+                          }`}>
+                            <span className="mt-0.5 shrink-0">{ins.type === "warn" ? "⚠️" : ins.type === "good" ? "✅" : "ℹ️"}</span>
+                            <span>{ins.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -2307,6 +2350,32 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                       Export Users
                     </Button>
                   </div>
+                </div>
+
+                {/* User Segments */}
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    { label: "All Users", count: users.length, onClick: () => { setPlanFilter("all"); setStatusFilter("all"); setDateFilter("all"); setSearchQuery(""); }, active: planFilter === "all" && statusFilter === "all" && dateFilter === "all" },
+                    { label: "Pro", count: proUsers, onClick: () => { setPlanFilter("pro"); setStatusFilter("all"); setDateFilter("all"); }, active: planFilter === "pro" },
+                    { label: "Free", count: freeUsers, onClick: () => { setPlanFilter("free"); setStatusFilter("all"); setDateFilter("all"); }, active: planFilter === "free" && statusFilter === "all" },
+                    { label: "New This Week", count: users.filter(u => u.createdAt && Date.now() - new Date(u.createdAt).getTime() < 7 * 86400000).length, onClick: () => { setPlanFilter("all"); setStatusFilter("all"); setDateFilter("7days"); }, active: dateFilter === "7days" },
+                    { label: "Suspended", count: suspendedUsers, onClick: () => { setPlanFilter("all"); setStatusFilter("deactivated"); setDateFilter("all"); }, active: statusFilter === "deactivated" },
+                  ] as { label: string; count: number; onClick: () => void; active: boolean }[]).map(seg => (
+                    <button
+                      key={seg.label}
+                      onClick={seg.onClick}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                        seg.active
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                      }`}
+                    >
+                      {seg.label}
+                      <span className={`px-1.5 py-0.5 rounded-full text-xs ${
+                        seg.active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground"
+                      }`}>{seg.count}</span>
+                    </button>
+                  ))}
                 </div>
 
                 {/* Search & Filter */}
@@ -4099,202 +4168,246 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
               </div>
             )}
 
-            {activeTab === "billing" && (
+            {activeTab === "billing" && (() => {
+              const arpu = proUsers > 0 ? Math.round(monthlyRevenue / proUsers) : 0;
+              const pastDueUsers = users.filter(u => String(u.subscriptionStatus || "").toLowerCase() === "past_due");
+              const cancelledUsers = users.filter(u => String(u.subscriptionStatus || "").toLowerCase() === "cancelled");
+
+              const filteredBilling = billingRows.filter(r => {
+                const q = billingSearch.toLowerCase();
+                return !q || r.name?.toLowerCase().includes(q) || r.userId?.toLowerCase().includes(q);
+              });
+              return (
               <div className="space-y-6">
-                <div>
-                  <h1 className="text-2xl font-bold text-foreground mb-1">
-                    Billing & Plans
-                  </h1>
-                  <p className="text-muted-foreground">
-                    Manage subscriptions, payments, and revenue
-                  </p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-2xl font-bold text-foreground mb-1">Billing & Plans</h1>
+                    <p className="text-muted-foreground">Revenue, subscriptions, discounts, and payment activity</p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={handleExportBilling}>
+                    <Download className="w-4 h-4 mr-2" />
+                    Export CSV
+                  </Button>
                 </div>
 
-                <div className="bg-card rounded-xl border border-border p-6">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-                    <div>
-                      <h2 className="text-lg font-semibold text-foreground">Coupons</h2>
-                      <p className="text-sm text-muted-foreground">Create discount codes for Pro subscriptions</p>
+                {/* KPI row */}
+                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+                  {[
+                    { label: "MRR", value: `₹${monthlyRevenue.toLocaleString("en-IN")}`, sub: "Monthly recurring", color: "text-emerald-500", bg: "bg-emerald-500/10", icon: <CreditCard className="w-4 h-4" /> },
+                    { label: "Active Subs", value: proUsers.toLocaleString(), sub: "Pro plans", color: "text-blue-500", bg: "bg-blue-500/10", icon: <Users className="w-4 h-4" /> },
+                    { label: "ARPU", value: `₹${arpu.toLocaleString("en-IN")}`, sub: "Avg revenue/user", color: "text-indigo-500", bg: "bg-indigo-500/10", icon: <BarChart3 className="w-4 h-4" /> },
+                    { label: "Conversion", value: `${conversionRate}%`, sub: "Free → Pro", color: "text-orange-500", bg: "bg-orange-500/10", icon: <TrendingUp className="w-4 h-4" /> },
+                    { label: "Churn Risk", value: pastDueUsers.length.toLocaleString(), sub: "Past due accounts", color: "text-red-500", bg: "bg-red-500/10", icon: <AlertTriangle className="w-4 h-4" /> },
+                    { label: "Cancelled", value: cancelledUsers.length.toLocaleString(), sub: "Cancelled subs", color: "text-muted-foreground", bg: "bg-muted/60", icon: <UserX className="w-4 h-4" /> },
+                  ].map(c => (
+                    <div key={c.label} className="bg-card rounded-xl border border-border p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs text-muted-foreground">{c.label}</span>
+                        <div className={`${c.bg} ${c.color} p-1.5 rounded-md`}>{c.icon}</div>
+                      </div>
+                      <p className="text-2xl font-bold text-foreground">{c.value}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{c.sub}</p>
                     </div>
-                    <div className="text-xs text-muted-foreground">Not applicable to add-on credits</div>
-                  </div>
+                  ))}
+                </div>
 
-                  <div className="grid gap-4 sm:grid-cols-[1.5fr_1fr_auto]">
-                    <div>
-                      <label className="text-sm text-muted-foreground">Coupon code</label>
-                      <Input
-                        value={couponCode}
-                        onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                        placeholder="SAVE10"
-                      />
+                {/* Churn risk alert */}
+                {pastDueUsers.length > 0 && (
+                  <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <AlertTriangle className="w-4 h-4 text-red-500" />
+                      <h3 className="text-sm font-semibold text-red-700 dark:text-red-400">Churn Risk — {pastDueUsers.length} Past Due</h3>
                     </div>
-                    <div>
-                      <label className="text-sm text-muted-foreground">Discount %</label>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={100}
-                        value={couponPercent}
-                        onChange={(e) => setCouponPercent(e.target.value)}
-                        placeholder="10"
-                      />
+                    <div className="flex flex-wrap gap-2">
+                      {pastDueUsers.slice(0, 8).map(u => (
+                        <div key={u.id} className="text-xs bg-white dark:bg-red-900/40 border border-red-200 dark:border-red-700 rounded-lg px-3 py-1.5">
+                          <span className="font-medium text-foreground">{u.name || u.email}</span>
+                          {u.email && u.name && <span className="text-muted-foreground ml-1">— {u.email}</span>}
+                        </div>
+                      ))}
+                      {pastDueUsers.length > 8 && (
+                        <div className="text-xs bg-white dark:bg-red-900/40 border border-red-200 dark:border-red-700 rounded-lg px-3 py-1.5 text-muted-foreground">
+                          +{pastDueUsers.length - 8} more
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-end">
+                  </div>
+                )}
+
+                <div className="grid lg:grid-cols-2 gap-6">
+
+                  {/* Coupon System */}
+                  <div className="bg-card rounded-xl border border-border p-6 space-y-5">
+                    <div>
+                      <h2 className="text-base font-semibold text-foreground">Coupon System</h2>
+                      <p className="text-xs text-muted-foreground mt-0.5">Create discount codes for Pro subscriptions</p>
+                    </div>
+
+                    {/* Create form */}
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-muted-foreground mb-1 block">Coupon code</label>
+                          <Input
+                            value={couponCode}
+                            onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                            placeholder="SAVE20"
+                            className="font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground mb-1 block">Discount %</label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={couponPercent}
+                            onChange={(e) => setCouponPercent(e.target.value)}
+                            placeholder="20"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-muted-foreground mb-1 block">Expiry date (optional)</label>
+                          <Input
+                            type="date"
+                            value={couponExpiry}
+                            onChange={(e) => setCouponExpiry(e.target.value)}
+                            min={new Date().toISOString().split("T")[0]}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground mb-1 block">Max usage (optional)</label>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={couponMaxUsage}
+                            onChange={(e) => setCouponMaxUsage(e.target.value)}
+                            placeholder="500"
+                          />
+                        </div>
+                      </div>
                       <Button
                         variant="accent"
                         onClick={handleCreateCoupon}
                         disabled={couponSaving}
+                        className="w-full"
                       >
-                        {couponSaving ? "Saving..." : "Create"}
+                        {couponSaving ? "Saving..." : "Create Coupon"}
                       </Button>
+                    </div>
+
+                    {/* Coupon list */}
+                    <div className="space-y-2">
+                      {couponLoading ? (
+                        <p className="text-sm text-muted-foreground">Loading coupons...</p>
+                      ) : coupons.length ? (
+                        coupons.map((coupon) => {
+                          const isExpired = coupon.expiresAt && new Date(coupon.expiresAt) < new Date();
+                          const isMaxed = coupon.maxUsage && (coupon.usageCount || 0) >= coupon.maxUsage;
+                          return (
+                            <div key={coupon.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg border border-border p-3">
+                              <div className="space-y-0.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-mono font-semibold text-foreground">{coupon.code}</span>
+                                  <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">{coupon.percent}% off</span>
+                                  {isExpired && <Badge variant="destructive" className="text-xs">Expired</Badge>}
+                                  {isMaxed && <Badge variant="destructive" className="text-xs">Maxed</Badge>}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                                  {coupon.expiresAt && (
+                                    <span>Expires: {new Date(coupon.expiresAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
+                                  )}
+                                  {coupon.maxUsage && (
+                                    <span>Usage: {coupon.usageCount || 0}/{coupon.maxUsage}</span>
+                                  )}
+                                  {coupon.createdAt && (
+                                    <span>Created: {new Date(coupon.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <Badge variant={coupon.active && !isExpired && !isMaxed ? "secondary" : "outline"}>
+                                  {coupon.active && !isExpired && !isMaxed ? "Active" : "Inactive"}
+                                </Badge>
+                                <Button variant="outline" size="sm" onClick={() => handleToggleCoupon(coupon)}>
+                                  {coupon.active ? "Disable" : "Enable"}
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No coupons created yet.</p>
+                      )}
                     </div>
                   </div>
 
-                  <div className="mt-6">
-                    {couponLoading ? (
-                      <p className="text-sm text-muted-foreground">Loading coupons...</p>
-                    ) : coupons.length ? (
-                      <div className="space-y-3">
-                        {coupons.map((coupon) => (
-                          <div
-                            key={coupon.id}
-                            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-border p-4"
-                          >
-                            <div>
-                              <div className="text-sm font-semibold text-foreground">{coupon.code}</div>
-                              <div className="text-xs text-muted-foreground">{coupon.percent}% off</div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge variant={coupon.active ? "secondary" : "outline"}>
-                                {coupon.active ? "Active" : "Inactive"}
-                              </Badge>
-                              <Button variant="outline" size="sm" onClick={() => handleToggleCoupon(coupon)}>
-                                {coupon.active ? "Disable" : "Enable"}
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
+                  {/* Revenue breakdown */}
+                  <div className="bg-card rounded-xl border border-border p-6">
+                    <h2 className="text-base font-semibold text-foreground mb-4">Revenue Breakdown</h2>
+                    <div className="space-y-3">
+                      {[
+                        { label: "MRR", value: `₹${monthlyRevenue.toLocaleString("en-IN")}`, color: "text-emerald-500" },
+                        { label: "ARR (Est.)", value: `₹${(monthlyRevenue * 12).toLocaleString("en-IN")}`, color: "text-blue-500" },
+                        { label: "ARPU", value: `₹${arpu.toLocaleString("en-IN")}`, color: "text-indigo-500" },
+                        { label: "Active Pro Users", value: proUsers.toLocaleString(), color: "text-yellow-500" },
+                        { label: "Free Users", value: freeUsers.toLocaleString(), color: "text-muted-foreground" },
+                        { label: "Conversion Rate", value: `${conversionRate}%`, color: "text-orange-500" },
+                      ].map(r => (
+                        <div key={r.label} className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">{r.label}</span>
+                          <span className={`text-sm font-semibold ${r.color}`}>{r.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Subscriptions / Payments table */}
+                <div className="bg-card rounded-xl border border-border">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-6 border-b border-border">
+                    <div>
+                      <h2 className="text-base font-semibold text-foreground">Recent Subscriptions</h2>
+                      <p className="text-xs text-muted-foreground mt-0.5">Showing latest Pro &amp; subscription activity</p>
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                        <Input
+                          placeholder="Search name or ID..."
+                          value={billingSearch}
+                          onChange={e => setBillingSearch(e.target.value)}
+                          className="pl-9 h-8 text-sm w-48"
+                        />
                       </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No coupons created yet.</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Admin Creation Section - Hidden for now */}
-                {/* <div className="bg-card rounded-xl border border-border p-6">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-                    <div>
-                      <h2 className="text-lg font-semibold text-foreground">Create Admin User</h2>
-                      <p className="text-sm text-muted-foreground">Grant admin access to new or existing users</p>
                     </div>
-                  </div>
-                  <div className="grid gap-4 sm:grid-cols-[1.5fr_1.5fr_auto]">
-                    <div>
-                      <label className="text-sm text-muted-foreground">Email</label>
-                      <Input
-                        type="email"
-                        value={newAdminEmail}
-                        onChange={(e) => setNewAdminEmail(e.target.value)}
-                        placeholder="admin@example.com"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm text-muted-foreground">Password</label>
-                      <Input
-                        type="password"
-                        value={newAdminPassword}
-                        onChange={(e) => setNewAdminPassword(e.target.value)}
-                        placeholder="Min 6 characters"
-                      />
-                    </div>
-                    <div className="flex items-end">
-                      <Button
-                        variant="accent"
-                        onClick={handleCreateAdmin}
-                        disabled={creatingAdmin}
-                      >
-                        {creatingAdmin ? "Creating..." : "Create Admin"}
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="mt-4 p-4 bg-muted/50 rounded-lg">
-                    <p className="text-xs text-muted-foreground">
-                      ℹ️ If the email already exists, admin access will be granted and password will be updated. New users will be created with admin privileges.
-                    </p>
-                  </div>
-                </div> */}
-
-                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-card rounded-xl border border-border p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm text-muted-foreground">MRR</span>
-                      <CreditCard className="w-5 h-5 text-accent" />
-                    </div>
-                    <p className="text-3xl font-bold text-foreground">₹{monthlyRevenue.toLocaleString()}</p>
-                    <p className="text-sm text-muted-foreground mt-1">Based on active Pro users</p>
-                  </div>
-                  <div className="bg-card rounded-xl border border-border p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm text-muted-foreground">Active Subscriptions</span>
-                      <Users className="w-5 h-5 text-accent" />
-                    </div>
-                    <p className="text-3xl font-bold text-foreground">{proUsers.toLocaleString()}</p>
-                    <p className="text-sm text-muted-foreground mt-1">Active Pro plans</p>
-                  </div>
-                  <div className="bg-card rounded-xl border border-border p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm text-muted-foreground">Churn</span>
-                      <TrendingUp className="w-5 h-5 text-accent" />
-                    </div>
-                    <p className="text-3xl font-bold text-foreground">{conversionRate}%</p>
-                    <p className="text-sm text-muted-foreground mt-1">Pro conversion</p>
-                  </div>
-                  <div className="bg-card rounded-xl border border-border p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm text-muted-foreground">Refunds</span>
-                      <FileText className="w-5 h-5 text-accent" />
-                    </div>
-                    <p className="text-3xl font-bold text-foreground">₹0</p>
-                    <p className="text-sm text-muted-foreground mt-1">No refunds tracked</p>
-                  </div>
-                </div>
-
-                <div className="bg-card rounded-xl border border-border p-6">
-                  <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-lg font-semibold text-foreground">
-                      Recent Payments
-                    </h2>
-                    <Button variant="outline" size="sm" onClick={handleExportBilling}>
-                      <Download className="w-4 h-4 mr-2" />
-                      Export
-                    </Button>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Customer</th>
-                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Plan</th>
-                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Amount</th>
-                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
-                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Subscription Date</th>
-                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Last Updated</th>
-                          <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">User ID</th>
+                        <tr className="border-b border-border bg-muted/40">
+                          <th className="text-left py-3 px-5 text-xs font-medium text-muted-foreground">Customer</th>
+                          <th className="text-left py-3 px-5 text-xs font-medium text-muted-foreground">Plan</th>
+                          <th className="text-left py-3 px-5 text-xs font-medium text-muted-foreground">Amount</th>
+                          <th className="text-left py-3 px-5 text-xs font-medium text-muted-foreground">Status</th>
+                          <th className="text-left py-3 px-5 text-xs font-medium text-muted-foreground">Sub Date</th>
+                          <th className="text-left py-3 px-5 text-xs font-medium text-muted-foreground">Last Updated</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {billingRows.length ? (
-                          billingRows.map((payment) => (
+                        {filteredBilling.length ? (
+                          filteredBilling.map((payment) => (
                             <tr key={`${payment.name}-${payment.date}`} className="border-b border-border last:border-0 hover:bg-muted/30">
-                              <td className="py-3 px-4 text-sm text-foreground font-medium">{payment.name}</td>
-                              <td className="py-3 px-4">
+                              <td className="py-3 px-5 text-sm text-foreground font-medium max-w-[200px] truncate">{payment.name}</td>
+                              <td className="py-3 px-5">
                                 <Badge variant={payment.plan === "Pro" ? "default" : "outline"}>
                                   {payment.plan}
                                 </Badge>
                               </td>
-                              <td className="py-3 px-4 text-sm font-semibold text-foreground">{payment.amount}</td>
-                              <td className="py-3 px-4 text-sm">
+                              <td className="py-3 px-5 text-sm font-semibold text-foreground">{payment.amount}</td>
+                              <td className="py-3 px-5">
                                 <Badge variant={
                                   payment.status === "Paid" ? "secondary" :
                                   payment.status === "Past Due" ? "destructive" :
@@ -4303,57 +4416,20 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                                   {payment.status}
                                 </Badge>
                               </td>
-                              <td className="py-3 px-4 text-sm text-muted-foreground">
-                                {payment.subscriptionUpdatedAt ? (
-                                  <div>
-                                    <div className="font-medium text-foreground">
-                                      {new Date(payment.subscriptionUpdatedAt).toLocaleDateString('en-IN', {
-                                        day: '2-digit',
-                                        month: 'short',
-                                        year: 'numeric'
-                                      })}
-                                    </div>
-                                    <div className="text-xs">
-                                      {new Date(payment.subscriptionUpdatedAt).toLocaleTimeString('en-IN', {
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                        hour12: true
-                                      })}
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <span className="text-xs text-muted-foreground">—</span>
-                                )}
+                              <td className="py-3 px-5 text-sm text-muted-foreground">
+                                {payment.subscriptionUpdatedAt
+                                  ? new Date(payment.subscriptionUpdatedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+                                  : "—"}
                               </td>
-                              <td className="py-3 px-4 text-sm text-muted-foreground">
-                                <div>
-                                  <div className="font-medium text-foreground">
-                                    {new Date(payment.date).toLocaleDateString('en-IN', {
-                                      day: '2-digit',
-                                      month: 'short',
-                                      year: 'numeric'
-                                    })}
-                                  </div>
-                                  <div className="text-xs">
-                                    {new Date(payment.date).toLocaleTimeString('en-IN', {
-                                      hour: '2-digit',
-                                      minute: '2-digit',
-                                      hour12: true
-                                    })}
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="py-3 px-4 text-xs font-mono text-muted-foreground">
-                                <div className="max-w-[120px] truncate" title={payment.userId}>
-                                  {payment.userId}
-                                </div>
+                              <td className="py-3 px-5 text-sm text-muted-foreground">
+                                {new Date(payment.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
                               </td>
                             </tr>
                           ))
                         ) : (
                           <tr>
-                            <td className="py-8 text-center text-sm text-muted-foreground" colSpan={7}>
-                              No billing activity yet.
+                            <td className="py-8 text-center text-sm text-muted-foreground" colSpan={6}>
+                              {billingSearch ? `No results for "${billingSearch}"` : "No billing activity yet."}
                             </td>
                           </tr>
                         )}
@@ -4362,7 +4438,8 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                   </div>
                 </div>
               </div>
-            )}
+              );
+            })()}
 
             {activeTab === "seo" && (
               <div className="space-y-8">
