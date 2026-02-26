@@ -220,6 +220,12 @@ const Admin = () => {
   const SEO_PAGE_SIZE = 50;
   const [bulkSeoDialogOpen, setBulkSeoDialogOpen] = useState(false);
   const [bulkSeoCreating, setBulkSeoCreating] = useState(false);
+  const [indexingServiceJson, setIndexingServiceJson] = useState<string>(() => {
+    try { return localStorage.getItem("gIndexServiceJson") || ""; } catch { return ""; }
+  });
+  const [indexingUrlsText, setIndexingUrlsText] = useState("");
+  const [indexingLoading, setIndexingLoading] = useState(false);
+  const [indexingResults, setIndexingResults] = useState<{ url: string; ok: boolean; code: number; message: string }[]>([]);
   const [bulkLangCode, setBulkLangCode] = useState("");
   const [bulkLangSearch, setBulkLangSearch] = useState("");
   const [bulkSlugsText, setBulkSlugsText] = useState("");
@@ -4523,14 +4529,19 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                           setSeoLanguageCode(code);
                           if (lang && !seoEditingId) {
                             // Auto-fill defaults for new pages
+                            const autoSlug = seoUrlSlug || code;
                             if (!seoUrlSlug) {
                               setSeoUrlSlug(code); // Default URL to language code
                             }
-                            setSeoTitle(`${lang.name} Grammar Checker - CorrectNow`);
-                            setSeoH1(`${lang.name} Grammar Checker`);
-                            setSeoMetaDescription(`Free online ${lang.name} grammar checker and proofreading tool. Check your ${lang.name} text for spelling, grammar, and style mistakes instantly.`);
-                            setSeoKeywords(`${lang.name} grammar checker, ${lang.name} spell check, ${lang.name} proofreading, online grammar check, ${code} grammar`);
-                            setSeoDescription(`Free online ${lang.name} grammar checker and proofreading tool. Check your ${lang.name} text for spelling, grammar, and style mistakes instantly.`);
+                            const slugTitle = autoSlug
+                              .split("-")
+                              .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+                              .join(" ");
+                            setSeoTitle(`${slugTitle} - CorrectNow`);
+                            setSeoH1(slugTitle);
+                            setSeoMetaDescription(`Free online ${slugTitle} tool. Check your ${lang.name} text for spelling, grammar, and style mistakes instantly.`);
+                            setSeoKeywords(`${slugTitle.toLowerCase()}, ${lang.name} grammar checker, ${lang.name} spell check, ${lang.name} proofreading, online grammar check, ${code} grammar`);
+                            setSeoDescription(`Free online ${slugTitle} tool. Check your ${lang.name} text for spelling, grammar, and style mistakes instantly.`);
                           }
                         }}
                         disabled={!!seoEditingId}
@@ -4955,6 +4966,139 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                   </div>
                 </div>
 
+                {/* Google Indexing API */}
+                <div className="bg-card rounded-xl border border-border p-6 space-y-5">
+                  <div>
+                    <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-blue-500" />
+                      Google Indexing API
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-1">Submit up to 200 URLs per day directly to Google for fast indexing. Requires a Google Cloud service account with Search Console owner access.</p>
+                  </div>
+
+                  <div className="grid lg:grid-cols-2 gap-5">
+                    {/* Service Account JSON */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground block">Service Account JSON</label>
+                      <p className="text-xs text-muted-foreground">Paste your downloaded service account key JSON here. It is saved only in your browser (localStorage).</p>
+                      <textarea
+                        value={indexingServiceJson}
+                        onChange={e => {
+                          setIndexingServiceJson(e.target.value);
+                          try { localStorage.setItem("gIndexServiceJson", e.target.value); } catch {}
+                        }}
+                        rows={8}
+                        placeholder={'{\n  "type": "service_account",\n  "project_id": "...",\n  "private_key": "...",\n  "client_email": "...@....gserviceaccount.com"\n}'}
+                        className="w-full font-mono text-xs px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary resize-y"
+                      />
+                      {indexingServiceJson && (() => {
+                        try {
+                          const sa = JSON.parse(indexingServiceJson);
+                          return sa.client_email ? (
+                            <p className="text-xs text-green-600 dark:text-green-400">✓ Valid JSON — {sa.client_email}</p>
+                          ) : <p className="text-xs text-red-500">⚠ Missing client_email field</p>;
+                        } catch {
+                          return <p className="text-xs text-red-500">⚠ Invalid JSON</p>;
+                        }
+                      })()}
+                      <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 space-y-1">
+                        <p className="text-xs font-medium text-blue-700 dark:text-blue-300">Setup steps:</p>
+                        <ol className="text-xs text-blue-600 dark:text-blue-400 space-y-0.5 list-decimal list-inside">
+                          <li>Google Cloud Console → APIs &amp; Services → Enable "Indexing API"</li>
+                          <li>Credentials → Create Service Account → Download JSON key</li>
+                          <li>Search Console → Settings → Users → Add service account email as Owner</li>
+                        </ol>
+                      </div>
+                    </div>
+
+                    {/* URLs */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium text-foreground">URLs to Submit</label>
+                        <button
+                          onClick={() => {
+                            const urls = seoPages
+                              .filter(p => p.active)
+                              .map(p => `https://correctnow.app/${p.urlSlug || p.languageCode}`)
+                              .join("\n");
+                            setIndexingUrlsText(urls);
+                          }}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          Load all active SEO pages
+                        </button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">One full URL per line. Max 200 per submission.</p>
+                      <textarea
+                        value={indexingUrlsText}
+                        onChange={e => setIndexingUrlsText(e.target.value)}
+                        rows={8}
+                        placeholder="https://correctnow.app/tamil-grammar\nhttps://correctnow.app/hindi-grammar\nhttps://correctnow.app/"
+                        className="w-full font-mono text-xs px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary resize-y"
+                      />
+                      {(() => {
+                        const urls = indexingUrlsText.split("\n").map(u => u.trim()).filter(Boolean);
+                        return urls.length > 0 && (
+                          <p className="text-xs text-muted-foreground">{urls.length} URL{urls.length > 1 ? "s" : ""} detected{urls.length > 200 ? " (first 200 will be submitted)" : ""}</p>
+                        );
+                      })()}
+                      <Button
+                        onClick={async () => {
+                          const urls = indexingUrlsText.split("\n").map(u => u.trim()).filter(u => u.startsWith("http"));
+                          if (!indexingServiceJson) { toast.error("Paste your service account JSON first"); return; }
+                          if (!urls.length) { toast.error("Enter at least one URL"); return; }
+                          let sa;
+                          try { sa = JSON.parse(indexingServiceJson); } catch { toast.error("Invalid service account JSON"); return; }
+                          if (!sa.client_email || !sa.private_key) { toast.error("Service account JSON is missing client_email or private_key"); return; }
+                          setIndexingLoading(true);
+                          setIndexingResults([]);
+                          try {
+                            const res = await fetch("/api/google-index", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ serviceAccountJson: indexingServiceJson, urls }),
+                            });
+                            const data = await res.json();
+                            if (!res.ok) { toast.error(data.error || "Submission failed"); return; }
+                            setIndexingResults(data.results || []);
+                            const ok = (data.results || []).filter((r: { ok: boolean }) => r.ok).length;
+                            toast.success(`Submitted ${ok} of ${data.results.length} URLs to Google`);
+                          } catch (err: unknown) {
+                            toast.error((err instanceof Error ? err.message : String(err)) || "Request failed");
+                          } finally {
+                            setIndexingLoading(false);
+                          }
+                        }}
+                        disabled={indexingLoading}
+                        className="w-full"
+                      >
+                        {indexingLoading ? "Submitting…" : "Submit to Google"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Results */}
+                  {indexingResults.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-foreground">Results</p>
+                        <span className="text-xs text-muted-foreground">
+                          {indexingResults.filter(r => r.ok).length} success / {indexingResults.filter(r => !r.ok).length} failed
+                        </span>
+                      </div>
+                      <div className="max-h-60 overflow-y-auto space-y-1 rounded-lg border border-border p-3 bg-muted/30">
+                        {indexingResults.map((r, i) => (
+                          <div key={i} className="flex items-center gap-2 text-xs">
+                            <span className={r.ok ? "text-green-500" : "text-red-500"}>{r.ok ? "✓" : "✗"}</span>
+                            <span className="font-mono text-foreground flex-1 truncate">{r.url}</span>
+                            <span className={`shrink-0 ${r.ok ? "text-muted-foreground" : "text-red-500"}`}>{r.message}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {/* Bulk Create Dialog */}
                 <Dialog open={bulkSeoDialogOpen} onOpenChange={setBulkSeoDialogOpen}>
                   <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -5092,15 +5236,20 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                               if (finalSlug !== slug) {
                                 autoRenamed.push(`${slug} → ${finalSlug}`);
                               }
+                              // Build slug-based unique title/h1 for each page
+                              const slugTitle = finalSlug
+                                .split("-")
+                                .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+                                .join(" ");
                               await setDoc(doc(db, "seoPages", finalSlug), {
                                 urlSlug: finalSlug,
                                 languageCode: lang.code,
                                 languageName: lang.name,
-                                title: `${lang.name} Grammar Checker - CorrectNow`,
-                                metaDescription: `Free online ${lang.name} grammar checker and proofreading tool. Check your ${lang.name} text for spelling, grammar, and style mistakes instantly.`,
-                                keywords: `${lang.name} grammar checker, ${lang.name} spell check, ${lang.name} proofreading, online grammar check, ${lang.code} grammar`,
-                                h1: `${lang.name} Grammar Checker`,
-                                description: `Free online ${lang.name} grammar checker and proofreading tool. Check your ${lang.name} text for spelling, grammar, and style mistakes instantly.`,
+                                title: `${slugTitle} - CorrectNow`,
+                                metaDescription: `Free online ${slugTitle} tool. Check your ${lang.name} text for spelling, grammar, and style mistakes instantly.`,
+                                keywords: `${slugTitle.toLowerCase()}, ${lang.name} grammar checker, ${lang.name} spell check, ${lang.name} proofreading, online grammar check, ${lang.code} grammar`,
+                                h1: slugTitle,
+                                description: `Free online ${slugTitle} tool. Check your ${lang.name} text for spelling, grammar, and style mistakes instantly.`,
                                 active: true,
                                 createdAt: new Date().toISOString(),
                                 updatedAt: new Date().toISOString(),

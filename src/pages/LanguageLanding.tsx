@@ -144,11 +144,21 @@ const LanguageLanding = () => {
   const defaultDescription = `Free online ${languageInfo?.name || "grammar"} checker and proofreading tool. Check your ${languageInfo?.name || ""} text for spelling, grammar, and style mistakes instantly.`;
   const defaultKeywords = `${languageInfo?.name || "language"} grammar checker, ${languageInfo?.name || "language"} spell check, ${languageInfo?.name || "language"} proofreading, online grammar check, ${seoData?.languageCode || languageCode} grammar`;
 
-  const pageTitle = seoData?.title || defaultTitle;
-  const metaDescription = seoData?.metaDescription || defaultDescription;
+  // Convert slug to readable title: "hindi-grammar-check-ai" → "Hindi Grammar Check Ai"
+  const slugTitle = (seoData?.urlSlug || languageCode)
+    .split("-")
+    .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+
+  // Detect auto-generated generic H1 (ends with "Grammar Checker", possibly with native script).
+  // Only use the stored h1 if it was manually customised — i.e. it is NOT just "X Grammar Checker".
+  const isGenericH1 = !seoData?.h1 || /grammar checker/i.test(seoData.h1);
+
+  const pageTitle = seoData?.title || `${slugTitle} - CorrectNow`;
+  const metaDescription = seoData?.metaDescription || `Free online ${slugTitle} tool. Check your ${languageInfo?.name || ""} text for spelling, grammar, and style mistakes instantly.`;
   const keywords = seoData?.keywords || defaultKeywords;
-  const h1Text = seoData?.h1 || `${languageInfo?.name || "Language"} Grammar Checker`;
-  const descriptionText = seoData?.description || defaultDescription;
+  const h1Text = isGenericH1 ? slugTitle : seoData!.h1;
+  const descriptionText = seoData?.description || metaDescription;
 
   return (
     <div className="min-h-screen flex flex-col">
