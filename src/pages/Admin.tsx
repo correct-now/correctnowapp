@@ -230,6 +230,19 @@ const Admin = () => {
   const [bulkLangSearch, setBulkLangSearch] = useState("");
   const [bulkSlugsText, setBulkSlugsText] = useState("");
 
+  // AI SEO Content Generator
+  const [seoAiKeywords, setSeoAiKeywords] = useState("");
+  const [seoAiTone, setSeoAiTone] = useState<"professional" | "friendly" | "technical" | "simple">("professional");
+  const [seoAiAudience, setSeoAiAudience] = useState("everyone");
+  const [seoAiExtraContext, setSeoAiExtraContext] = useState("");
+  const [seoAiGenerating, setSeoAiGenerating] = useState(false);
+  const [seoAiVariantIdx, setSeoAiVariantIdx] = useState(0);
+  const [seoAiResult, setSeoAiResult] = useState<null | {
+    variants: Array<{ title: string; h1: string; metaDescription: string; keywords: string; description: string }>;
+    faqItems: Array<{ q: string; a: string }>;
+    suggestedInternalLinks?: string[];
+  }>(null);
+
   // Languages management
   const [customLanguages, setCustomLanguages] = useState<Array<{
     id: string;
@@ -633,6 +646,62 @@ const Admin = () => {
       setUserToDelete(null);
     }
   };
+
+  // ─── SEO AI Content Generator ───────────────────────────────────────────
+  const handleSeoAiGenerate = async () => {
+    if (!seoUrlSlug || !seoLanguageCode) {
+      toast.error("Please fill in URL Slug and Language before generating");
+      return;
+    }
+    setSeoAiGenerating(true);
+    setSeoAiResult(null);
+    setSeoAiVariantIdx(0);
+    try {
+      const langName = allLanguages.find(l => l.code === seoLanguageCode)?.name || seoLanguageCode;
+      const res = await fetch("/api/seo-generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          urlSlug: seoUrlSlug,
+          languageCode: seoLanguageCode,
+          languageName: langName,
+          keywords: seoAiKeywords,
+          tone: seoAiTone,
+          targetAudience: seoAiAudience,
+          extraContext: seoAiExtraContext,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Generation failed");
+      if (!data.variants?.length) throw new Error("No variants returned");
+      setSeoAiResult(data);
+      // Auto-apply variant 0 immediately
+      const v = data.variants[0];
+      setSeoTitle(v.title || "");
+      setSeoH1(v.h1 || "");
+      setSeoMetaDescription(v.metaDescription || "");
+      setSeoKeywords(v.keywords || "");
+      setSeoDescription(v.description || "");
+      toast.success("Content generated! Review and edit as needed.");
+    } catch (err: any) {
+      toast.error(err.message || "AI generation failed");
+    } finally {
+      setSeoAiGenerating(false);
+    }
+  };
+
+  const applySeoAiVariant = (idx: number) => {
+    if (!seoAiResult?.variants?.[idx]) return;
+    const v = seoAiResult.variants[idx];
+    setSeoTitle(v.title || "");
+    setSeoH1(v.h1 || "");
+    setSeoMetaDescription(v.metaDescription || "");
+    setSeoKeywords(v.keywords || "");
+    setSeoDescription(v.description || "");
+    setSeoAiVariantIdx(idx);
+    toast.success(`Variant ${idx + 1} applied`);
+  };
+  // ────────────────────────────────────────────────────────────────────────
 
   const handleDeleteSelectedUsers = async () => {
     const db = getFirebaseDb();
@@ -4619,6 +4688,112 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                       />
                     </div>
 
+                    {/* ─── AI Content Generator ─────────────────────── */}
+                    <div className="rounded-xl border-2 border-purple-400/40 bg-purple-50/40 dark:bg-purple-950/20 p-4 space-y-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-lg">✨</span>
+                        <h4 className="text-sm font-semibold text-purple-700 dark:text-purple-300">
+                          AI Content Generator
+                        </h4>
+                        <span className="ml-auto text-xs text-muted-foreground">Powered by Gemini</span>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-muted-foreground">Focus Keywords (optional)</label>
+                        <Input
+                          value={seoAiKeywords}
+                          onChange={(e) => setSeoAiKeywords(e.target.value)}
+                          placeholder="e.g. Tamil grammar checker, Tamil spell check, free Tamil proofreader"
+                          className="text-sm"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">Leave blank to auto-generate from slug + language</p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium mb-1 text-muted-foreground">Tone</label>
+                          <select
+                            value={seoAiTone}
+                            onChange={(e) => setSeoAiTone(e.target.value as any)}
+                            className="w-full px-2 py-1.5 text-sm rounded-lg border border-border bg-background text-foreground"
+                          >
+                            <option value="professional">Professional</option>
+                            <option value="friendly">Friendly</option>
+                            <option value="technical">Technical</option>
+                            <option value="simple">Simple (Beginner)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium mb-1 text-muted-foreground">Target Audience</label>
+                          <select
+                            value={seoAiAudience}
+                            onChange={(e) => setSeoAiAudience(e.target.value)}
+                            className="w-full px-2 py-1.5 text-sm rounded-lg border border-border bg-background text-foreground"
+                          >
+                            <option value="everyone">Everyone</option>
+                            <option value="students">Students</option>
+                            <option value="professionals">Professionals</option>
+                            <option value="writers">Writers / Bloggers</option>
+                            <option value="teachers">Teachers / Educators</option>
+                            <option value="non-native speakers">Non-native Speakers</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-muted-foreground">Extra Context (optional)</label>
+                        <Input
+                          value={seoAiExtraContext}
+                          onChange={(e) => setSeoAiExtraContext(e.target.value)}
+                          placeholder="e.g. Mention it supports formal Tamil, works offline, fast..."
+                          className="text-sm"
+                        />
+                      </div>
+
+                      <Button
+                        onClick={handleSeoAiGenerate}
+                        disabled={seoAiGenerating || !seoUrlSlug || !seoLanguageCode}
+                        className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+                      >
+                        {seoAiGenerating ? (
+                          <><span className="animate-spin mr-2">⟳</span>Generating…</>
+                        ) : (
+                          <>✨ Generate SEO Content with AI</>
+                        )}
+                      </Button>
+
+                      {!seoUrlSlug || !seoLanguageCode ? (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
+                          ⚠ Fill in URL Slug and Language first to enable generation
+                        </p>
+                      ) : null}
+
+                      {/* Variant switcher — shown after generation */}
+                      {seoAiResult && (
+                        <div className="pt-2 border-t border-purple-200 dark:border-purple-800 space-y-2">
+                          <p className="text-xs font-medium text-purple-700 dark:text-purple-300">Generated Variants:</p>
+                          <div className="flex gap-2">
+                            {seoAiResult.variants.map((v, i) => (
+                              <button
+                                key={i}
+                                onClick={() => applySeoAiVariant(i)}
+                                className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                                  seoAiVariantIdx === i
+                                    ? "bg-purple-600 text-white border-purple-600"
+                                    : "bg-background border-border text-foreground hover:border-purple-400"
+                                }`}
+                              >
+                                {i === 0 ? "📌 Variant 1 (Accuracy)" : "⚡ Variant 2 (Speed)"}
+                                {seoAiVariantIdx === i && " ✓"}
+                              </button>
+                            ))}
+                          </div>
+                          <p className="text-xs text-muted-foreground">Click a variant to apply it to the form fields below. You can still edit after applying.</p>
+                        </div>
+                      )}
+                    </div>
+                    {/* ───────────────────────────────────────────────── */}
+
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
@@ -4700,6 +4875,9 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                             setSeoH1("");
                             setSeoDescription("");
                             setSeoActive(true);
+                            setSeoAiResult(null);
+                            setSeoAiKeywords("");
+                            setSeoAiExtraContext("");
                           } catch (error) {
                             console.error("Failed to save SEO page:", error);
                             toast.error("Failed to save SEO page");
@@ -4725,6 +4903,9 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                             setSeoH1("");
                             setSeoDescription("");
                             setSeoActive(true);
+                            setSeoAiResult(null);
+                            setSeoAiKeywords("");
+                            setSeoAiExtraContext("");
                           }}
                         >
                           Cancel
@@ -4965,6 +5146,111 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                     </div>
                   </div>
                 </div>
+
+                {/* AI Generated FAQ & Suggestions — shown after generation */}
+                {seoAiResult && (
+                  <div className="grid lg:grid-cols-2 gap-6">
+                    {/* FAQ Items */}
+                    <div className="bg-card rounded-xl border border-purple-300/50 dark:border-purple-700/40 p-6 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+                          <span>❓</span> AI-Generated FAQ
+                        </h3>
+                        <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                          {seoAiResult.faqItems?.length || 0} items
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Add these FAQ items to your page to boost rich results in Google Search. Copy and use them in your page's FAQ schema or description.
+                      </p>
+                      <div className="space-y-3">
+                        {seoAiResult.faqItems?.map((item, i) => (
+                          <div key={i} className="bg-muted/40 rounded-lg p-3 space-y-1">
+                            <p className="text-sm font-medium text-foreground">Q: {item.q}</p>
+                            <p className="text-xs text-muted-foreground">A: {item.a}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => {
+                          const text = seoAiResult.faqItems?.map(f => `Q: ${f.q}\nA: ${f.a}`).join("\n\n") || "";
+                          navigator.clipboard.writeText(text);
+                          toast.success("FAQs copied to clipboard");
+                        }}
+                        className="w-full mt-2 px-3 py-1.5 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors"
+                      >
+                        📋 Copy All FAQs
+                      </button>
+                    </div>
+
+                    {/* Suggested Internal Links + Full Content Preview */}
+                    <div className="space-y-4">
+                      {seoAiResult.suggestedInternalLinks?.length ? (
+                        <div className="bg-card rounded-xl border border-purple-300/50 dark:border-purple-700/40 p-5 space-y-3">
+                          <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+                            <span>🔗</span> Suggested Internal Links
+                          </h3>
+                          <p className="text-xs text-muted-foreground">Link to these related pages from the current page to improve site structure and SEO.</p>
+                          <div className="space-y-2">
+                            {seoAiResult.suggestedInternalLinks.map((slug, i) => (
+                              <div key={i} className="flex items-center gap-2 bg-muted/40 rounded-lg px-3 py-2">
+                                <span className="text-xs text-blue-600 dark:text-blue-400 font-mono">correctnow.app/{slug}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* Content Preview for both variants */}
+                      <div className="bg-card rounded-xl border border-purple-300/50 dark:border-purple-700/40 p-5 space-y-3">
+                        <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+                          <span>👁</span> Content Preview
+                        </h3>
+                        <div className="flex gap-2 mb-3">
+                          {seoAiResult.variants.map((_, i) => (
+                            <button
+                              key={i}
+                              onClick={() => setSeoAiVariantIdx(i)}
+                              className={`px-3 py-1 rounded-lg text-xs font-medium border transition-all ${
+                                seoAiVariantIdx === i
+                                  ? "bg-purple-600 text-white border-purple-600"
+                                  : "border-border hover:border-purple-400"
+                              }`}
+                            >
+                              Variant {i + 1}
+                            </button>
+                          ))}
+                        </div>
+                        {seoAiResult.variants[seoAiVariantIdx] && (
+                          <div className="space-y-2 text-sm">
+                            <div className="rounded-lg bg-muted/40 p-3 space-y-1">
+                              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Title</p>
+                              <p className="font-semibold">{seoAiResult.variants[seoAiVariantIdx].title}</p>
+                            </div>
+                            <div className="rounded-lg bg-muted/40 p-3 space-y-1">
+                              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">H1</p>
+                              <p className="font-semibold text-lg">{seoAiResult.variants[seoAiVariantIdx].h1}</p>
+                            </div>
+                            <div className="rounded-lg bg-muted/40 p-3 space-y-1">
+                              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Meta Description</p>
+                              <p className="text-muted-foreground">{seoAiResult.variants[seoAiVariantIdx].metaDescription}</p>
+                            </div>
+                            <div className="rounded-lg bg-muted/40 p-3 space-y-1">
+                              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Page Description</p>
+                              <p className="text-muted-foreground whitespace-pre-line">{seoAiResult.variants[seoAiVariantIdx].description}</p>
+                            </div>
+                            <Button
+                              onClick={() => applySeoAiVariant(seoAiVariantIdx)}
+                              className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+                            >
+                              ✓ Apply Variant {seoAiVariantIdx + 1} to Form
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Google Indexing API */}
                 <div className="bg-card rounded-xl border border-border p-6 space-y-5">

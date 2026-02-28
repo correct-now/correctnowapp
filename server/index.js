@@ -3111,6 +3111,137 @@ app.post("/api/google-index", express.json({ limit: "2mb" }), async (req, res) =
   }
 });
 
+// ─── SEO Content Generator (Gemini) ────────────────────────────────────────
+app.post("/api/seo-generate", express.json({ limit: "1mb" }), async (req, res) => {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: "Missing GEMINI_API_KEY" });
+
+    const {
+      urlSlug = "",
+      languageCode = "",
+      languageName = "",
+      keywords = "",
+      tone = "professional",
+      targetAudience = "everyone",
+      extraContext = "",
+    } = req.body;
+
+    if (!urlSlug || !languageCode) {
+      return res.status(400).json({ error: "urlSlug and languageCode are required" });
+    }
+
+    const toneDesc = {
+      professional: "professional, authoritative and trustworthy",
+      friendly: "friendly, warm and approachable",
+      technical: "technical, precise and detailed",
+      simple: "simple, clear and easy to understand for beginners",
+    }[tone] || "professional";
+
+    const audienceDesc = {
+      everyone: "general audience of all ages and backgrounds",
+      students: "students doing academic writing and assignments",
+      professionals: "working professionals writing emails, reports and documents",
+      writers: "writers, bloggers and content creators",
+      teachers: "teachers and educators",
+      "non-native speakers": "non-native speakers learning or using the language",
+    }[targetAudience] || "general audience";
+
+    const focusKeywords = keywords.trim() || `${languageName} grammar checker, ${languageName} spell check, ${languageName} proofreading, online ${languageName} grammar`;
+
+    const extraNote = extraContext.trim() ? `\nExtra context to include: ${extraContext}` : "";
+
+    const prompt = `You are an expert SEO content writer specialising in language-tool landing pages.
+
+Generate SEO page content for a ${languageName} grammar checker tool with the URL slug: "${urlSlug}" on the website correctnow.app.
+
+Requirements:
+- Tone: ${toneDesc}
+- Target audience: ${audienceDesc}
+- Primary focus keywords: ${focusKeywords}
+- The tool name is "CorrectNow"
+- Every page must have unique, non-duplicate content${extraNote}
+
+Return a JSON object with EXACTLY this structure (no markdown, no code block, raw JSON only):
+{
+  "variants": [
+    {
+      "title": "Page title ≤60 chars, includes primary keyword",
+      "h1": "H1 heading ≤70 chars, unique and descriptive, reflects the slug '${urlSlug}'",
+      "metaDescription": "Meta description 140-160 chars, compelling CTA, includes keyword",
+      "keywords": "15-20 comma-separated SEO keywords",
+      "description": "3 short paragraphs (200-300 words total) explaining the tool benefits. Plain text, no HTML tags."
+    },
+    {
+      "title": "Alternative title — different wording from variant 1",
+      "h1": "Alternative H1 — different angle from variant 1",
+      "metaDescription": "Alternative meta description — different phrasing",
+      "keywords": "Same or slightly different keyword list",
+      "description": "Alternative description paragraphs — different structure/angle from variant 1"
+    }
+  ],
+  "faqItems": [
+    { "q": "Question 1 relevant to ${languageName} grammar checking", "a": "Concise answer 1-2 sentences" },
+    { "q": "Question 2", "a": "Answer" },
+    { "q": "Question 3", "a": "Answer" },
+    { "q": "Question 4", "a": "Answer" },
+    { "q": "Question 5", "a": "Answer" }
+  ],
+  "suggestedInternalLinks": [
+    "Suggested related page slug 1 (e.g. english-grammar-checker)",
+    "Suggested related page slug 2",
+    "Suggested related page slug 3"
+  ]
+}
+
+CRITICAL: The two variants must have genuinely different wording/angles. Variant 1 should focus on accuracy/correctness, Variant 2 on speed/ease-of-use. Both must be unique for Google's duplicate content detection.`;
+
+    const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.8,
+          topP: 0.9,
+          responseMimeType: "application/json",
+          maxOutputTokens: 4096,
+        },
+        systemInstruction: {
+          parts: [{ text: "Return ONLY valid JSON with no markdown formatting or code blocks." }],
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error("[seo-generate] Gemini error:", errText);
+      return res.status(502).json({ error: "Gemini API error", details: errText });
+    }
+
+    const data = await response.json();
+    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+    let parsed;
+    try {
+      // Strip any accidental markdown fences
+      const cleaned = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
+      parsed = JSON.parse(cleaned);
+    } catch {
+      console.error("[seo-generate] JSON parse failed, raw:", raw.substring(0, 500));
+      return res.status(502).json({ error: "Failed to parse Gemini response as JSON", raw: raw.substring(0, 500) });
+    }
+
+    res.json(parsed);
+  } catch (err) {
+    console.error("[seo-generate]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`CorrectNow API running on http://localhost:${PORT}`);
 });

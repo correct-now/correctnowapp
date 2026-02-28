@@ -191,11 +191,11 @@ const LanguageLanding = () => {
         {/* SEO Content Section */}
         <section className="bg-gradient-to-b from-background to-muted/20 pt-8 sm:pt-12 pb-12 sm:pb-16">
           <div className="container max-w-4xl mx-auto px-4 text-center">
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-2">
+            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4">
               {h1Text}
             </h1>
-            <p className="text-base text-muted-foreground max-w-2xl mx-auto mb-0">
-              {descriptionText}
+            <p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto mb-0">
+              {metaDescription}
             </p>
           </div>
         </section>
@@ -219,6 +219,17 @@ const LanguageLanding = () => {
                   correctnow.app/{seoData?.urlSlug || languageCode}
                 </span>
               </div>
+
+              {/* Full description — rendered as paragraphs, left-aligned */}
+              {descriptionText && descriptionText !== metaDescription && (
+                <div className="not-prose mb-8 space-y-3">
+                  {descriptionText.split(/\n+/).filter(Boolean).map((para, i) => (
+                    <p key={i} className="text-base text-foreground leading-relaxed">
+                      {para.trim()}
+                    </p>
+                  ))}
+                </div>
+              )}
 
               {/* Keywords-based intro paragraph */}
               {seoData?.keywords && (
