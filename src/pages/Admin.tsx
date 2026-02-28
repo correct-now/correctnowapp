@@ -199,7 +199,7 @@ const Admin = () => {
   const [blogAiFallbackImg, setBlogAiFallbackImg] = useState<{ unsplashUrl: string; unsplashSearchUrl: string } | null>(null);
   // Blog Google Indexing
   const [blogIndexingLoading, setBlogIndexingLoading] = useState(false);
-  const [blogIndexingResults, setBlogIndexingResults] = useState<{ url: string; ok: boolean; code: number; message: string }[]>([]);
+  const [blogIndexingResults, setBlogIndexingResults] = useState<{ url: string; ok: boolean; code: number; message?: string; notifyTime?: string | null; type?: string | null; error?: string }[]>([]);
 
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [couponCode, setCouponCode] = useState("");
@@ -246,7 +246,8 @@ const Admin = () => {
   });
   const [indexingUrlsText, setIndexingUrlsText] = useState("");
   const [indexingLoading, setIndexingLoading] = useState(false);
-  const [indexingResults, setIndexingResults] = useState<{ url: string; ok: boolean; code: number; message: string }[]>([]);
+  const [indexingStatusLoading, setIndexingStatusLoading] = useState(false);
+  const [indexingResults, setIndexingResults] = useState<{ url: string; ok: boolean; code: number; message?: string; notifyTime?: string | null; type?: string | null; error?: string }[]>([]);
   const [bulkLangCode, setBulkLangCode] = useState("");
   const [bulkLangSearch, setBulkLangSearch] = useState("");
   const [bulkSlugsText, setBulkSlugsText] = useState("");
@@ -4317,18 +4318,57 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
 
                     {blogIndexingResults.length > 0 && (
                       <div className="space-y-2 mt-2">
-                        <p className="text-xs font-medium text-foreground">
-                          Results — {blogIndexingResults.filter(r => r.ok).length}/{blogIndexingResults.length} succeeded
-                        </p>
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-medium text-foreground">
+                            Results — {blogIndexingResults.filter(r => r.ok).length}/{blogIndexingResults.length} succeeded
+                          </p>
+                          <button
+                            onClick={async () => {
+                              if (!indexingServiceJson) return;
+                              const urls = blogIndexingResults.map(r => r.url);
+                              try {
+                                const res = await fetch("/api/google-index-status", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ serviceAccountJson: indexingServiceJson, urls }),
+                                });
+                                const data = await res.json();
+                                if (!res.ok) { toast.error(data.error || "Status check failed"); return; }
+                                const statusMap = Object.fromEntries((data.results || []).map((r: { url: string; notifyTime?: string | null; type?: string | null; error?: string }) => [r.url, r]));
+                                setBlogIndexingResults(prev => prev.map(r => ({
+                                  ...r,
+                                  notifyTime: statusMap[r.url]?.notifyTime ?? r.notifyTime,
+                                  type: statusMap[r.url]?.type ?? r.type,
+                                })));
+                                const confirmed = (data.results || []).filter((r: { notifyTime?: string | null }) => r.notifyTime).length;
+                                toast.success(`${confirmed} of ${urls.length} URLs confirmed received by Google`);
+                              } catch (err: unknown) {
+                                toast.error((err instanceof Error ? err.message : String(err)) || "Status check failed");
+                              }
+                            }}
+                            className="text-xs px-2 py-1 rounded border border-border bg-background hover:bg-muted text-foreground"
+                          >
+                            Check Status
+                          </button>
+                        </div>
                         <div className="max-h-48 overflow-y-auto space-y-1">
                           {blogIndexingResults.map((r, i) => (
-                            <div key={i} className={`flex items-center gap-2 px-2 py-1 rounded text-xs ${r.ok ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400" : "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400"}`}>
+                            <div key={i} className={`flex items-start gap-2 px-2 py-1.5 rounded text-xs ${r.ok ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400" : "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400"}`}>
                               <span>{r.ok ? "✓" : "✗"}</span>
                               <span className="font-mono truncate flex-1">{r.url.replace("https://correctnow.app", "")}</span>
-                              <span className="shrink-0">{r.message}</span>
+                              <div className="shrink-0 text-right">
+                                {r.message && <span>{r.message}</span>}
+                                {r.notifyTime && (
+                                  <span className="block text-green-600 dark:text-green-400">✓ {new Date(r.notifyTime).toLocaleDateString()}</span>
+                                )}
+                                {r.notifyTime === null && (
+                                  <span className="block text-amber-500">Not received yet</span>
+                                )}
+                              </div>
                             </div>
                           ))}
                         </div>
+                        <p className="text-xs text-muted-foreground">Click <strong>Check Status</strong> to confirm Google received each URL. Actual indexing takes hours to days.</p>
                       </div>
                     )}
                   </div>
@@ -5728,19 +5768,68 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-medium text-foreground">Results</p>
-                        <span className="text-xs text-muted-foreground">
-                          {indexingResults.filter(r => r.ok).length} success / {indexingResults.filter(r => !r.ok).length} failed
-                        </span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-muted-foreground">
+                            {indexingResults.filter(r => r.ok).length} success / {indexingResults.filter(r => !r.ok).length} failed
+                          </span>
+                          <button
+                            onClick={async () => {
+                              if (!indexingServiceJson) return;
+                              const urls = indexingResults.map(r => r.url);
+                              setIndexingStatusLoading(true);
+                              try {
+                                const res = await fetch("/api/google-index-status", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ serviceAccountJson: indexingServiceJson, urls }),
+                                });
+                                const data = await res.json();
+                                if (!res.ok) { toast.error(data.error || "Status check failed"); return; }
+                                // Merge notifyTime into existing results
+                                const statusMap = Object.fromEntries((data.results || []).map((r: { url: string; notifyTime?: string | null; type?: string | null; error?: string }) => [r.url, r]));
+                                setIndexingResults(prev => prev.map(r => ({
+                                  ...r,
+                                  notifyTime: statusMap[r.url]?.notifyTime ?? r.notifyTime,
+                                  type: statusMap[r.url]?.type ?? r.type,
+                                  error: statusMap[r.url]?.error ?? r.error,
+                                })));
+                                const confirmed = (data.results || []).filter((r: { notifyTime?: string | null }) => r.notifyTime).length;
+                                toast.success(`${confirmed} of ${urls.length} URLs confirmed received by Google`);
+                              } catch (err: unknown) {
+                                toast.error((err instanceof Error ? err.message : String(err)) || "Status check failed");
+                              } finally {
+                                setIndexingStatusLoading(false);
+                              }
+                            }}
+                            disabled={indexingStatusLoading}
+                            className="text-xs px-2 py-1 rounded border border-border bg-background hover:bg-muted text-foreground disabled:opacity-50"
+                          >
+                            {indexingStatusLoading ? "Checking…" : "Check Status"}
+                          </button>
+                        </div>
                       </div>
-                      <div className="max-h-60 overflow-y-auto space-y-1 rounded-lg border border-border p-3 bg-muted/30">
+                      <div className="max-h-72 overflow-y-auto space-y-1 rounded-lg border border-border p-3 bg-muted/30">
                         {indexingResults.map((r, i) => (
-                          <div key={i} className="flex items-center gap-2 text-xs">
-                            <span className={r.ok ? "text-green-500" : "text-red-500"}>{r.ok ? "✓" : "✗"}</span>
+                          <div key={i} className="flex items-start gap-2 text-xs py-0.5">
+                            <span className={r.ok ? "text-green-500 mt-0.5" : "text-red-500 mt-0.5"}>{r.ok ? "✓" : "✗"}</span>
                             <span className="font-mono text-foreground flex-1 truncate">{r.url}</span>
-                            <span className={`shrink-0 ${r.ok ? "text-muted-foreground" : "text-red-500"}`}>{r.message}</span>
+                            <div className="shrink-0 text-right space-y-0.5">
+                              {r.message && <span className={r.ok ? "text-muted-foreground" : "text-red-500"}>{r.message}</span>}
+                              {r.notifyTime ? (
+                                <span className="block text-green-600 dark:text-green-400">
+                                  ✓ Confirmed {new Date(r.notifyTime).toLocaleString()}
+                                </span>
+                              ) : r.notifyTime === null ? (
+                                <span className="block text-amber-500">Not yet received by Google</span>
+                              ) : null}
+                              {r.error && <span className="block text-red-500">{r.error}</span>}
+                            </div>
                           </div>
                         ))}
                       </div>
+                      <p className="text-xs text-muted-foreground">
+                        "Submitted" = request sent. Click <strong>Check Status</strong> to confirm Google has received it. Actual indexing may take hours to days.
+                      </p>
                     </div>
                   )}
                 </div>

@@ -3111,6 +3111,73 @@ app.post("/api/google-index", express.json({ limit: "2mb" }), async (req, res) =
   }
 });
 
+// ─── Google Indexing Status Check ───────────────────────────────────────────
+app.post("/api/google-index-status", express.json({ limit: "2mb" }), async (req, res) => {
+  try {
+    const { serviceAccountJson, urls } = req.body;
+    if (!serviceAccountJson || !Array.isArray(urls) || !urls.length) {
+      return res.status(400).json({ error: "serviceAccountJson and urls[] are required" });
+    }
+    const sa = typeof serviceAccountJson === "string" ? JSON.parse(serviceAccountJson) : serviceAccountJson;
+    if (!sa.client_email || !sa.private_key) {
+      return res.status(400).json({ error: "Invalid service account JSON" });
+    }
+    // Build JWT + get access token
+    const now = Math.floor(Date.now() / 1000);
+    const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+    const payload = Buffer.from(JSON.stringify({
+      iss: sa.client_email, sub: sa.client_email,
+      aud: "https://oauth2.googleapis.com/token",
+      iat: now, exp: now + 3600,
+      scope: "https://www.googleapis.com/auth/indexing",
+    })).toString("base64url");
+    const signingInput = `${header}.${payload}`;
+    const sign = crypto.createSign("RSA-SHA256");
+    sign.update(signingInput);
+    const signature = sign.sign(sa.private_key, "base64url");
+    const jwt = `${signingInput}.${signature}`;
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: jwt }),
+    });
+    const tokenData = await tokenRes.json();
+    if (!tokenData.access_token) {
+      return res.status(401).json({ error: "Failed to obtain access token", details: tokenData });
+    }
+    // Check metadata for each URL
+    const results = [];
+    for (const url of urls.slice(0, 200)) {
+      try {
+        const r = await fetch(
+          `https://indexing.googleapis.com/v3/urlNotifications/metadata?url=${encodeURIComponent(url)}`,
+          { headers: { Authorization: `Bearer ${tokenData.access_token}` } }
+        );
+        const data = await r.json();
+        if (r.ok && data.latestUpdate) {
+          results.push({
+            url,
+            ok: true,
+            code: r.status,
+            type: data.latestUpdate.type || "URL_UPDATED",
+            notifyTime: data.latestUpdate.notifyTime || null,
+          });
+        } else if (r.status === 404) {
+          results.push({ url, ok: false, code: 404, type: null, notifyTime: null });
+        } else {
+          results.push({ url, ok: false, code: r.status, type: null, notifyTime: null, error: data?.error?.message });
+        }
+      } catch (err) {
+        results.push({ url, ok: false, code: 0, type: null, notifyTime: null, error: err.message });
+      }
+    }
+    res.json({ results });
+  } catch (err) {
+    console.error("[google-index-status]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Blog Content Generator (Gemini) ────────────────────────────────────────
 app.post("/api/blog-generate", express.json({ limit: "1mb" }), async (req, res) => {
   try {
