@@ -180,6 +180,27 @@ const Admin = () => {
   const [blogEditorKey, setBlogEditorKey] = useState(0);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
+  // Blog AI Generator
+  const [blogAiKeywords, setBlogAiKeywords] = useState("");
+  const [blogAiTone, setBlogAiTone] = useState("informative");
+  const [blogAiAudience, setBlogAiAudience] = useState("everyone");
+  const [blogAiWordCount, setBlogAiWordCount] = useState("800");
+  const [blogAiExtraContext, setBlogAiExtraContext] = useState("");
+  const [blogAiLanguage, setBlogAiLanguage] = useState("English");
+  const [blogAiGenerating, setBlogAiGenerating] = useState(false);
+  const [blogAiResult, setBlogAiResult] = useState<null | {
+    title: string; slug: string; metaDescription: string; excerpt: string;
+    tags: string[]; imagePrompt: string; contentHtml: string;
+  }>(null);
+  // Blog Image Generation
+  const [blogAiImageStyle, setBlogAiImageStyle] = useState("photorealistic");
+  const [blogAiImgGenerating, setBlogAiImgGenerating] = useState(false);
+  const [blogAiGeneratedImages, setBlogAiGeneratedImages] = useState<Array<{ dataUrl: string }>>([]);
+  const [blogAiFallbackImg, setBlogAiFallbackImg] = useState<{ unsplashUrl: string; unsplashSearchUrl: string } | null>(null);
+  // Blog Google Indexing
+  const [blogIndexingLoading, setBlogIndexingLoading] = useState(false);
+  const [blogIndexingResults, setBlogIndexingResults] = useState<{ url: string; ok: boolean; code: number; message: string }[]>([]);
+
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [couponCode, setCouponCode] = useState("");
   const [couponPercent, setCouponPercent] = useState("");
@@ -565,6 +586,11 @@ const Admin = () => {
     setBlogDateTime(toLocalInputValue(nowIso));
     setBlogImages([]);
     setBlogEditorKey((prev) => prev + 1);
+    setBlogAiResult(null);
+    setBlogAiKeywords("");
+    setBlogAiExtraContext("");
+    setBlogAiGeneratedImages([]);
+    setBlogAiFallbackImg(null);
   };
 
   const handleReactivateUser = async (userId: string) => {
@@ -702,6 +728,124 @@ const Admin = () => {
     toast.success(`Variant ${idx + 1} applied`);
   };
   // ────────────────────────────────────────────────────────────────────────
+
+  // ─── Blog AI Handlers ────────────────────────────────────────────────────
+  const handleBlogAiGenerate = async () => {
+    if (!blogAiKeywords && !blogTitle) {
+      toast.error("Enter keywords or a title first");
+      return;
+    }
+    setBlogAiGenerating(true);
+    setBlogAiResult(null);
+    setBlogAiGeneratedImages([]);
+    setBlogAiFallbackImg(null);
+    try {
+      const res = await fetch("/api/blog-generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: blogTitle,
+          keywords: blogAiKeywords,
+          tone: blogAiTone,
+          targetAudience: blogAiAudience,
+          wordCount: parseInt(blogAiWordCount) || 800,
+          extraContext: blogAiExtraContext,
+          language: blogAiLanguage,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Generation failed");
+      setBlogAiResult(data);
+      // Auto-apply to form
+      if (data.title) setBlogTitle(data.title);
+      if (data.slug) setBlogCustomSlug(data.slug);
+      if (data.contentHtml && blogEditorRef.current) {
+        blogEditorRef.current.innerHTML = data.contentHtml;
+        syncBlogContentState(data.contentHtml);
+      }
+      toast.success("Blog content generated! Review and edit as needed.");
+    } catch (err: any) {
+      toast.error(err.message || "AI generation failed");
+    } finally {
+      setBlogAiGenerating(false);
+    }
+  };
+
+  const handleBlogImageGenerate = async () => {
+    const prompt = blogAiResult?.imagePrompt || blogAiKeywords || blogTitle;
+    if (!prompt) {
+      toast.error("Generate blog content first, or enter keywords");
+      return;
+    }
+    setBlogAiImgGenerating(true);
+    setBlogAiGeneratedImages([]);
+    setBlogAiFallbackImg(null);
+    try {
+      const res = await fetch("/api/blog-image-generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, style: blogAiImageStyle }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Image generation failed");
+      if (data.fallback) {
+        setBlogAiFallbackImg({ unsplashUrl: data.unsplashUrl, unsplashSearchUrl: data.unsplashSearchUrl });
+        toast.info("Imagen API unavailable — showing Unsplash suggestions instead.");
+      } else {
+        setBlogAiGeneratedImages(data.images || []);
+        toast.success(`${data.images?.length} image(s) generated!`);
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Image generation failed");
+    } finally {
+      setBlogAiImgGenerating(false);
+    }
+  };
+
+  const applyBlogAiImage = (dataUrl: string) => {
+    // Only works for data: URLs (base64) — external URLs can't be fetched cross-origin
+    if (!dataUrl.startsWith("data:")) {
+      window.open(dataUrl, "_blank");
+      return;
+    }
+    fetch(dataUrl)
+      .then(r => r.blob())
+      .then(blob => {
+        const file = new File([blob], "ai-generated.png", { type: blob.type || "image/png" });
+        const preview = dataUrl;
+        setBlogImages(prev => [{ file, preview }, ...prev]);
+        toast.success("Image added as cover photo");
+      })
+      .catch(() => toast.error("Failed to apply image"));
+  };
+
+  const handleBlogIndexing = async () => {
+    const sa = indexingServiceJson;
+    if (!sa) { toast.error("Paste your Google service account JSON in the SEO tab first"); return; }
+    const urls = blogPosts
+      .filter(p => p.slug || p.id)
+      .map(p => `https://correctnow.app/blog/${p.slug || p.id}`);
+    if (!urls.length) { toast.error("No blog posts to index"); return; }
+    setBlogIndexingLoading(true);
+    setBlogIndexingResults([]);
+    try {
+      const res = await fetch("/api/google-index", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serviceAccountJson: sa, urls }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Indexing failed");
+      setBlogIndexingResults(data.results || []);
+      const ok = data.results?.filter((r: any) => r.ok).length || 0;
+      toast.success(`Submitted ${ok}/${data.results?.length} blog posts to Google`);
+    } catch (err: any) {
+      toast.error(err.message || "Indexing failed");
+    } finally {
+      setBlogIndexingLoading(false);
+    }
+  };
+  // ─────────────────────────────────────────────────────────────────────────
 
   const handleDeleteSelectedUsers = async () => {
     const db = getFirebaseDb();
@@ -3702,6 +3846,163 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                         Leave empty to auto-generate from title. Only use lowercase letters, numbers, and hyphens.
                       </p>
                     </div>
+
+                    {/* ─── AI Blog Content Generator ─────────────────── */}
+                    <div className="rounded-xl border-2 border-purple-400/40 bg-purple-50/40 dark:bg-purple-950/20 p-4 space-y-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-lg">✨</span>
+                        <h4 className="text-sm font-semibold text-purple-700 dark:text-purple-300">AI Blog Generator</h4>
+                        <span className="ml-auto text-xs text-muted-foreground">Powered by Gemini</span>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-muted-foreground">Keywords / Topic *</label>
+                        <Input
+                          value={blogAiKeywords}
+                          onChange={(e) => setBlogAiKeywords(e.target.value)}
+                          placeholder="e.g. Tamil grammar mistakes beginners should avoid"
+                          className="text-sm"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium mb-1 text-muted-foreground">Tone</label>
+                          <select value={blogAiTone} onChange={(e) => setBlogAiTone(e.target.value)}
+                            className="w-full px-2 py-1.5 text-sm rounded-lg border border-border bg-background text-foreground">
+                            <option value="informative">Informative</option>
+                            <option value="conversational">Conversational</option>
+                            <option value="professional">Professional</option>
+                            <option value="storytelling">Storytelling</option>
+                            <option value="how-to">How-To Guide</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium mb-1 text-muted-foreground">Target Audience</label>
+                          <select value={blogAiAudience} onChange={(e) => setBlogAiAudience(e.target.value)}
+                            className="w-full px-2 py-1.5 text-sm rounded-lg border border-border bg-background text-foreground">
+                            <option value="everyone">Everyone</option>
+                            <option value="students">Students</option>
+                            <option value="professionals">Professionals</option>
+                            <option value="writers">Writers / Bloggers</option>
+                            <option value="teachers">Teachers</option>
+                            <option value="beginners">Beginners</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium mb-1 text-muted-foreground">Word Count</label>
+                          <select value={blogAiWordCount} onChange={(e) => setBlogAiWordCount(e.target.value)}
+                            className="w-full px-2 py-1.5 text-sm rounded-lg border border-border bg-background text-foreground">
+                            <option value="400">~400 words (Short)</option>
+                            <option value="800">~800 words (Standard)</option>
+                            <option value="1200">~1200 words (Long)</option>
+                            <option value="2000">~2000 words (Deep Dive)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium mb-1 text-muted-foreground">Blog Language</label>
+                          <Input
+                            value={blogAiLanguage}
+                            onChange={(e) => setBlogAiLanguage(e.target.value)}
+                            placeholder="English"
+                            className="text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-muted-foreground">Extra Context (optional)</label>
+                        <Input
+                          value={blogAiExtraContext}
+                          onChange={(e) => setBlogAiExtraContext(e.target.value)}
+                          placeholder="e.g. Include tips for Tamil script, mention CorrectNow's free plan..."
+                          className="text-sm"
+                        />
+                      </div>
+
+                      <Button onClick={handleBlogAiGenerate} disabled={blogAiGenerating || (!blogAiKeywords && !blogTitle)}
+                        className="w-full bg-purple-600 hover:bg-purple-700 text-white">
+                        {blogAiGenerating
+                          ? <><span className="animate-spin mr-2">⟳</span>Generating…</>
+                          : <>✨ Generate Blog Post with AI</>}
+                      </Button>
+
+                      {/* AI Result summary */}
+                      {blogAiResult && (
+                        <div className="pt-2 border-t border-purple-200 dark:border-purple-800 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-green-600 dark:text-green-400">✓ Generated</span>
+                            <span className="text-xs text-muted-foreground">— title, slug, content applied to form</span>
+                          </div>
+                          {blogAiResult.tags?.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {blogAiResult.tags.map((t, i) => (
+                                <span key={i} className="px-2 py-0.5 bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded-full text-xs">{t}</span>
+                              ))}
+                            </div>
+                          )}
+                          {blogAiResult.excerpt && (
+                            <p className="text-xs text-muted-foreground italic">"{blogAiResult.excerpt}"</p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ─── Image Generator ─── */}
+                      <div className="pt-3 border-t border-purple-200 dark:border-purple-800 space-y-2">
+                        <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">🖼 AI Image Generator</p>
+                        <div className="flex gap-2">
+                          <select value={blogAiImageStyle} onChange={(e) => setBlogAiImageStyle(e.target.value)}
+                            className="flex-1 px-2 py-1.5 text-sm rounded-lg border border-border bg-background text-foreground">
+                            <option value="photorealistic">Photorealistic</option>
+                            <option value="illustration">Digital Illustration</option>
+                            <option value="3d">3D Render</option>
+                            <option value="minimal">Minimalist</option>
+                          </select>
+                          <Button onClick={handleBlogImageGenerate} disabled={blogAiImgGenerating}
+                            variant="outline" className="border-purple-400 text-purple-700 dark:text-purple-300">
+                            {blogAiImgGenerating ? <span className="animate-spin">⟳</span> : "Generate Image"}
+                          </Button>
+                        </div>
+                        {blogAiResult?.imagePrompt && (
+                          <p className="text-xs text-muted-foreground">Prompt: {blogAiResult.imagePrompt}</p>
+                        )}
+
+                        {/* Generated images */}
+                        {blogAiGeneratedImages.length > 0 && (
+                          <div className="grid grid-cols-2 gap-2 mt-2">
+                            {blogAiGeneratedImages.map((img, i) => (
+                              <div key={i} className="relative group rounded-lg overflow-hidden border border-border">
+                                <img src={img.dataUrl} alt={`Generated ${i + 1}`} className="w-full h-32 object-cover" />
+                                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                  <button onClick={() => applyBlogAiImage(img.dataUrl)}
+                                    className="px-2 py-1 bg-white text-black rounded text-xs font-medium">
+                                    Use as Cover
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Unsplash fallback */}
+                        {blogAiFallbackImg && (
+                          <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-700 rounded-lg p-3 space-y-2">
+                            <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                              AI image generation unavailable — find a free image on Unsplash, download it, then upload below.
+                            </p>
+                            <a href={blogAiFallbackImg.unsplashSearchUrl} target="_blank" rel="noopener noreferrer"
+                              className="flex items-center justify-center gap-1 w-full px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded text-xs font-medium text-center">
+                              Browse Unsplash for "{blogAiResult?.imagePrompt?.split(" ").slice(0, 4).join(" ") || "images"}"...
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {/* ────────────────────────────────────────────────── */}
+
                     <div>
                       <label className="block text-sm font-medium mb-2">Content</label>
                       <div className="rounded-lg border border-border bg-background">
@@ -3970,6 +4271,65 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                       </div>
                     ) : (
                       <p className="text-sm text-muted-foreground">No blog posts yet.</p>
+                    )}
+                  </div>
+
+                  {/* Google Indexing for Blog Posts */}
+                  <div className="bg-card rounded-xl border border-border p-6 space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-blue-500" />
+                      <h3 className="text-base font-semibold text-foreground">Submit Blog Posts to Google</h3>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Submit all published blog post URLs to Google for fast indexing. Uses the same service account configured in the SEO tab.
+                      Limit: 200 URLs/day.
+                    </p>
+
+                    {!indexingServiceJson && (
+                      <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-700 rounded-lg p-3">
+                        <p className="text-xs text-amber-700 dark:text-amber-300">
+                          ⚠ No service account configured. Go to <strong>SEO tab → Google Indexing API</strong> and paste your service account JSON key first.
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="bg-muted/40 rounded-lg p-3 space-y-1">
+                      <p className="text-xs font-medium text-foreground">URLs to be submitted ({blogPosts.length}):</p>
+                      <div className="max-h-32 overflow-y-auto space-y-0.5">
+                        {blogPosts.map(p => (
+                          <p key={p.id} className="text-xs font-mono text-muted-foreground">
+                            correctnow.app/blog/{p.slug || p.id}
+                          </p>
+                        ))}
+                        {!blogPosts.length && <p className="text-xs text-muted-foreground italic">No posts yet</p>}
+                      </div>
+                    </div>
+
+                    <Button
+                      onClick={handleBlogIndexing}
+                      disabled={blogIndexingLoading || !indexingServiceJson || !blogPosts.length}
+                      className="w-full"
+                    >
+                      {blogIndexingLoading
+                        ? <><span className="animate-spin mr-2">⟳</span>Submitting…</>
+                        : <><Globe className="w-4 h-4 mr-2" />Submit All Blog Posts to Google</>}
+                    </Button>
+
+                    {blogIndexingResults.length > 0 && (
+                      <div className="space-y-2 mt-2">
+                        <p className="text-xs font-medium text-foreground">
+                          Results — {blogIndexingResults.filter(r => r.ok).length}/{blogIndexingResults.length} succeeded
+                        </p>
+                        <div className="max-h-48 overflow-y-auto space-y-1">
+                          {blogIndexingResults.map((r, i) => (
+                            <div key={i} className={`flex items-center gap-2 px-2 py-1 rounded text-xs ${r.ok ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400" : "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400"}`}>
+                              <span>{r.ok ? "✓" : "✗"}</span>
+                              <span className="font-mono truncate flex-1">{r.url.replace("https://correctnow.app", "")}</span>
+                              <span className="shrink-0">{r.message}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
               </div>

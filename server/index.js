@@ -3111,6 +3111,179 @@ app.post("/api/google-index", express.json({ limit: "2mb" }), async (req, res) =
   }
 });
 
+// ─── Blog Content Generator (Gemini) ────────────────────────────────────────
+app.post("/api/blog-generate", express.json({ limit: "1mb" }), async (req, res) => {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: "Missing GEMINI_API_KEY" });
+
+    const {
+      title = "",
+      keywords = "",
+      tone = "informative",
+      targetAudience = "everyone",
+      wordCount = 800,
+      extraContext = "",
+      language = "English",
+    } = req.body;
+
+    if (!keywords && !title) {
+      return res.status(400).json({ error: "Provide at least keywords or a title" });
+    }
+
+    const toneMap = {
+      informative: "informative, educational and authoritative",
+      conversational: "conversational, friendly and engaging",
+      professional: "professional, formal and polished",
+      storytelling: "story-driven, narrative and engaging",
+      "how-to": "practical step-by-step how-to guide style",
+    };
+    const toneDesc = toneMap[tone] || "informative";
+
+    const audienceMap = {
+      everyone: "a general audience",
+      students: "students and academics",
+      professionals: "working professionals",
+      writers: "writers and content creators",
+      teachers: "teachers and educators",
+      beginners: "beginners with no prior knowledge",
+    };
+    const audienceDesc = audienceMap[targetAudience] || "a general audience";
+
+    const extraNote = extraContext.trim() ? `\nAdditional context: ${extraContext}` : "";
+    const titleHint = title ? `\nTitle to use (can be improved): "${title}"` : "";
+
+    const prompt = `You are an expert blog content writer for CorrectNow, an AI grammar checking tool that supports all languages.
+
+Write a high-quality SEO blog post with these specifications:
+- Keywords to target: ${keywords || title}
+- Tone: ${toneDesc}
+- Target audience: ${audienceDesc}
+- Approximate word count: ${wordCount} words
+- Language of the blog post: ${language}
+- Website: correctnow.app${titleHint}${extraNote}
+
+Return ONLY a valid JSON object (no markdown, no code blocks) with this exact structure:
+{
+  "title": "Compelling SEO-optimised blog post title",
+  "slug": "url-friendly-slug-from-title",
+  "metaDescription": "SEO meta description 140-160 chars with primary keyword",
+  "excerpt": "2-3 sentence engaging excerpt/summary for blog listing pages",
+  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
+  "imagePrompt": "Detailed image generation prompt describing a professional blog header image that visually represents this topic (no text in image, photorealistic or illustration style)",
+  "contentHtml": "Full blog post as clean HTML using these tags only: <h2>, <h3>, <p>, <strong>, <em>, <ul>, <ol>, <li>, <blockquote>, <a href='...' target='_blank'>. Include: intro paragraph, 4-6 sections with H2 headings, conclusion with CTA to try CorrectNow. NO inline styles. NO div tags. NO script tags."
+}
+
+CRITICAL: contentHtml must be valid embeddable HTML only. Return raw JSON only.`;
+
+    const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.85,
+          topP: 0.9,
+          responseMimeType: "application/json",
+          maxOutputTokens: 8192,
+        },
+        systemInstruction: {
+          parts: [{ text: "Return ONLY valid JSON. No markdown. No code blocks." }],
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(502).json({ error: "Gemini error", details: errText });
+    }
+
+    const data = await response.json();
+    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+    let parsed;
+    try {
+      const cleaned = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
+      parsed = JSON.parse(cleaned);
+    } catch {
+      return res.status(502).json({ error: "Failed to parse Gemini response", raw: raw.substring(0, 500) });
+    }
+
+    res.json(parsed);
+  } catch (err) {
+    console.error("[blog-generate]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Blog Image Generator (Imagen via Gemini) ────────────────────────────────
+app.post("/api/blog-image-generate", express.json({ limit: "1mb" }), async (req, res) => {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: "Missing GEMINI_API_KEY" });
+
+    const { prompt = "", style = "photorealistic" } = req.body;
+    if (!prompt) return res.status(400).json({ error: "prompt is required" });
+
+    const styleGuide = {
+      photorealistic: "photorealistic, high quality photography, professional blog header",
+      illustration: "digital illustration, flat design, vibrant colors, blog header",
+      "3d": "3D render, modern, clean, professional blog header",
+      minimal: "minimalist design, clean, elegant, soft colors, blog header",
+    }[style] || "photorealistic, high quality photography";
+
+    const fullPrompt = `${prompt}. Style: ${styleGuide}. No text overlay. No watermarks. Wide aspect ratio 16:9. Professional blog header image.`;
+
+    // Use Gemini image generation
+    const geminiImgEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`;
+
+    const makeImageRequest = () =>
+      fetch(geminiImgEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: fullPrompt }] }],
+          generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
+        }),
+      });
+
+    // Make 2 requests in parallel to get 2 image variants
+    const [res1, res2] = await Promise.all([makeImageRequest(), makeImageRequest()]);
+
+    const extractImage = async (r) => {
+      if (!r.ok) return null;
+      const d = await r.json();
+      const parts = d?.candidates?.[0]?.content?.parts || [];
+      const imgPart = parts.find((p) => p.inlineData);
+      if (!imgPart) return null;
+      return {
+        dataUrl: `data:${imgPart.inlineData.mimeType};base64,${imgPart.inlineData.data}`,
+        mimeType: imgPart.inlineData.mimeType,
+      };
+    };
+
+    const [img1, img2] = await Promise.all([extractImage(res1), extractImage(res2)]);
+    const images = [img1, img2].filter(Boolean);
+
+    if (!images.length) {
+      const unsplashQuery = encodeURIComponent(prompt.split(" ").slice(0, 4).join(" "));
+      return res.json({
+        fallback: true,
+        unsplashUrl: `https://source.unsplash.com/1200x630/?${unsplashQuery}`,
+        unsplashSearchUrl: `https://unsplash.com/s/photos/${unsplashQuery}`,
+      });
+    }
+
+    res.json({ images });
+  } catch (err) {
+    console.error("[blog-image-generate]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── SEO Content Generator (Gemini) ────────────────────────────────────────
 app.post("/api/seo-generate", express.json({ limit: "1mb" }), async (req, res) => {
   try {
