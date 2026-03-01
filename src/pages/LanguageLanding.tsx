@@ -1,6 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
+
+/** Render plain text, turning any bare http(s) URLs into clickable <a> links */
+const renderWithLinks = (text: string): React.ReactNode[] => {
+  const urlRegex = /(https?:\/\/[^\s<>"'&)(\]]+)/g;
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = urlRegex.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    const url = m[1].replace(/[.,;:!?)]+$/, ""); // strip trailing punctuation
+    parts.push(
+      <a key={m.index} href={url} target="_blank" rel="noopener noreferrer"
+        className="text-blue-600 underline hover:text-blue-800 break-all">
+        {url}
+      </a>
+    );
+    last = m.index + m[1].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+};
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ProofreadingEditor from "@/components/ProofreadingEditor";
@@ -225,7 +246,7 @@ const LanguageLanding = () => {
                 <div className="not-prose mb-8 space-y-3">
                   {descriptionText.split(/\n+/).filter(Boolean).map((para, i) => (
                     <p key={i} className="text-base text-foreground leading-relaxed">
-                      {para.trim()}
+                      {renderWithLinks(para.trim())}
                     </p>
                   ))}
                 </div>

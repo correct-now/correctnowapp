@@ -93,9 +93,18 @@ const BlogPostFirestore = () => {
   }, [id]);
 
   const safeHtml = useMemo(() => {
-    const html = post?.contentHtml || "";
-    if (!html) return "";
-    return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+    const raw = post?.contentHtml || "";
+    if (!raw) return "";
+    // Convert any bare URLs to <a> links before sanitising
+    const linked = raw.replace(
+      /(<a[\s\S]*?<\/a>)|(\bhttps?:\/\/[^\s<>"'&)(\]]+)/g,
+      (match, aTag, url) => {
+        if (aTag) return aTag;
+        const stripped = url.replace(/[.,;:!?)]+$/, "");
+        return `<a href="${stripped}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline;">${stripped}</a>`;
+      }
+    );
+    return DOMPurify.sanitize(linked, { USE_PROFILES: { html: true }, ADD_ATTR: ["target", "rel"] });
   }, [post?.contentHtml]);
 
   useEffect(() => {

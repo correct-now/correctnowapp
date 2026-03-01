@@ -813,8 +813,9 @@ const Admin = () => {
       if (data.title) setBlogTitle(data.title);
       if (data.slug) setBlogCustomSlug(data.slug);
       if (data.contentHtml && blogEditorRef.current) {
-        blogEditorRef.current.innerHTML = data.contentHtml;
-        syncBlogContentState(data.contentHtml);
+        const linkedHtml = linkifyHtml(data.contentHtml);
+        blogEditorRef.current.innerHTML = linkedHtml;
+        syncBlogContentState(linkedHtml);
       }
       toast.success("Blog content generated! Review and edit as needed.");
     } catch (err: any) {
@@ -1233,7 +1234,9 @@ const Admin = () => {
   // Update blog editor content only when loading/resetting, not on every keystroke
   useEffect(() => {
     if (blogEditorRef.current) {
-      blogEditorRef.current.innerHTML = blogContentHtml;
+      const linked = linkifyHtml(blogContentHtml);
+      blogEditorRef.current.innerHTML = linked;
+      if (linked !== blogContentHtml) setBlogContentHtml(linked);
     }
   }, [blogEditorKey]);
 
@@ -2142,6 +2145,31 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
       e.preventDefault();
       applyBlogCommand('underline');
     }
+  };
+
+  /** Convert bare URLs in HTML to clickable <a> tags (skips already-linked URLs) */
+  const linkifyHtml = (html: string): string => {
+    return html.replace(
+      /(<a[\s\S]*?<\/a>)|(\bhttps?:\/\/[^\s<>"'&)(\]]+)/g,
+      (match, aTag, url) => {
+        if (aTag) return aTag; // already an anchor — leave intact
+        // Strip trailing punctuation that's unlikely part of the URL
+        const stripped = url.replace(/[.,;:!?)]+$/, "");
+        return `<a href="${stripped}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline;">${stripped}</a>`;
+      }
+    );
+  };
+
+  const handleBlogPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    // After the browser inserts pasted content, linkify any bare URLs in it
+    setTimeout(() => {
+      if (!blogEditorRef.current) return;
+      const newHtml = linkifyHtml(blogEditorRef.current.innerHTML);
+      if (newHtml !== blogEditorRef.current.innerHTML) {
+        blogEditorRef.current.innerHTML = newHtml;
+        syncBlogContentState(newHtml);
+      }
+    }, 0);
   };
 
   const handleBlogLink = () => {
@@ -4510,6 +4538,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                           suppressContentEditableWarning
                           onInput={(e) => syncBlogContentState(e.currentTarget.innerHTML)}
                           onKeyDown={handleBlogKeyDown}
+                          onPaste={handleBlogPaste}
                         />
                       </div>
                       <p className="text-xs text-muted-foreground mt-2">
