@@ -94,11 +94,11 @@ const tests = {
   },
 
   test2_ProUser() {
-    log.test('TEST 2: Pro User (50K Credits)');
+    log.test('TEST 2: Pro User (25K Credits)');
     
     const userData = {
       plan: 'pro',
-      credits: 50000,
+      credits: 25000,
       creditsUsed: 0,
       wordLimit: 5000,
       subscriptionStatus: 'active',
@@ -109,12 +109,12 @@ const tests = {
     const credits = calculateCredits(userData);
 
     const pass = 
-      credits.planCredits === 50000 &&
-      credits.available === 50000 &&
+      credits.planCredits === 25000 &&
+      credits.available === 25000 &&
       userData.wordLimit === 5000;
 
     if (pass) {
-      log.success('Pro user has 50K credits and 5K word limit');
+      log.success('Pro user has 25K credits and 5K word limit');
       log.result(`Credits: ${credits.available.toLocaleString()}, Limit: ${userData.wordLimit.toLocaleString()}`);
     } else {
       log.error('Pro user credits or limit incorrect');
@@ -128,26 +128,26 @@ const tests = {
     
     let userData = {
       plan: 'pro',
-      credits: 50000,
+      credits: 25000,
       creditsUsed: 0,
     };
 
     // After checking 5000 words
     userData.creditsUsed = 5000;
     let credits = calculateCredits(userData);
-    const pass1 = credits.available === 45000;
+    const pass1 = credits.available === 20000;
 
     // After checking another 10000 words (15000 total)
     userData.creditsUsed = 15000;
     credits = calculateCredits(userData);
-    const pass2 = credits.available === 35000;
+    const pass2 = credits.available === 10000;
 
     const pass = pass1 && pass2;
 
     if (pass) {
       log.success('Credit usage tracked correctly');
-      log.result(`After 5K: 45K remaining ✓`);
-      log.result(`After 15K total: 35K remaining ✓`);
+      log.result(`After 5K: 20K remaining ✓`);
+      log.result(`After 15K total: 10K remaining ✓`);
     } else {
       log.error('Credit usage tracking failed');
     }
@@ -163,7 +163,7 @@ const tests = {
     
     const userData = {
       plan: 'pro',
-      credits: 50000,
+      credits: 25000,
       creditsUsed: 30000,
       subscriptionStatus: 'active',
       subscriptionUpdatedAt: new Date().toISOString(),
@@ -180,7 +180,7 @@ const tests = {
       userData.creditsResetDate = new Date().toISOString();
       
       const credits = calculateCredits(userData);
-      const pass = credits.available === 50000;
+      const pass = credits.available === 25000;
       
       if (pass) {
         log.success('Credits reset to full amount');
@@ -204,7 +204,7 @@ const tests = {
     
     const userData = {
       plan: 'pro',
-      credits: 50000,
+      credits: 25000,
       creditsUsed: 0,
       addonCredits: 10000,
       addonCreditsExpiryAt: thirtyDaysFromNow.toISOString(),
@@ -213,18 +213,18 @@ const tests = {
     const credits = calculateCredits(userData);
 
     const pass = 
-      credits.planCredits === 50000 &&
+      credits.planCredits === 25000 &&
       credits.addonCredits === 10000 &&
-      credits.totalCredits === 60000 &&
-      credits.available === 60000 &&
+      credits.totalCredits === 35000 &&
+      credits.available === 35000 &&
       credits.addonValid === true;
 
     if (pass) {
       log.success('Addon credits added correctly');
-      log.result(`Plan: 50K, Addon: +10K, Total: 60K ✓`);
+      log.result(`Plan: 25K, Addon: +10K, Total: 35K ✓`);
     } else {
       log.error('Addon credits not working correctly');
-      log.result(`Expected total: 60000, Got: ${credits.totalCredits}`);
+      log.result(`Expected total: 35000, Got: ${credits.totalCredits}`);
     }
 
     return pass;
@@ -237,7 +237,7 @@ const tests = {
     
     const userData = {
       plan: 'pro',
-      credits: 50000,
+      credits: 25000,
       creditsUsed: 0,
       addonCredits: 10000,
       addonCreditsExpiryAt: pastDate.toISOString(),
@@ -247,13 +247,13 @@ const tests = {
 
     const pass = 
       credits.addonCredits === 0 &&
-      credits.totalCredits === 50000 &&
-      credits.available === 50000 &&
+      credits.totalCredits === 25000 &&
+      credits.available === 25000 &&
       credits.addonValid === false;
 
     if (pass) {
       log.success('Expired addon credits ignored correctly');
-      log.result(`Addon: 0 (expired), Total: 50K ✓`);
+      log.result(`Addon: 0 (expired), Total: 25K ✓`);
     } else {
       log.error('Expired addon credits not handled correctly');
       log.result(`Addon: ${credits.addonCredits} (expected 0)`);
@@ -270,7 +270,7 @@ const tests = {
     
     let userData = {
       plan: 'pro',
-      credits: 50000,
+      credits: 25000,
       creditsUsed: 0,
       addonCredits: 10000,
       addonCreditsExpiryAt: futureDate.toISOString(),
@@ -302,7 +302,7 @@ const tests = {
     
     let userData = {
       plan: 'pro',
-      credits: 50000,
+      credits: 25000,
       creditsUsed: 0,
       addonCredits: 10000,
       addonCreditsExpiryAt: pastDate.toISOString(),
@@ -342,7 +342,7 @@ const tests = {
     
     let userData = {
       plan: 'pro',
-      credits: 50000,
+      credits: 25000,
       creditsUsed: 30000,
       addonCredits: 10000,
       addonCreditsExpiryAt: futureDate.toISOString(),
@@ -359,11 +359,11 @@ const tests = {
     const pass = 
       credits.used === 0 &&
       credits.addonCredits === 10000 &&
-      credits.available === 60000;
+      credits.available === 35000;
 
     if (pass) {
       log.success('Reset preserved addon credits');
-      log.result(`Used: 0 (reset), Addon: 10K (preserved), Total: 60K ✓`);
+      log.result(`Used: 0 (reset), Addon: 10K (preserved), Total: 35K ✓`);
     } else {
       log.error('Reset did not preserve addon correctly');
       log.result(`Used: ${credits.used}, Addon: ${credits.addonCredits}, Total: ${credits.available}`);

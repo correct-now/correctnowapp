@@ -325,7 +325,7 @@ const Payment = () => {
               {
                 plan: "pro",
                 wordLimit: 2000,
-                credits: 50000,
+                credits: 25000,
                 subscriptionId: subscription?.id || "",
                 subscriptionStatus: "active",
                 subscriptionUpdatedAt: new Date().toISOString(),
@@ -613,7 +613,7 @@ const Payment = () => {
                       ]
                     : [
                         "5,000 words per check",
-                        "50,000 words monthly",
+                        "25,000 words monthly",
                         "1 word = 1 credit",
                         "Advanced grammar fixes",
                         "Check history (30 days)",

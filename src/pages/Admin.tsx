@@ -180,6 +180,7 @@ const Admin = () => {
   const [blogPosts, setBlogPosts] = useState<BlogPost[]>([]);
   const [blogLoading, setBlogLoading] = useState(false);
   const [blogSaving, setBlogSaving] = useState(false);
+  const [blogLastPublished, setBlogLastPublished] = useState<{ title: string; slug: string; id: string; wasEdit: boolean } | null>(null);
   const [blogEditingId, setBlogEditingId] = useState<string | null>(null);
   const [blogTitle, setBlogTitle] = useState("");
   const [blogCustomSlug, setBlogCustomSlug] = useState("");
@@ -317,7 +318,7 @@ const Admin = () => {
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [limitType, setLimitType] = useState<"unlimited" | "limited" | "disabled">("limited");
   const [wordLimitValue, setWordLimitValue] = useState("2000");
-  const [creditsValue, setCreditsValue] = useState("50000");
+  const [creditsValue, setCreditsValue] = useState("25000");
   const [reactivatingUserId, setReactivatingUserId] = useState<string | null>(null);
   
   // Addon credits management
@@ -644,6 +645,7 @@ const Admin = () => {
     setBlogAiExtraContext("");
     setBlogAiGeneratedImages([]);
     setBlogAiFallbackImg(null);
+    setBlogLastPublished(null);
   };
 
   const handleReactivateUser = async (userId: string) => {
@@ -844,7 +846,7 @@ const Admin = () => {
       if (!res.ok) throw new Error(data.error || "Image generation failed");
       if (data.fallback) {
         setBlogAiFallbackImg({ unsplashUrl: data.unsplashUrl, unsplashSearchUrl: data.unsplashSearchUrl });
-        toast.info("Imagen API unavailable — showing Unsplash suggestions instead.");
+        toast.info("Image generation unavailable — showing Unsplash suggestions instead.");
       } else {
         setBlogAiGeneratedImages(data.images || []);
         toast.success(`${data.images?.length} image(s) generated!`);
@@ -1638,7 +1640,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
   const handleEditUser = (userId: string, userData: AdminUser) => {
     setEditingUserId(userId);
     setWordLimitValue(String(userData.wordLimit || 2000));
-    setCreditsValue(String(userData.credits || 50000));
+    setCreditsValue(String(userData.credits || 25000));
     setEditUserName(userData.name || "");
     setEditUserPhone(userData.phone || "");
     setEditUserCategory(userData.category || "");
@@ -1982,7 +1984,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
         const wordLimit = parseInt(wordLimitValue);
         const credits = parseInt(creditsValue);
         updates.wordLimit = isNaN(wordLimit) ? 2000 : wordLimit;
-        updates.credits = isNaN(credits) ? 50000 : credits;
+        updates.credits = isNaN(credits) ? 25000 : credits;
         updates.status = "active";
 
         // Keep plan/status consistent when using custom limits
@@ -2302,7 +2304,9 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
       }
 
       toast.success(blogEditingId ? "Blog post updated" : "Blog post created");
+      const wasEdit = !!blogEditingId;
       resetBlogForm();
+      setBlogLastPublished({ title: payload.title, slug: payload.slug, id: payload.id, wasEdit });
     } finally {
       setBlogSaving(false);
     }
@@ -3419,7 +3423,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                                 type="number"
                                 value={creditsValue}
                                 onChange={(e) => setCreditsValue(e.target.value)}
-                                placeholder="50000"
+                                placeholder="25000"
                               />
                             </div>
                           </>
@@ -4588,6 +4592,35 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                         Upload multiple images. The first image will be used as the cover.
                       </p>
                     </div>
+                    {/* ── Post-publish confirmation banner ── */}
+                    {blogLastPublished && (
+                      <div className="flex items-start gap-3 rounded-xl border border-green-400/40 bg-green-50/60 dark:bg-green-950/30 px-4 py-3">
+                        <span className="text-green-600 text-lg mt-0.5">✓</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-green-700 dark:text-green-300">
+                            {blogLastPublished.wasEdit ? "Post updated successfully!" : "Post published successfully!"}
+                          </p>
+                          <p className="text-xs text-green-700/70 dark:text-green-400 truncate mt-0.5">
+                            {blogLastPublished.title}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() => { setBlogLastPublished(null); document.getElementById('blog-posts-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-medium px-3 py-1.5 transition-colors"
+                          >
+                            📋 All Posts
+                          </button>
+                          <button
+                            onClick={() => setBlogLastPublished(null)}
+                            className="text-green-600 hover:text-green-800 dark:text-green-400 text-xl leading-none px-1"
+                            title="Dismiss"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     <div className="flex flex-col sm:flex-row gap-3">
                       <Button onClick={handleSaveBlog} disabled={blogSaving}>
                         {blogSaving
@@ -4699,7 +4732,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                 )}
                 
                 {/* Blog Posts List */}
-                <div className="mt-6 bg-card rounded-xl border border-border p-6">
+                <div id="blog-posts-list" className="mt-6 bg-card rounded-xl border border-border p-6">
                     <div className="flex items-center justify-between mb-4">
                       <h2 className="text-lg font-semibold text-foreground">All Posts</h2>
                       <span className="text-sm text-muted-foreground">
@@ -4743,6 +4776,14 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                                 <Button variant="destructive" size="sm" onClick={() => handleDeleteBlog(post)}>
                                   Delete
                                 </Button>
+                                <a
+                                  href={`/blog/${post.slug || post.id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 rounded-md border border-border bg-background hover:bg-muted text-xs font-medium px-3 py-1.5 transition-colors text-foreground"
+                                >
+                                  🔗 View Post
+                                </a>
                               </div>
                             </div>
                           </div>
@@ -6556,7 +6597,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                       <label className="text-sm text-muted-foreground">
                         Pro Plan - Monthly Words
                       </label>
-                      <p className="text-foreground font-medium">50,000</p>
+                      <p className="text-foreground font-medium">25,000</p>
                     </div>
                   </div>
                 </div>

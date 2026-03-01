@@ -476,7 +476,7 @@ app.post(
             const updateData = {
               plan: "pro",
               wordLimit: 5000,
-              credits: 50000,
+              credits: 25000,
               creditsUsed: 0,
               creditsResetDate: nowIso,
               stripeCustomerId: customerId,
@@ -536,7 +536,7 @@ app.post(
           if (status === "active") {
             updates.plan = "pro";
             updates.wordLimit = 5000;
-            updates.credits = 50000;
+            updates.credits = 25000;
             updates.creditsUsed = 0;
             updates.creditsResetDate = nowIso;
             updates.subscriptionStatus = "active";
@@ -605,7 +605,7 @@ app.post(
             batch.set(doc.ref, {
               plan: "pro",
               wordLimit: 5000,
-              credits: 50000,
+              credits: 25000,
               creditsUsed: 0,
               creditsResetDate: nowIso,
               subscriptionStatus: "active",
@@ -707,7 +707,7 @@ app.post("/api/razorpay/webhook", express.raw({ type: "application/json" }), asy
         await updateUsersBySubscriptionId(subscriptionId, {
           plan: "pro",
           wordLimit: 5000,
-          credits: 50000,
+          credits: 25000,
           creditsUsed: 0,
           creditsResetDate: nowIso,
           subscriptionStatus: "active",
@@ -846,7 +846,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
           const updateData = {
             plan: "pro",
             wordLimit: 5000,
-            credits: 50000,
+            credits: 25000,
             creditsUsed: 0,
             creditsResetDate: nowIso,
             stripeCustomerId: customerId,
@@ -906,7 +906,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
         if (status === "active") {
           updates.plan = "pro";
           updates.wordLimit = 5000;
-          updates.credits = 50000;
+          updates.credits = 25000;
           updates.creditsUsed = 0;
           updates.creditsResetDate = nowIso;
           updates.subscriptionStatus = "active";
@@ -975,7 +975,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
           batch.set(doc.ref, {
             plan: "pro",
             wordLimit: 5000,
-            credits: 50000,
+            credits: 25000,
             creditsUsed: 0,
             creditsResetDate: nowIso,
             subscriptionStatus: "active",
@@ -1334,7 +1334,7 @@ app.post("/api/admin/toggle-plan", async (req, res) => {
     const newPlan = currentPlan === "pro" ? "free" : "pro";
     const updates = {
       plan: newPlan,
-      wordLimit: newPlan === "pro" ? 50000 : 200,
+      wordLimit: newPlan === "pro" ? 25000 : 200,
       subscriptionStatus: newPlan === "pro" ? "active" : "inactive",
       updatedAt: new Date().toISOString(),
     };
@@ -1398,7 +1398,7 @@ app.post("/api/admin/bulk-action", async (req, res) => {
             expiresAt.setDate(expiresAt.getDate() + days);
             batch.update(ref, {
               plan: "pro",
-              wordLimit: 50000,
+              wordLimit: 25000,
               subscriptionStatus: "active",
               adminPlanExpiresAt: expiresAt.toISOString(),
               adminPlanDurationDays: days,
@@ -1562,7 +1562,7 @@ app.post("/api/razorpay/subscription", async (req, res) => {
           name: "CorrectNow Pro",
           amount: Math.round(amountInRupees * 100),  // Full price
           currency: "INR",
-          description: "Monthly Pro subscription - 2000 word limit, 50,000 credits",
+          description: "Monthly Pro subscription - 2000 word limit, 25,000 credits",
         },
       });
       planId = plan.id;
@@ -2582,17 +2582,17 @@ app.get("/api/user/stats", async (req, res) => {
     const planField = String(userData.plan || '').toLowerCase();
     const wordLimit = Number(userData.wordLimit) || 0;
     
-    // Pro users have wordLimit >= 50,000 or plan = 'pro'
+    // Pro users have wordLimit >= 25,000 or plan = 'pro'
     // Free users typically have 5,000 or less
-    const isPro = wordLimit >= 50000 || planField === 'pro';
+    const isPro = wordLimit >= 25000 || planField === 'pro';
     
     // Get credit information
     const creditsUsed = Number(userData.creditsUsed || 0);
     
     // Use actual credits from database, or default based on plan
     // Free users: use their actual credits (typically 5000)
-    // Pro users: default to 50000 if not set
-    const baseCredits = Number(userData.credits) || (isPro ? 50000 : 5000);
+    // Pro users: default to 25000 if not set
+    const baseCredits = Number(userData.credits) || (isPro ? 25000 : 5000);
     
     // Handle addon credits
     const rawAddonCredits = Number(userData.addonCredits || 0);
@@ -2769,7 +2769,7 @@ app.post("/api/proofread", async (req, res) => {
           const nowMs = Date.now();
           const storedCreditsUsed = Number(data.creditsUsed || 0);
           const creditsUsed = Number.isFinite(storedCreditsUsed) ? storedCreditsUsed : 0;
-          const baseCreditsRaw = data.credits ?? (isPro ? 50000 : 0);
+          const baseCreditsRaw = data.credits ?? (isPro ? 25000 : 0);
           const baseCredits = Number.isFinite(Number(baseCreditsRaw)) ? Number(baseCreditsRaw) : 0;
           const rawAddonCredits = Number(data.addonCredits || 0);
           const addonExpiry = data.addonCreditsExpiryAt
@@ -3437,8 +3437,8 @@ app.post("/api/blog-image-generate", express.json({ limit: "1mb" }), async (req,
 
     const fullPrompt = `${prompt}. Style: ${styleGuide}. No text overlay. No watermarks. Wide aspect ratio 16:9. Professional blog header image.`;
 
-    // Use Gemini image generation (Nano Banana Pro — best quality for blog headers)
-    const geminiImgEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${apiKey}`;
+    // Use Gemini 2.5 Flash image generation — lowest cost (~$0.039/image) on same API key
+    const geminiImgEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`;
 
     const makeImageRequest = () =>
       fetch(geminiImgEndpoint, {

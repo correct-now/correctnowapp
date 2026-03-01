@@ -61,7 +61,7 @@ const Header = () => {
             : false;
           const isActive = status === "active" && (updatedAt ? isRecent : true);
           const plan = (hasStatus ? isActive && entitlementPlan : entitlementPlan) ? "Pro" : "Free";
-          const planCredits = Number(data?.credits || (plan === "Pro" ? 50000 : 0));
+          const planCredits = Number(data?.credits || (plan === "Pro" ? 25000 : 0));
           const addonCredits = Number(data?.addonCredits || 0);
           const addonExpiry = data?.addonCreditsExpiryAt
             ? new Date(String(data.addonCreditsExpiryAt))

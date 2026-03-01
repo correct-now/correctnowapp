@@ -39,7 +39,7 @@ const plans = [
     period: "per month",
     description: "For professionals who write daily",
     features: [
-      "50,000 words monthly",
+      "25,000 words monthly",
       "5,000 words per check",
       "Advanced grammar fixes",
       "All languages supported",
