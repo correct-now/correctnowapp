@@ -2,22 +2,35 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 
-/** Render plain text, turning any bare http(s) URLs into clickable <a> links */
+/** Render plain text, turning bare URLs and brand name mentions into clickable blue links */
 const renderWithLinks = (text: string): React.ReactNode[] => {
-  const urlRegex = /(https?:\/\/[^\s<>"'&)(\]]+)/g;
+  // Match URLs first, then brand names
+  const tokenRe = /(https?:\/\/[^\s<>"'&)(\]]+)|(CorrectNow\.app|correctnow\.app|CorrectNow)/g;
   const parts: React.ReactNode[] = [];
   let last = 0;
   let m: RegExpExecArray | null;
-  while ((m = urlRegex.exec(text)) !== null) {
+  let key = 0;
+  while ((m = tokenRe.exec(text)) !== null) {
     if (m.index > last) parts.push(text.slice(last, m.index));
-    const url = m[1].replace(/[.,;:!?)]+$/, ""); // strip trailing punctuation
-    parts.push(
-      <a key={m.index} href={url} target="_blank" rel="noopener noreferrer"
-        className="text-blue-600 underline hover:text-blue-800 break-all">
-        {url}
-      </a>
-    );
-    last = m.index + m[1].length;
+    if (m[1]) {
+      // Bare URL
+      const url = m[1].replace(/[.,;:!?)]+$/, "");
+      parts.push(
+        <a key={key++} href={url} target="_blank" rel="noopener noreferrer"
+          className="text-blue-600 underline hover:text-blue-800 break-all">
+          {url}
+        </a>
+      );
+    } else {
+      // Brand name
+      parts.push(
+        <a key={key++} href="https://correctnow.app" target="_blank" rel="noopener noreferrer"
+          className="text-blue-600 font-semibold underline hover:text-blue-800">
+          {m[2]}
+        </a>
+      );
+    }
+    last = m.index + m[0].length;
   }
   if (last < text.length) parts.push(text.slice(last));
   return parts;
@@ -257,13 +270,13 @@ const LanguageLanding = () => {
                 <div className="bg-muted/30 p-6 rounded-lg mb-8 not-prose">
                   <p className="text-sm text-foreground leading-relaxed">
                     Looking for a reliable <strong>{seoData.keywords.split(',')[0]?.trim()}</strong>? 
-                    CorrectNow offers professional {seoData.keywords.split(',')[1]?.trim() || 'proofreading'} and {seoData.keywords.split(',')[2]?.trim() || 'grammar checking'} services. 
+                    <a href="https://correctnow.app" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-semibold underline hover:text-blue-800">CorrectNow</a> offers professional {seoData.keywords.split(',')[1]?.trim() || 'proofreading'} and {seoData.keywords.split(',')[2]?.trim() || 'grammar checking'} services. 
                     Our tool is perfect for students, professionals, and content creators who need accurate {languageInfo.name} text correction.
                   </p>
                 </div>
               )}
 
-              <h2>Why Use CorrectNow for {languageInfo.name}?</h2>
+              <h2>Why Use <a href="https://correctnow.app" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline hover:text-blue-800">CorrectNow</a> for {languageInfo.name}?</h2>
               <ul>
                 <li>
                   <strong>AI-Powered:</strong> Advanced language models ensure accurate grammar and spelling corrections for {languageInfo.name}
@@ -291,7 +304,7 @@ const LanguageLanding = () => {
               {/* Keyword-rich feature section */}
               <h2>Comprehensive {languageInfo.name} Writing Support</h2>
               <p>
-                CorrectNow's {languageInfo.name} grammar checker uses advanced AI to detect and correct:
+                <a href="https://correctnow.app" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-semibold underline hover:text-blue-800">CorrectNow</a>'s {languageInfo.name} grammar checker uses advanced AI to detect and correct:
               </p>
               <ul>
                 <li><strong>Spelling mistakes</strong> - Catch typos and misspelled {languageInfo.name} words</li>
@@ -307,7 +320,7 @@ const LanguageLanding = () => {
                   <h2>Perfect for All {languageInfo.name} Writing Needs</h2>
                   <p>
                     Whether you need {seoData.keywords.split(',')[0]?.trim()} for academic papers, 
-                    professional emails, or creative writing, CorrectNow provides instant, 
+                    professional emails, or creative writing, <a href="https://correctnow.app" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-semibold underline hover:text-blue-800">CorrectNow</a> provides instant, 
                     accurate corrections. Our {languageInfo.name} proofreading tool works for:
                   </p>
                   <ul>

@@ -95,16 +95,54 @@ const BlogPostFirestore = () => {
   const safeHtml = useMemo(() => {
     const raw = post?.contentHtml || "";
     if (!raw) return "";
-    // Convert any bare URLs to <a> links before sanitising
+    // Convert bare URLs to <a> links
     const linked = raw.replace(
       /(<a[\s\S]*?<\/a>)|(\bhttps?:\/\/[^\s<>"'&)(\]]+)/g,
       (match, aTag, url) => {
         if (aTag) return aTag;
         const stripped = url.replace(/[.,;:!?)]+$/, "");
-        return `<a href="${stripped}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline;">${stripped}</a>`;
+        return `<a href="${stripped}" target="_blank" rel="noopener noreferrer">${stripped}</a>`;
       }
     );
-    return DOMPurify.sanitize(linked, { USE_PROFILES: { html: true }, ADD_ATTR: ["target", "rel"] });
+    const sanitized = DOMPurify.sanitize(linked, { USE_PROFILES: { html: true }, ADD_ATTR: ["target", "rel", "style"] });
+    // Use DOM to safely make brand names into clickable links (skips nested <a>)
+    const div = document.createElement("div");
+    div.innerHTML = sanitized;
+    // Force blue color on all <a> tags
+    div.querySelectorAll("a").forEach((a) => {
+      a.style.color = "#2563eb";
+      a.style.textDecoration = "underline";
+    });
+    // Replace brand name text nodes with clickable links
+    const brandRe = /(CorrectNow\.app|CorrectNow)/gi;
+    const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    let tn: Node | null;
+    while ((tn = walker.nextNode())) textNodes.push(tn as Text);
+    for (const node of textNodes) {
+      if ((node.parentElement as Element)?.closest("a")) continue;
+      const text = node.textContent || "";
+      if (!brandRe.test(text)) continue;
+      brandRe.lastIndex = 0;
+      const frag = document.createDocumentFragment();
+      let last = 0, m: RegExpExecArray | null;
+      while ((m = brandRe.exec(text)) !== null) {
+        if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+        const a = document.createElement("a");
+        a.href = "https://correctnow.app";
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.style.color = "#2563eb";
+        a.style.fontWeight = "600";
+        a.style.textDecoration = "underline";
+        a.textContent = m[0];
+        frag.appendChild(a);
+        last = m.index + m[0].length;
+      }
+      if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+      node.parentNode?.replaceChild(frag, node);
+    }
+    return div.innerHTML;
   }, [post?.contentHtml]);
 
   useEffect(() => {
@@ -200,7 +238,7 @@ const BlogPostFirestore = () => {
               ) : null}
 
               <article
-                className="prose prose-neutral dark:prose-invert max-w-none"
+                className="prose prose-neutral dark:prose-invert max-w-none prose-a:text-blue-600 prose-a:underline hover:prose-a:text-blue-800 dark:prose-a:text-blue-400"
                 dangerouslySetInnerHTML={{ __html: safeHtml }}
               />
 
