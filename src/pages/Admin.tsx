@@ -121,6 +121,16 @@ type AdminUser = {
   status?: string;
 };
 
+type BulkPreviewRow = {
+  row: number;
+  name: string;
+  email: string;
+  phone: string;
+  category: string;
+  password: string;
+  parseError?: string;
+};
+
 type BlogPost = {
   id: string;
   title: string;
@@ -346,6 +356,8 @@ const Admin = () => {
     errors: string[];
   } | null>(null);
   const [isUploadingBulk, setIsUploadingBulk] = useState(false);
+  const [bulkUploadPreview, setBulkUploadPreview] = useState<BulkPreviewRow[]>([]);
+  const [bulkUploadStep, setBulkUploadStep] = useState<"select" | "preview" | "uploading" | "done">("select");
 
   // User deletion
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
@@ -364,6 +376,23 @@ const Admin = () => {
 
   // Suspend user
   const [suspendingUserId, setSuspendingUserId] = useState<string | null>(null);
+
+  // Bulk actions
+  const [bulkPlanDialogOpen, setBulkPlanDialogOpen] = useState(false);
+  const [bulkPlanAction, setBulkPlanAction] = useState<"grant" | "revoke">("grant");
+  const [bulkPlanDays, setBulkPlanDays] = useState<30 | 90 | 365>(30);
+  const [bulkCreditsDialogOpen, setBulkCreditsDialogOpen] = useState(false);
+  const [bulkCreditsAmount, setBulkCreditsAmount] = useState("");
+  const [bulkCreditsExpiry, setBulkCreditsExpiry] = useState("");
+  const [bulkCategoryDialogOpen, setBulkCategoryDialogOpen] = useState(false);
+  const [bulkCategoryValue, setBulkCategoryValue] = useState("");
+  const [bulkSuspendDialogOpen, setBulkSuspendDialogOpen] = useState(false);
+  const [bulkSuspendAction, setBulkSuspendAction] = useState<"suspend" | "reactivate">("suspend");
+  const [isBulkActioning, setIsBulkActioning] = useState(false);
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
 
   // All hooks must be called before any conditional returns
   const filteredUsers = useMemo(() => {
@@ -406,6 +435,24 @@ const Admin = () => {
     });
     return list;
   }, [users, searchQuery, categoryFilter, planFilter, statusFilter, dateFilter, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
+
+  const paginatedUsers = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredUsers.slice(start, start + pageSize);
+  }, [filteredUsers, currentPage, pageSize]);
+
+  // Reset to page 1 when filters/sort/search change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, categoryFilter, planFilter, statusFilter, dateFilter, sortBy, pageSize]);
+
+  // Unique categories from loaded users
+  const uniqueCategories = useMemo(() => {
+    const cats = new Set(users.map(u => (u.category || "Uncategorized").trim()).filter(Boolean));
+    return Array.from(cats).sort();
+  }, [users]);
 
   const filteredSuggestions = useMemo(() => {
     if (!suggestionSearch.trim()) return suggestions;
@@ -919,6 +966,98 @@ const Admin = () => {
     }
   };
 
+  const callBulkAction = async (action: string, extra: Record<string, unknown> = {}) => {
+    const ids = Array.from(selectedUsers);
+    if (ids.length === 0) return;
+    setIsBulkActioning(true);
+    try {
+      const res = await fetch("/api/admin/bulk-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, userIds: ids, ...extra }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Bulk action failed");
+      toast.success(`Done: ${data.processed} updated${data.failed ? `, ${data.failed} failed` : ""}`);
+      // Refresh user list
+      const db = getFirebaseDb();
+      if (db) {
+        const snap = await getDocs(collection(db, "users"));
+        const list: AdminUser[] = snap.docs.map((docSnap) => {
+          const d = docSnap.data() as Record<string, any>;
+          const planField = String(d?.plan || "").toLowerCase();
+          const entitlementPlan = Number(d?.wordLimit) >= 5000 || planField === "pro";
+          const status = String(d?.subscriptionStatus || "").toLowerCase();
+          const updatedAt = d?.subscriptionUpdatedAt ? new Date(String(d.subscriptionUpdatedAt)) : null;
+          const isRecent = updatedAt ? Date.now() - updatedAt.getTime() <= 1000 * 60 * 60 * 24 * 31 : false;
+          const isActive = status === "active" && (updatedAt ? isRecent : true);
+          const effectivePlan = (status ? isActive && entitlementPlan : entitlementPlan) ? "Pro" : "Free";
+          return {
+            id: docSnap.id,
+            name: d?.name || "User",
+            email: d?.email || "",
+            category: d?.category,
+            plan: effectivePlan,
+            phone: d?.phone,
+            wordLimit: d?.wordLimit,
+            credits: d?.credits,
+            creditsUsed: d?.creditsUsed,
+            addonCredits: d?.addonCredits,
+            addonCreditsExpiryAt: d?.addonCreditsExpiryAt,
+            adminCredits: d?.adminCredits,
+            adminCreditsExpiryAt: d?.adminCreditsExpiryAt,
+            subscriptionStatus: d?.subscriptionStatus,
+            subscriptionUpdatedAt: d?.subscriptionUpdatedAt,
+            subscriptionCurrentPeriodEnd: d?.subscriptionCurrentPeriodEnd,
+            razorpaySubscriptionId: d?.razorpaySubscriptionId,
+            stripeSubscriptionId: d?.stripeSubscriptionId,
+            adminPlanExpiresAt: d?.adminPlanExpiresAt,
+            adminPlanDurationDays: d?.adminPlanDurationDays,
+            updatedAt: d?.updatedAt,
+            createdAt: d?.createdAt,
+            status: d?.status || "active",
+          };
+        });
+        setUsers(list);
+      }
+      setSelectedUsers(new Set());
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Bulk action failed");
+    } finally {
+      setIsBulkActioning(false);
+    }
+  };
+
+  const handleBulkGrantPro = async () => {
+    await callBulkAction("grant-pro", { durationDays: bulkPlanDays });
+    setBulkPlanDialogOpen(false);
+  };
+
+  const handleBulkRevokePro = async () => {
+    await callBulkAction("revoke-pro");
+  };
+
+  const handleBulkAddCredits = async () => {
+    const amount = parseInt(bulkCreditsAmount);
+    if (!amount || amount <= 0) { toast.error("Enter a valid credits amount"); return; }
+    await callBulkAction("add-credits", { creditsAmount: amount, creditsExpiry: bulkCreditsExpiry || undefined });
+    setBulkCreditsDialogOpen(false);
+    setBulkCreditsAmount("");
+    setBulkCreditsExpiry("");
+  };
+
+  const handleBulkSuspend = async () => {
+    await callBulkAction(bulkSuspendAction);
+    setBulkSuspendDialogOpen(false);
+  };
+
+  const handleBulkSetCategory = async () => {
+    if (!bulkCategoryValue.trim()) { toast.error("Enter a category name"); return; }
+    await callBulkAction("set-category", { category: bulkCategoryValue.trim() });
+    setBulkCategoryDialogOpen(false);
+    setBulkCategoryValue("");
+  };
+
   useEffect(() => {
     if (!user) return; // Don't load data if not logged in
     
@@ -1423,27 +1562,21 @@ const Admin = () => {
   };
 
   const downloadSampleCSV = () => {
-    // Create sample CSV content with timestamp to avoid duplicates
-    const timestamp = Date.now();
+    const ts = Date.now();
     const csvContent = `name,email,phone,category,password
-John Doe,john${timestamp}@example.com,+919876543210,College,password123
-Jane Smith,jane${timestamp}@example.com,+919812345678,Friends,password456
-Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
-    
-    // Create blob and download
+Arjun Kumar,arjun${ts}@college.edu,9876543210,Batch A,pass123
+Priya Singh,priya${ts}@college.edu,+91 98123 45678,Batch A,pass456
+Ravi Sharma,ravi${ts}@college.edu,,Batch B,pass789
+Meena Raj,meena${ts}@gmail.com,,,pass999`;
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    
-    link.setAttribute('href', url);
+    link.setAttribute('href', URL.createObjectURL(blob));
     link.setAttribute('download', 'sample_users.csv');
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    
-    toast.success("Sample CSV downloaded! Edit emails before uploading.");
+    toast.success("Sample CSV downloaded — phone column is optional (any format or blank)");
   };
 
   const exportUsersCsv = () => {
@@ -1630,168 +1763,122 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
     }
   };
 
-  const handleBulkUpload = async () => {
-    // Prevent double-click/double submission
-    if (isUploadingBulk) {
-      return;
+  // Parse CSV into a preview — no users created yet
+  const handleParseCsvForPreview = async () => {
+    if (!bulkUploadFile) { toast.error("Please select a CSV file"); return; }
+    if (!bulkUploadFile.name.toLowerCase().endsWith('.csv')) {
+      toast.error("Please upload a .csv file"); return;
     }
-
-    if (!bulkUploadFile) {
-      toast.error("Please select a CSV file");
-      return;
-    }
-
-    // Validate file type - must be CSV
-    const fileName = bulkUploadFile.name.toLowerCase();
-    if (!fileName.endsWith('.csv')) {
-      toast.error("Please upload a CSV file (.csv), not Excel (.xlsx) or other formats");
-      return;
-    }
-
-    setIsUploadingBulk(true);
-    setBulkUploadProgress(0);
-    setBulkUploadResults(null);
-
     try {
       const text = await bulkUploadFile.text();
-      console.log('Raw CSV text:', text); // Debug log
-      
-      const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
-      console.log('Total lines after split:', lines.length); // Debug log
-      
-      if (lines.length === 0) {
-        toast.error("CSV file is empty");
-        setBulkUploadResults({ success: 0, failed: 0, errors: ["CSV file is empty"] });
-        return;
-      }
+      const raw = text.split('\n').map(l => l.trim()).filter(Boolean);
+      if (raw.length === 0) { toast.error("CSV file is empty"); return; }
 
-      // Skip header if it exists (check for common header keywords)
-      const firstLine = lines[0].toLowerCase();
-      const hasHeader = firstLine.includes('name') || firstLine.includes('email') || firstLine.includes('phone') || firstLine.includes('category') || firstLine.includes('password');
-      const startIndex = hasHeader ? 1 : 0;
-      const userLines = lines.slice(startIndex);
-      
-      console.log('Has header:', hasHeader); // Debug log
-      console.log('User lines to process:', userLines.length); // Debug log
-
-      if (userLines.length === 0) {
-        toast.error("No user data found in CSV");
-        setBulkUploadResults({ success: 0, failed: 0, errors: ["No user data found (file only contains header)"] });
-        return;
-      }
-
-      const results = {
-        success: 0,
-        failed: 0,
-        errors: [] as string[],
+      // Respect quoted fields
+      const parseLine = (line: string): string[] => {
+        const result: string[] = [];
+        let cur = '', inQ = false;
+        for (const ch of line) {
+          if (ch === '"' || ch === "'") { inQ = !inQ; }
+          else if (ch === ',' && !inQ) { result.push(cur.trim()); cur = ''; }
+          else { cur += ch; }
+        }
+        result.push(cur.trim());
+        return result;
       };
 
-      for (let i = 0; i < userLines.length; i++) {
-        const line = userLines[i];
-        console.log(`Processing line ${i + 1}:`, line); // Debug log
-        
-        // Split by comma and clean up whitespace and quotes
-        const parts = line.split(',').map(p => p.trim().replace(/^["']|["']$/g, ''));
-        
-        console.log('Parts:', parts); // Debug log
-        
-        if (parts.length < 3) {
-          results.failed++;
-          results.errors.push(`Line ${i + startIndex + 1}: Invalid format (expected: name,email,password or name,email,phone,category,password) - got ${parts.length} field(s)`);
-          continue;
-        }
+      // Auto-detect header row
+      const firstLow = raw[0].toLowerCase();
+      const hasHeader = ['name','email','phone','password','category','pass','mobile'].some(k => firstLow.includes(k));
 
-        const [name, email, third, fourth, fifth] = parts;
-        const hasFive = parts.length >= 5;
-        const hasFour = parts.length >= 4;
-        const phone = hasFive || hasFour ? third : "";
-        const category = hasFive ? fourth : "";
-        const password = hasFive ? fifth : hasFour ? fourth : third;
+      let nameIdx = 0, emailIdx = 1, phoneIdx = -1, categoryIdx = -1, passwordIdx = 2;
+      let dataLines = raw;
 
-        if (!name || !email || !password) {
-          results.failed++;
-          results.errors.push(`Line ${i + startIndex + 1}: Missing required fields (name: "${name}", email: "${email}", password: "${password}")`);
-          continue;
-        }
+      if (hasHeader) {
+        const headers = parseLine(raw[0]).map(h => h.toLowerCase().trim());
+        nameIdx     = headers.findIndex(h => h.includes('name'));
+        emailIdx    = headers.findIndex(h => h.includes('email'));
+        phoneIdx    = headers.findIndex(h => h.includes('phone') || h.includes('mobile') || h === 'ph');
+        categoryIdx = headers.findIndex(h => h.includes('category') || h.includes('group') || h.includes('batch'));
+        passwordIdx = headers.findIndex(h => h.includes('password') || h.includes('pass') || h === 'pwd');
+        if (nameIdx < 0) nameIdx = 0;
+        if (emailIdx < 0) emailIdx = 1;
+        if (passwordIdx < 0) passwordIdx = headers.length - 1;
+        dataLines = raw.slice(1);
+      }
 
-        const phoneRegex = /^\+?[0-9\s()\-]{7,20}$/;
-        if (phone && !phoneRegex.test(phone)) {
-          results.failed++;
-          results.errors.push(`Line ${i + startIndex + 1}: Invalid phone number (${phone})`);
-          continue;
-        }
+      const preview: BulkPreviewRow[] = dataLines.map((line, i) => {
+        const parts = parseLine(line);
+        let name = '', email = '', phone = '', category = '', password = '', parseError: string | undefined;
 
-        try {
-          const response = await fetch("/api/admin/create-user", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name, email, phone: phone || undefined, category: category || undefined, password }),
-          });
-
-          const data = await response.json();
-
-          if (!response.ok) {
-            throw new Error(data.error || "Failed to create user");
+        if (hasHeader) {
+          name     = (nameIdx >= 0 ? parts[nameIdx] : '') || '';
+          email    = (emailIdx >= 0 ? parts[emailIdx] : '') || '';
+          phone    = (phoneIdx >= 0 ? parts[phoneIdx] : '') || '';
+          category = (categoryIdx >= 0 ? parts[categoryIdx] : '') || '';
+          password = (passwordIdx >= 0 ? parts[passwordIdx] : '') || '';
+        } else {
+          if (parts.length < 3) {
+            parseError = `Only ${parts.length} column(s) — need at least name, email, password`;
+            name = parts[0] || ''; email = parts[1] || '';
+          } else {
+            name = parts[0]; email = parts[1];
+            if (parts.length === 3)      { password = parts[2]; }
+            else if (parts.length === 4) { phone = parts[2]; password = parts[3]; }
+            else                         { phone = parts[2]; category = parts[3]; password = parts[4] || ''; }
           }
-
-          results.success++;
-          
-          // Add new user to local state
-          setUsers((prev) => [
-            {
-              id: data.uid,
-              name: data.name,
-              email: data.email,
-              phone: data.phone,
-              category: data.category,
-              plan: "free",
-              wordLimit: 200,
-              credits: 0,
-              creditsUsed: 0,
-              subscriptionStatus: "inactive",
-              status: "active",
-              createdAt: new Date().toISOString(),
-            },
-            ...prev,
-          ]);
-        } catch (error) {
-          results.failed++;
-          results.errors.push(`${email}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
 
-        // Update progress
-        setBulkUploadProgress(Math.round(((i + 1) / userLines.length) * 100));
-      }
+        if (!parseError) {
+          if (!name.trim())                  parseError = 'Name is missing';
+          else if (!email.trim())            parseError = 'Email is missing';
+          else if (!email.includes('@'))     parseError = `Invalid email: "${email}"`;
+          else if (!password.trim())         parseError = 'Password is missing';
+          else if (password.trim().length < 6) parseError = `Password too short (min 6): "${password}"`;
+        }
 
-      setBulkUploadResults(results);
-      
-      if (results.success > 0) {
-        toast.success(`Successfully created ${results.success} user(s)`);
-      }
-      if (results.failed > 0) {
-        toast.error(`Failed to create ${results.failed} user(s). Check details below.`);
-      }
-      if (results.success === 0 && results.failed === 0) {
-        toast.warning("No users were processed. Check the CSV format.");
-      }
-
-      if (results.success > 0 && results.failed === 0) {
-        setIsBulkUploadOpen(false);
-        setBulkUploadFile(null);
-        setBulkUploadProgress(0);
-        setBulkUploadResults(null);
-      }
-    } catch (error) {
-      console.error("Bulk upload error:", error);
-      toast.error("Failed to process CSV file");
-      setBulkUploadResults({ 
-        success: 0, 
-        failed: 0, 
-        errors: [`File processing error: ${error instanceof Error ? error.message : 'Unknown error'}`] 
+        return { row: i + (hasHeader ? 2 : 1), name: name.trim(), email: email.trim(), phone: phone.trim(), category: category.trim(), password: password.trim(), parseError };
       });
-    } finally {
-      setIsUploadingBulk(false);
+
+      setBulkUploadPreview(preview);
+      setBulkUploadStep('preview');
+    } catch (err) {
+      toast.error('Failed to read CSV file');
     }
+  };
+
+  // Actually create users — only called after admin confirms the preview
+  const handleConfirmBulkUpload = async () => {
+    const valid = bulkUploadPreview.filter(r => !r.parseError);
+    if (valid.length === 0) { toast.error('No valid rows to upload'); return; }
+    setIsUploadingBulk(true);
+    setBulkUploadProgress(0);
+    setBulkUploadStep('uploading');
+    setBulkUploadResults(null);
+    const results = { success: 0, failed: 0, errors: [] as string[] };
+    for (let i = 0; i < valid.length; i++) {
+      const row = valid[i];
+      try {
+        const res = await fetch('/api/admin/create-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: row.name, email: row.email, phone: row.phone || undefined, category: row.category || undefined, password: row.password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to create user');
+        results.success++;
+        setUsers(prev => [{ id: data.uid, name: data.name, email: data.email, phone: data.phone, category: data.category, plan: 'free', wordLimit: 200, credits: 0, creditsUsed: 0, subscriptionStatus: 'inactive', status: 'active', createdAt: new Date().toISOString() }, ...prev]);
+      } catch (err) {
+        results.failed++;
+        results.errors.push(`Row ${row.row} (${row.email}): ${err instanceof Error ? err.message : 'Unknown error'}`);
+      }
+      setBulkUploadProgress(Math.round(((i + 1) / valid.length) * 100));
+    }
+    setBulkUploadResults(results);
+    setBulkUploadStep('done');
+    setIsUploadingBulk(false);
+    if (results.success > 0) toast.success(`Created ${results.success} user(s)`);
+    if (results.failed > 0) toast.error(`${results.failed} failed — see details below`);
   };
 
   const handleSaveAddonCredits = async () => {
@@ -2569,7 +2656,7 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                       Manage all registered users
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button 
                       variant="default" 
                       size="sm"
@@ -2586,48 +2673,129 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                       <Upload className="w-4 h-4 mr-2" />
                       Bulk Upload
                     </Button>
-                    {selectedUsers.size > 0 && (
-                      <Button 
-                        variant="destructive" 
-                        size="sm"
-                        onClick={() => setIsDeleteDialogOpen(true)}
-                        disabled={isDeletingUsers}
-                      >
-                        <X className="w-4 h-4 mr-2" />
-                        Delete Selected ({selectedUsers.size})
-                      </Button>
-                    )}
                     <Button variant="outline" size="sm" onClick={exportUsersCsv}>
                       <Download className="w-4 h-4 mr-2" />
-                      Export Users
+                      Export CSV
                     </Button>
                   </div>
                 </div>
 
-                {/* User Segments */}
-                <div className="flex flex-wrap gap-2">
-                  {([
-                    { label: "All Users", count: users.length, onClick: () => { setPlanFilter("all"); setStatusFilter("all"); setDateFilter("all"); setSearchQuery(""); }, active: planFilter === "all" && statusFilter === "all" && dateFilter === "all" },
-                    { label: "Pro", count: proUsers, onClick: () => { setPlanFilter("pro"); setStatusFilter("all"); setDateFilter("all"); }, active: planFilter === "pro" },
-                    { label: "Free", count: freeUsers, onClick: () => { setPlanFilter("free"); setStatusFilter("all"); setDateFilter("all"); }, active: planFilter === "free" && statusFilter === "all" },
-                    { label: "New This Week", count: users.filter(u => u.createdAt && Date.now() - new Date(u.createdAt).getTime() < 7 * 86400000).length, onClick: () => { setPlanFilter("all"); setStatusFilter("all"); setDateFilter("7days"); }, active: dateFilter === "7days" },
-                    { label: "Suspended", count: suspendedUsers, onClick: () => { setPlanFilter("all"); setStatusFilter("deactivated"); setDateFilter("all"); }, active: statusFilter === "deactivated" },
-                  ] as { label: string; count: number; onClick: () => void; active: boolean }[]).map(seg => (
+                {/* Bulk Actions Toolbar — visible when rows are selected */}
+                {selectedUsers.size > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 px-4 py-3 rounded-xl border border-primary/30 bg-primary/5">
+                    <span className="text-sm font-semibold text-primary mr-1">
+                      {selectedUsers.size} selected
+                    </span>
                     <button
-                      key={seg.label}
-                      onClick={seg.onClick}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                        seg.active
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
-                      }`}
+                      className="text-xs text-muted-foreground underline hover:text-foreground"
+                      onClick={() => setSelectedUsers(new Set())}
                     >
-                      {seg.label}
-                      <span className={`px-1.5 py-0.5 rounded-full text-xs ${
-                        seg.active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground"
-                      }`}>{seg.count}</span>
+                      Clear
                     </button>
-                  ))}
+                    <div className="w-px h-4 bg-border mx-1" />
+                    <Button
+                      size="sm" variant="default" className="h-8 text-xs"
+                      onClick={() => { setBulkPlanAction("grant"); setBulkPlanDialogOpen(true); }}
+                      disabled={isBulkActioning}
+                    >
+                      <Crown className="w-3.5 h-3.5 mr-1" />
+                      Grant Pro
+                    </Button>
+                    <Button
+                      size="sm" variant="outline" className="h-8 text-xs"
+                      onClick={handleBulkRevokePro}
+                      disabled={isBulkActioning}
+                    >
+                      ↓ Revoke Pro
+                    </Button>
+                    <Button
+                      size="sm" variant="outline" className="h-8 text-xs"
+                      onClick={() => { setBulkCreditsDialogOpen(true); const d = new Date(); d.setDate(d.getDate() + 30); setBulkCreditsExpiry(d.toISOString().slice(0, 16)); }}
+                      disabled={isBulkActioning}
+                    >
+                      <Coins className="w-3.5 h-3.5 mr-1" />
+                      Add Credits
+                    </Button>
+                    <Button
+                      size="sm" variant="outline" className="h-8 text-xs"
+                      onClick={() => setBulkCategoryDialogOpen(true)}
+                      disabled={isBulkActioning}
+                    >
+                      Set Category
+                    </Button>
+                    <Button
+                      size="sm" variant="outline" className="h-8 text-xs"
+                      onClick={() => { setBulkSuspendAction("suspend"); setBulkSuspendDialogOpen(true); }}
+                      disabled={isBulkActioning}
+                    >
+                      <UserX className="w-3.5 h-3.5 mr-1" />
+                      Suspend
+                    </Button>
+                    <Button
+                      size="sm" variant="outline" className="h-8 text-xs"
+                      onClick={() => { setBulkSuspendAction("reactivate"); setBulkSuspendDialogOpen(true); }}
+                      disabled={isBulkActioning}
+                    >
+                      Reactivate
+                    </Button>
+                    <Button
+                      size="sm" variant="destructive" className="h-8 text-xs ml-auto"
+                      onClick={() => setIsDeleteDialogOpen(true)}
+                      disabled={isDeletingUsers || isBulkActioning}
+                    >
+                      <X className="w-3.5 h-3.5 mr-1" />
+                      Delete ({selectedUsers.size})
+                    </Button>
+                  </div>
+                )}
+
+                {/* User Segments */}
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      { label: "All Users", count: users.length, onClick: () => { setPlanFilter("all"); setStatusFilter("all"); setDateFilter("all"); setSearchQuery(""); setCategoryFilter(""); }, active: planFilter === "all" && statusFilter === "all" && dateFilter === "all" && !categoryFilter },
+                      { label: "Pro", count: proUsers, onClick: () => { setPlanFilter("pro"); setStatusFilter("all"); setDateFilter("all"); }, active: planFilter === "pro" },
+                      { label: "Free", count: freeUsers, onClick: () => { setPlanFilter("free"); setStatusFilter("all"); setDateFilter("all"); }, active: planFilter === "free" && statusFilter === "all" },
+                      { label: "New This Week", count: users.filter(u => u.createdAt && Date.now() - new Date(u.createdAt).getTime() < 7 * 86400000).length, onClick: () => { setPlanFilter("all"); setStatusFilter("all"); setDateFilter("7days"); }, active: dateFilter === "7days" },
+                      { label: "Suspended", count: suspendedUsers, onClick: () => { setPlanFilter("all"); setStatusFilter("deactivated"); setDateFilter("all"); }, active: statusFilter === "deactivated" },
+                    ] as { label: string; count: number; onClick: () => void; active: boolean }[]).map(seg => (
+                      <button
+                        key={seg.label}
+                        onClick={seg.onClick}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                          seg.active
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                        }`}
+                      >
+                        {seg.label}
+                        <span className={`px-1.5 py-0.5 rounded-full text-xs ${
+                          seg.active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground"
+                        }`}>{seg.count}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {uniqueCategories.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 items-center">
+                      <span className="text-xs text-muted-foreground mr-1">Category:</span>
+                      {uniqueCategories.map(cat => {
+                        const count = users.filter(u => (u.category || "Uncategorized").toLowerCase() === cat.toLowerCase()).length;
+                        const active = categoryFilter.toLowerCase() === cat.toLowerCase();
+                        return (
+                          <button
+                            key={cat}
+                            onClick={() => setCategoryFilter(active ? "" : cat)}
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                              active ? "bg-blue-600 text-white border-blue-600" : "bg-background text-muted-foreground border-border hover:border-blue-400 hover:text-blue-500"
+                            }`}
+                          >
+                            {cat}
+                            <span className={`px-1 rounded-full text-[10px] ${active ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"}`}>{count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Search & Filter */}
@@ -2654,9 +2822,8 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                         className="h-9 w-36 text-sm"
                       />
                       <datalist id="admin-category-filter">
-                        <option value="College" />
-                        <option value="Friends" />
                         <option value="Uncategorized" />
+                        {uniqueCategories.map(c => <option key={c} value={c} />)}
                       </datalist>
                     </div>
 
@@ -2730,7 +2897,7 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                   {/* Stats summary */}
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground pt-1 border-t border-border">
                     <span>
-                      Showing <span className="font-semibold text-foreground">{filteredUsers.length}</span> of <span className="font-semibold text-foreground">{users.length}</span> users
+                      Showing <span className="font-semibold text-foreground">{Math.min(pageSize, filteredUsers.length - (currentPage - 1) * pageSize)}</span> of <span className="font-semibold text-foreground">{filteredUsers.length}</span> {filteredUsers.length !== users.length ? `(filtered from ${users.length})` : "users"}
                     </span>
                     <span className="flex items-center gap-1"><Crown className="w-3 h-3 text-yellow-500" /> Pro: <span className="font-semibold text-foreground">{filteredUsers.filter(u => u.plan === "Pro").length}</span></span>
                     <span className="flex items-center gap-1"><Zap className="w-3 h-3 text-blue-400" /> Free: <span className="font-semibold text-foreground">{filteredUsers.filter(u => u.plan !== "Pro").length}</span></span>
@@ -2791,7 +2958,7 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredUsers.map((user) => (
+                        {paginatedUsers.map((user) => (
                           <tr
                             key={user.id}
                             className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors"
@@ -3010,7 +3177,145 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                       </tbody>
                     </table>
                   </div>
+
+                  {/* Pagination controls */}
+                  {totalPages > 1 && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-border">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <span>Page <span className="font-semibold text-foreground">{currentPage}</span> of <span className="font-semibold text-foreground">{totalPages}</span></span>
+                        <select
+                          value={pageSize}
+                          onChange={e => setPageSize(Number(e.target.value) as 25 | 50 | 100)}
+                          className="ml-2 h-7 px-2 rounded border border-border bg-background text-xs text-foreground"
+                        >
+                          <option value={25}>25 / page</option>
+                          <option value={50}>50 / page</option>
+                          <option value={100}>100 / page</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => setCurrentPage(1)} disabled={currentPage === 1}>«</Button>
+                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>‹ Prev</Button>
+                        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                          const start = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
+                          const page = start + i;
+                          return page <= totalPages ? (
+                            <Button key={page} variant={page === currentPage ? "default" : "outline"} size="sm" className="h-7 w-7 p-0 text-xs" onClick={() => setCurrentPage(page)}>{page}</Button>
+                          ) : null;
+                        })}
+                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next ›</Button>
+                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages}>»</Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
+
+                {/* Bulk: Grant Pro Dialog */}
+                {bulkPlanDialogOpen && (
+                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-card border border-border rounded-xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+                      <h3 className="text-lg font-semibold text-foreground">Grant Pro — {selectedUsers.size} user{selectedUsers.size > 1 ? "s" : ""}</h3>
+                      <p className="text-sm text-muted-foreground">Choose how long the Pro plan should last.</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {([30, 90, 365] as const).map(d => {
+                          const exp = new Date(); exp.setDate(exp.getDate() + d);
+                          return (
+                            <button
+                              key={d}
+                              onClick={() => setBulkPlanDays(d)}
+                              className={`flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-colors ${bulkPlanDays === d ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
+                            >
+                              <span className="font-bold text-base text-foreground">{d === 365 ? "1 Yr" : `${d}d`}</span>
+                              <span className="text-[10px] text-primary mt-0.5">{exp.toLocaleDateString()}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" onClick={() => setBulkPlanDialogOpen(false)} disabled={isBulkActioning}>Cancel</Button>
+                        <Button onClick={handleBulkGrantPro} disabled={isBulkActioning}>
+                          {isBulkActioning ? "Applying..." : `Grant Pro (${bulkPlanDays === 365 ? "1yr" : bulkPlanDays + "d"})`}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Bulk: Add Credits Dialog */}
+                {bulkCreditsDialogOpen && (
+                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-card border border-border rounded-xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+                      <h3 className="text-lg font-semibold text-foreground">Add Credits — {selectedUsers.size} user{selectedUsers.size > 1 ? "s" : ""}</h3>
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Credits Amount</label>
+                          <Input type="number" value={bulkCreditsAmount} onChange={e => setBulkCreditsAmount(e.target.value)} placeholder="e.g. 10000" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Expiry Date & Time</label>
+                          <Input type="datetime-local" value={bulkCreditsExpiry} onChange={e => setBulkCreditsExpiry(e.target.value)} />
+                        </div>
+                      </div>
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" onClick={() => setBulkCreditsDialogOpen(false)} disabled={isBulkActioning}>Cancel</Button>
+                        <Button onClick={handleBulkAddCredits} disabled={isBulkActioning}>
+                          {isBulkActioning ? "Applying..." : "Add Credits"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Bulk: Suspend / Reactivate Dialog */}
+                {bulkSuspendDialogOpen && (
+                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-card border border-border rounded-xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+                      <h3 className="text-lg font-semibold text-foreground">
+                        {bulkSuspendAction === "suspend" ? "Suspend" : "Reactivate"} {selectedUsers.size} user{selectedUsers.size > 1 ? "s" : ""}?
+                      </h3>
+                      <p className="text-sm text-muted-foreground">
+                        {bulkSuspendAction === "suspend"
+                          ? "These users will lose access to the app immediately."
+                          : "These users will regain full access to the app."}
+                      </p>
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" onClick={() => setBulkSuspendDialogOpen(false)} disabled={isBulkActioning}>Cancel</Button>
+                        <Button variant={bulkSuspendAction === "suspend" ? "destructive" : "default"} onClick={handleBulkSuspend} disabled={isBulkActioning}>
+                          {isBulkActioning ? "Applying..." : bulkSuspendAction === "suspend" ? "Suspend All" : "Reactivate All"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Bulk: Set Category Dialog */}
+                {bulkCategoryDialogOpen && (
+                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-card border border-border rounded-xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+                      <h3 className="text-lg font-semibold text-foreground">Set Category — {selectedUsers.size} user{selectedUsers.size > 1 ? "s" : ""}</h3>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Category Name</label>
+                        <Input
+                          list="bulk-category-list"
+                          value={bulkCategoryValue}
+                          onChange={e => setBulkCategoryValue(e.target.value)}
+                          placeholder="e.g. College Batch 2026"
+                        />
+                        <datalist id="bulk-category-list">
+                          <option value="Uncategorized" />
+                          {uniqueCategories.map(c => <option key={c} value={c} />)}
+                        </datalist>
+                        <p className="text-xs text-muted-foreground mt-1">This replaces the existing category for all selected users.</p>
+                      </div>
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" onClick={() => setBulkCategoryDialogOpen(false)} disabled={isBulkActioning}>Cancel</Button>
+                        <Button onClick={handleBulkSetCategory} disabled={isBulkActioning}>
+                          {isBulkActioning ? "Saving..." : "Set Category"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Edit User Limits Dialog */}
                 {editingUserId && (
@@ -3050,9 +3355,8 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                             placeholder="College, Friends, or custom"
                           />
                           <datalist id="admin-category-edit">
-                            <option value="College" />
-                            <option value="Friends" />
                             <option value="Uncategorized" />
+                            {uniqueCategories.map(c => <option key={c} value={c} />)}
                           </datalist>
                         </div>
 
@@ -3331,137 +3635,206 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                 </Dialog>
 
                 {/* Bulk Upload Dialog */}
-                <Dialog open={isBulkUploadOpen} onOpenChange={setIsBulkUploadOpen}>
-                  <DialogContent className="sm:max-w-lg">
+                <Dialog open={isBulkUploadOpen} onOpenChange={(open) => {
+                  if (!open) {
+                    setIsBulkUploadOpen(false);
+                    setBulkUploadFile(null);
+                    setBulkUploadProgress(0);
+                    setBulkUploadResults(null);
+                    setBulkUploadPreview([]);
+                    setBulkUploadStep("select");
+                  }
+                }}>
+                  <DialogContent className={bulkUploadStep === "preview" ? "max-w-5xl w-full" : "sm:max-w-lg"}>
                     <DialogHeader>
-                      <DialogTitle>Bulk Upload Users</DialogTitle>
+                      <DialogTitle>
+                        {bulkUploadStep === "select" && "Bulk Upload Users"}
+                        {bulkUploadStep === "preview" && `Preview — ${bulkUploadPreview.length} row${bulkUploadPreview.length !== 1 ? "s" : ""} parsed`}
+                        {bulkUploadStep === "uploading" && "Creating Users..."}
+                        {bulkUploadStep === "done" && "Upload Complete"}
+                      </DialogTitle>
                       <DialogDescription>
-                        Upload a CSV file (NOT Excel .xlsx) to create multiple users. Format: name,email,password (phone and category optional)
+                        {bulkUploadStep === "select" && "Upload a CSV file. Phone, category are optional. Review before confirming."}
+                        {bulkUploadStep === "preview" && `${bulkUploadPreview.filter(r => !r.parseError).length} valid · ${bulkUploadPreview.filter(r => !!r.parseError).length} with errors · Invalid rows will be skipped`}
+                        {bulkUploadStep === "uploading" && `Processing ${bulkUploadPreview.filter(r => !r.parseError).length} users…`}
+                        {bulkUploadStep === "done" && "All done. See results below."}
                       </DialogDescription>
                     </DialogHeader>
 
-                    <div className="space-y-4 py-4">
-                      <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
-                        <div className="flex items-start justify-between mb-2">
-                          <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
-                            CSV Format Requirements:
-                          </p>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={downloadSampleCSV}
-                            className="h-7 text-xs"
-                          >
-                            <Download className="w-3 h-3 mr-1" />
-                            Download Sample
-                          </Button>
+                    {/* STEP: SELECT FILE */}
+                    {bulkUploadStep === "select" && (
+                      <div className="space-y-4 py-2">
+                        <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+                          <div className="flex items-start justify-between mb-2">
+                            <p className="text-sm font-medium text-blue-700 dark:text-blue-300">CSV Format</p>
+                            <Button variant="outline" size="sm" onClick={downloadSampleCSV} className="h-7 text-xs">
+                              <Download className="w-3 h-3 mr-1" />
+                              Sample CSV
+                            </Button>
+                          </div>
+                          <ul className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
+                            <li>• Columns: <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">name, email, password</code> (minimum required)</li>
+                            <li>• Optional columns: <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">phone</code> and <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">category</code> — any format accepted</li>
+                            <li>• Header row is auto-detected and skipped</li>
+                            <li>• Named headers supported: columns can be in any order if a header row is present</li>
+                            <li>• Example (5 cols): <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">Arjun,arjun@college.edu,9876543210,Batch A,pass123</code></li>
+                            <li>• Example (3 cols): <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">Arjun,arjun@college.edu,pass123</code></li>
+                          </ul>
                         </div>
-                        <ul className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
-                          <li>• File must be .csv format (not .xlsx Excel file)</li>
-                          <li>• Each line: <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">name,email,password</code> (phone and category optional)</li>
-                          <li>• Optional header row (will be skipped if detected)</li>
-                          <li>• Example: <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">John Doe,john@example.com,+919876543210,College,pass123</code></li>
-                          <li>• Download sample CSV above, edit it with your users, and upload</li>
-                        </ul>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium mb-2">
-                          Select CSV File (NOT Excel)
-                        </label>
-                        <Input
-                          type="file"
-                          accept=".csv,text/csv"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              // Additional client-side validation
-                              if (!file.name.toLowerCase().endsWith('.csv')) {
-                                toast.error("Please select a CSV file (.csv), not Excel (.xlsx)");
-                                e.target.value = '';
-                                return;
+                        <div>
+                          <label className="block text-sm font-medium mb-2">Select CSV File</label>
+                          <Input
+                            type="file"
+                            accept=".csv,text/csv"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                if (!file.name.toLowerCase().endsWith('.csv')) {
+                                  toast.error("Please select a .csv file");
+                                  e.target.value = '';
+                                  return;
+                                }
+                                setBulkUploadFile(file);
+                                setBulkUploadPreview([]);
                               }
-                              setBulkUploadFile(file);
-                              setBulkUploadResults(null);
-                            }
-                          }}
-                          disabled={isUploadingBulk}
-                        />
-                        {bulkUploadFile && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Selected: {bulkUploadFile.name} ({(bulkUploadFile.size / 1024).toFixed(2)} KB)
-                          </p>
-                        )}
-                      </div>
-
-                      {isUploadingBulk && (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-muted-foreground">Processing...</span>
-                            <span className="font-medium">{bulkUploadProgress}%</span>
-                          </div>
-                          <div className="w-full bg-secondary rounded-full h-2">
-                            <div
-                              className="bg-primary h-2 rounded-full transition-all"
-                              style={{ width: `${bulkUploadProgress}%` }}
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      {bulkUploadResults && (
-                        <div className="space-y-2">
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="bg-green-50 dark:bg-green-950/30 rounded-lg p-3 border border-green-200 dark:border-green-800">
-                              <p className="text-xs text-green-600 dark:text-green-400">Success</p>
-                              <p className="text-2xl font-bold text-green-700 dark:text-green-300">
-                                {bulkUploadResults.success}
-                              </p>
-                            </div>
-                            <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-3 border border-red-200 dark:border-red-800">
-                              <p className="text-xs text-red-600 dark:text-red-400">Failed</p>
-                              <p className="text-2xl font-bold text-red-700 dark:text-red-300">
-                                {bulkUploadResults.failed}
-                              </p>
-                            </div>
-                          </div>
-                          
-                          {bulkUploadResults.errors.length > 0 && (
-                            <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-3 border border-red-200 dark:border-red-800 max-h-40 overflow-y-auto">
-                              <p className="text-xs font-medium text-red-700 dark:text-red-300 mb-2">
-                                Errors:
-                              </p>
-                              <ul className="text-xs text-red-600 dark:text-red-400 space-y-1">
-                                {bulkUploadResults.errors.map((error, index) => (
-                                  <li key={index}>• {error}</li>
-                                ))}
-                              </ul>
-                            </div>
+                            }}
+                          />
+                          {bulkUploadFile && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {bulkUploadFile.name} — {(bulkUploadFile.size / 1024).toFixed(1)} KB
+                            </p>
                           )}
                         </div>
-                      )}
-                    </div>
+                        <DialogFooter>
+                          <Button variant="outline" onClick={() => setIsBulkUploadOpen(false)}>Cancel</Button>
+                          <Button onClick={handleParseCsvForPreview} disabled={!bulkUploadFile}>
+                            Parse & Preview →
+                          </Button>
+                        </DialogFooter>
+                      </div>
+                    )}
 
-                    <DialogFooter>
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setIsBulkUploadOpen(false);
-                          setBulkUploadFile(null);
-                          setBulkUploadProgress(0);
-                          setBulkUploadResults(null);
-                        }}
-                        disabled={isUploadingBulk}
-                      >
-                        Close
-                      </Button>
-                      <Button
-                        onClick={handleBulkUpload}
-                        disabled={!bulkUploadFile || isUploadingBulk || (bulkUploadResults?.success ?? 0) > 0}
-                      >
-                        {isUploadingBulk ? "Uploading..." : (bulkUploadResults?.success ?? 0) > 0 ? "Uploaded" : "Upload Users"}
-                      </Button>
-                    </DialogFooter>
+                    {/* STEP: PREVIEW */}
+                    {bulkUploadStep === "preview" && (
+                      <div className="space-y-3 py-2">
+                        {/* Summary pills */}
+                        <div className="flex flex-wrap gap-2">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400">
+                            ✓ {bulkUploadPreview.filter(r => !r.parseError).length} valid
+                          </span>
+                          {bulkUploadPreview.filter(r => !!r.parseError).length > 0 && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400">
+                              ✗ {bulkUploadPreview.filter(r => !!r.parseError).length} errors (will be skipped)
+                            </span>
+                          )}
+                          <span className="text-xs text-muted-foreground ml-auto self-center">Click ✗ to remove a row</span>
+                        </div>
+
+                        {/* Preview table */}
+                        <div className="rounded-lg border border-border overflow-hidden max-h-[50vh] overflow-y-auto">
+                          <table className="w-full text-xs">
+                            <thead className="sticky top-0 bg-muted/80 backdrop-blur border-b border-border">
+                              <tr>
+                                <th className="py-2 px-3 text-left font-medium text-muted-foreground w-8">#</th>
+                                <th className="py-2 px-3 text-left font-medium text-muted-foreground">Name</th>
+                                <th className="py-2 px-3 text-left font-medium text-muted-foreground">Email</th>
+                                <th className="py-2 px-3 text-left font-medium text-muted-foreground">Phone</th>
+                                <th className="py-2 px-3 text-left font-medium text-muted-foreground">Category</th>
+                                <th className="py-2 px-3 text-left font-medium text-muted-foreground">Password</th>
+                                <th className="py-2 px-3 text-left font-medium text-muted-foreground">Status</th>
+                                <th className="py-2 px-3 w-8"></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {bulkUploadPreview.map((row, idx) => (
+                                <tr key={idx} className={`border-b border-border last:border-0 ${row.parseError ? "bg-red-50 dark:bg-red-950/20" : "hover:bg-muted/30"}`}>
+                                  <td className="py-2 px-3 text-muted-foreground">{row.row}</td>
+                                  <td className="py-2 px-3 font-medium text-foreground">{row.name || <span className="text-muted-foreground italic">—</span>}</td>
+                                  <td className="py-2 px-3 text-muted-foreground">{row.email || <span className="italic">—</span>}</td>
+                                  <td className="py-2 px-3 text-muted-foreground">{row.phone || <span className="italic text-xs">—</span>}</td>
+                                  <td className="py-2 px-3 text-muted-foreground">{row.category || <span className="italic text-xs">—</span>}</td>
+                                  <td className="py-2 px-3 text-muted-foreground font-mono">{"•".repeat(Math.min(row.password.length, 8))}</td>
+                                  <td className="py-2 px-3">
+                                    {row.parseError
+                                      ? <span className="text-red-500 font-medium" title={row.parseError}>✗ {row.parseError}</span>
+                                      : <span className="text-green-600 font-medium">✓ OK</span>}
+                                  </td>
+                                  <td className="py-2 px-3">
+                                    <button
+                                      className="text-muted-foreground hover:text-destructive"
+                                      title="Remove this row"
+                                      onClick={() => setBulkUploadPreview(prev => prev.filter((_, i) => i !== idx))}
+                                    >
+                                      ×
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <DialogFooter className="gap-2 flex-wrap">
+                          <Button variant="outline" onClick={() => setBulkUploadStep("select")}>← Back</Button>
+                          <Button
+                            onClick={handleConfirmBulkUpload}
+                            disabled={bulkUploadPreview.filter(r => !r.parseError).length === 0}
+                          >
+                            Confirm &amp; Upload {bulkUploadPreview.filter(r => !r.parseError).length} user{bulkUploadPreview.filter(r => !r.parseError).length !== 1 ? "s" : ""} →
+                          </Button>
+                        </DialogFooter>
+                      </div>
+                    )}
+
+                    {/* STEP: UPLOADING */}
+                    {bulkUploadStep === "uploading" && (
+                      <div className="py-6 space-y-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Creating accounts…</span>
+                            <span className="font-semibold">{bulkUploadProgress}%</span>
+                          </div>
+                          <div className="w-full bg-secondary rounded-full h-3">
+                            <div className="bg-primary h-3 rounded-full transition-all" style={{ width: `${bulkUploadProgress}%` }} />
+                          </div>
+                        </div>
+                        <p className="text-xs text-center text-muted-foreground">Please wait, do not close this dialog…</p>
+                      </div>
+                    )}
+
+                    {/* STEP: DONE */}
+                    {bulkUploadStep === "done" && bulkUploadResults && (
+                      <div className="py-2 space-y-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-green-50 dark:bg-green-950/30 rounded-lg p-4 border border-green-200 dark:border-green-800 text-center">
+                            <p className="text-xs text-green-600 dark:text-green-400 mb-1">Created</p>
+                            <p className="text-3xl font-bold text-green-700 dark:text-green-300">{bulkUploadResults.success}</p>
+                          </div>
+                          <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-4 border border-red-200 dark:border-red-800 text-center">
+                            <p className="text-xs text-red-600 dark:text-red-400 mb-1">Failed</p>
+                            <p className="text-3xl font-bold text-red-700 dark:text-red-300">{bulkUploadResults.failed}</p>
+                          </div>
+                        </div>
+                        {bulkUploadResults.errors.length > 0 && (
+                          <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-3 border border-red-200 dark:border-red-800 max-h-44 overflow-y-auto">
+                            <p className="text-xs font-semibold text-red-700 dark:text-red-300 mb-2">Errors:</p>
+                            <ul className="text-xs text-red-600 dark:text-red-400 space-y-1">
+                              {bulkUploadResults.errors.map((e, i) => <li key={i}>• {e}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                        <DialogFooter>
+                          <Button onClick={() => {
+                            setIsBulkUploadOpen(false);
+                            setBulkUploadFile(null);
+                            setBulkUploadProgress(0);
+                            setBulkUploadResults(null);
+                            setBulkUploadPreview([]);
+                            setBulkUploadStep("select");
+                          }}>Close</Button>
+                        </DialogFooter>
+                      </div>
+                    )}
                   </DialogContent>
                 </Dialog>
 

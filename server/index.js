@@ -1372,6 +1372,86 @@ app.post("/api/admin/toggle-plan", async (req, res) => {
   }
 });
 
+// Bulk user actions (plan, credits, suspend, category)
+app.post("/api/admin/bulk-action", async (req, res) => {
+  try {
+    const { action, userIds, durationDays, creditsAmount, creditsExpiry, category } = req.body;
+    if (!action || !Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({ error: "action and userIds are required" });
+    }
+    if (!adminDb) return res.status(500).json({ error: "Database not initialized" });
+
+    const BATCH_SIZE = 500;
+    let processed = 0;
+    let failed = 0;
+    const errors = [];
+
+    for (let i = 0; i < userIds.length; i += BATCH_SIZE) {
+      const chunk = userIds.slice(i, i + BATCH_SIZE);
+      const batch = adminDb.batch();
+      for (const uid of chunk) {
+        const ref = adminDb.collection("users").doc(uid);
+        try {
+          if (action === "grant-pro") {
+            const days = parseInt(durationDays) || 30;
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + days);
+            batch.update(ref, {
+              plan: "pro",
+              wordLimit: 50000,
+              subscriptionStatus: "active",
+              adminPlanExpiresAt: expiresAt.toISOString(),
+              adminPlanDurationDays: days,
+              updatedAt: new Date().toISOString(),
+            });
+          } else if (action === "revoke-pro") {
+            batch.update(ref, {
+              plan: "free",
+              wordLimit: 200,
+              subscriptionStatus: "inactive",
+              adminPlanExpiresAt: null,
+              adminPlanDurationDays: null,
+              updatedAt: new Date().toISOString(),
+            });
+          } else if (action === "add-credits") {
+            const amount = parseInt(creditsAmount) || 0;
+            if (amount <= 0) continue;
+            const expiry = creditsExpiry || (() => {
+              const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString();
+            })();
+            const snap = await ref.get();
+            const existing = snap.data()?.adminCredits || 0;
+            batch.update(ref, {
+              adminCredits: existing + amount,
+              adminCreditsExpiryAt: expiry,
+              updatedAt: new Date().toISOString(),
+            });
+          } else if (action === "suspend") {
+            batch.update(ref, { status: "deactivated", updatedAt: new Date().toISOString() });
+          } else if (action === "reactivate") {
+            batch.update(ref, { status: "active", updatedAt: new Date().toISOString() });
+          } else if (action === "set-category") {
+            batch.update(ref, { category: category || "", updatedAt: new Date().toISOString() });
+          } else {
+            return res.status(400).json({ error: `Unknown action: ${action}` });
+          }
+          processed++;
+        } catch (e) {
+          failed++;
+          errors.push(`${uid}: ${e.message}`);
+        }
+      }
+      await batch.commit();
+    }
+
+    console.log(`Bulk action '${action}' on ${processed} users, ${failed} failed`);
+    res.json({ success: true, processed, failed, errors });
+  } catch (error) {
+    console.error("Bulk action error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Ping Google to notify sitemap update (optional - called after blog publish)
 app.post("/api/ping-sitemap", async (req, res) => {
   try {
