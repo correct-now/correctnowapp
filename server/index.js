@@ -464,6 +464,15 @@ app.post(
             console.log("✓ Credits updated successfully");
           } else {
             console.log("Processing SUBSCRIPTION purchase");
+            // Fetch subscription to get current_period_end
+            let periodEnd = null;
+            try {
+              const stripeSdk = getStripe();
+              if (stripeSdk && subscriptionId) {
+                const sub = await stripeSdk.subscriptions.retrieve(subscriptionId);
+                periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null;
+              }
+            } catch (e) { console.warn("Could not fetch subscription period end:", e.message); }
             const updateData = {
               plan: "pro",
               wordLimit: 5000,
@@ -473,6 +482,7 @@ app.post(
               stripeCustomerId: customerId,
               stripeSubscriptionId: subscriptionId,
               subscriptionStatus: "active",
+              subscriptionCurrentPeriodEnd: periodEnd,
               subscriptionUpdatedAt: nowIso,
               updatedAt: nowIso,
             };
@@ -530,14 +540,21 @@ app.post(
             updates.creditsUsed = 0;
             updates.creditsResetDate = nowIso;
             updates.subscriptionStatus = "active";
+            if (subscription.current_period_end) {
+              updates.subscriptionCurrentPeriodEnd = new Date(subscription.current_period_end * 1000).toISOString();
+            }
           } else if (["canceled", "unpaid"].includes(status)) {
             updates.plan = "free";
             updates.wordLimit = 200;
             updates.credits = 0;
             updates.creditsUsed = 0;
             updates.subscriptionStatus = status;
+            updates.subscriptionCurrentPeriodEnd = null;
           } else if (status === "past_due") {
             updates.subscriptionStatus = "past_due";
+            if (subscription.current_period_end) {
+              updates.subscriptionCurrentPeriodEnd = new Date(subscription.current_period_end * 1000).toISOString();
+            }
           }
           
           updates.subscriptionUpdatedAt = nowIso;
@@ -580,6 +597,9 @@ app.post(
           }
           
           const batch = adminDb.batch();
+          const periodEndIso = invoice.lines?.data?.[0]?.period?.end
+            ? new Date(invoice.lines.data[0].period.end * 1000).toISOString()
+            : null;
           snapshot.forEach((doc) => {
             console.log("Updating user:", doc.id);
             batch.set(doc.ref, {
@@ -589,6 +609,7 @@ app.post(
               creditsUsed: 0,
               creditsResetDate: nowIso,
               subscriptionStatus: "active",
+              ...(periodEndIso ? { subscriptionCurrentPeriodEnd: periodEndIso } : {}),
               subscriptionUpdatedAt: nowIso,
               updatedAt: nowIso,
             }, { merge: true });
@@ -681,6 +702,8 @@ app.post("/api/razorpay/webhook", express.raw({ type: "application/json" }), asy
     if (adminDb && subscriptionId) {
       const nowIso = new Date().toISOString();
       if (eventName === "subscription.charged") {
+        const chargeAt = event?.payload?.subscription?.entity?.charge_at;
+        const periodEndIso = chargeAt ? new Date(chargeAt * 1000).toISOString() : null;
         await updateUsersBySubscriptionId(subscriptionId, {
           plan: "pro",
           wordLimit: 5000,
@@ -688,6 +711,7 @@ app.post("/api/razorpay/webhook", express.raw({ type: "application/json" }), asy
           creditsUsed: 0,
           creditsResetDate: nowIso,
           subscriptionStatus: "active",
+          ...(periodEndIso ? { subscriptionCurrentPeriodEnd: periodEndIso } : {}),
           subscriptionUpdatedAt: nowIso,
           updatedAt: nowIso,
         });
@@ -810,6 +834,15 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
           console.log("✓ Credits updated successfully");
         } else {
           console.log("Processing SUBSCRIPTION purchase");
+          // Fetch subscription to get current_period_end
+          let periodEnd = null;
+          try {
+            const stripeSdk = getStripe();
+            if (stripeSdk && subscriptionId) {
+              const sub = await stripeSdk.subscriptions.retrieve(subscriptionId);
+              periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null;
+            }
+          } catch (e) { console.warn("Could not fetch subscription period end:", e.message); }
           const updateData = {
             plan: "pro",
             wordLimit: 5000,
@@ -819,6 +852,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
             stripeCustomerId: customerId,
             stripeSubscriptionId: subscriptionId,
             subscriptionStatus: "active",
+            subscriptionCurrentPeriodEnd: periodEnd,
             subscriptionUpdatedAt: nowIso,
             updatedAt: nowIso,
           };
@@ -876,14 +910,21 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
           updates.creditsUsed = 0;
           updates.creditsResetDate = nowIso;
           updates.subscriptionStatus = "active";
+          if (subscription.current_period_end) {
+            updates.subscriptionCurrentPeriodEnd = new Date(subscription.current_period_end * 1000).toISOString();
+          }
         } else if (["canceled", "unpaid"].includes(status)) {
           updates.plan = "free";
           updates.wordLimit = 200;
           updates.credits = 0;
           updates.creditsUsed = 0;
           updates.subscriptionStatus = status;
+          updates.subscriptionCurrentPeriodEnd = null;
         } else if (status === "past_due") {
           updates.subscriptionStatus = "past_due";
+          if (subscription.current_period_end) {
+            updates.subscriptionCurrentPeriodEnd = new Date(subscription.current_period_end * 1000).toISOString();
+          }
         }
         
         updates.subscriptionUpdatedAt = nowIso;
@@ -926,6 +967,9 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
         }
         
         const batch = adminDb.batch();
+        const periodEndIso2 = invoice.lines?.data?.[0]?.period?.end
+          ? new Date(invoice.lines.data[0].period.end * 1000).toISOString()
+          : null;
         snapshot.forEach((doc) => {
           console.log("Updating user:", doc.id);
           batch.set(doc.ref, {
@@ -935,6 +979,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
             creditsUsed: 0,
             creditsResetDate: nowIso,
             subscriptionStatus: "active",
+            ...(periodEndIso2 ? { subscriptionCurrentPeriodEnd: periodEndIso2 } : {}),
             subscriptionUpdatedAt: nowIso,
             updatedAt: nowIso,
           }, { merge: true });
@@ -1265,7 +1310,7 @@ app.post("/api/admin/delete-user", async (req, res) => {
 // Toggle user plan between Pro and Free (admin only)
 app.post("/api/admin/toggle-plan", async (req, res) => {
   try {
-    const { userId } = req.body;
+    const { userId, durationDays } = req.body;
     
     if (!userId) {
       return res.status(400).json({ error: "User ID is required" });
@@ -1294,24 +1339,32 @@ app.post("/api/admin/toggle-plan", async (req, res) => {
       updatedAt: new Date().toISOString(),
     };
 
-    // Note: Manual admin grants don't have subscription IDs or auto-renewal
-    // If toggling to Pro, this is a manual override (no billing cycle)
-    // If toggling to Free, clear any existing subscription metadata
-    if (newPlan === "free") {
+    if (newPlan === "pro") {
+      // Require a duration when granting Pro manually
+      const days = parseInt(durationDays) || 30;
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + days);
+      updates.adminPlanExpiresAt = expiresAt.toISOString();
+      updates.adminPlanDurationDays = days;
+    } else {
+      // Downgrading — clear manual grant fields and subscription metadata
+      updates.adminPlanExpiresAt = null;
+      updates.adminPlanDurationDays = null;
       updates.razorpaySubscriptionId = null;
       updates.stripeSubscriptionId = null;
     }
 
     await adminDb.collection("users").doc(userId).update(updates);
     
-    console.log(`Toggled plan for user ${userId}: ${currentPlan} → ${newPlan}`);
+    console.log(`Toggled plan for user ${userId}: ${currentPlan} → ${newPlan}${updates.adminPlanExpiresAt ? ` (expires ${updates.adminPlanExpiresAt})` : ""}`);
 
     res.json({ 
       success: true, 
       message: `Plan changed to ${newPlan}`,
       newPlan,
       wordLimit: updates.wordLimit,
-      subscriptionStatus: updates.subscriptionStatus
+      subscriptionStatus: updates.subscriptionStatus,
+      adminPlanExpiresAt: updates.adminPlanExpiresAt || null,
     });
   } catch (error) {
     console.error("Toggle plan error:", error);
@@ -3304,8 +3357,8 @@ app.post("/api/blog-image-generate", express.json({ limit: "1mb" }), async (req,
 
     const fullPrompt = `${prompt}. Style: ${styleGuide}. No text overlay. No watermarks. Wide aspect ratio 16:9. Professional blog header image.`;
 
-    // Use Gemini image generation
-    const geminiImgEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`;
+    // Use Gemini image generation (Nano Banana Pro — best quality for blog headers)
+    const geminiImgEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${apiKey}`;
 
     const makeImageRequest = () =>
       fetch(geminiImgEndpoint, {

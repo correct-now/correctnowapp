@@ -111,8 +111,11 @@ type AdminUser = {
   adminCreditsExpiryAt?: string;
   subscriptionStatus?: string;
   subscriptionUpdatedAt?: string;
+  subscriptionCurrentPeriodEnd?: string | null;
   razorpaySubscriptionId?: string;
   stripeSubscriptionId?: string;
+  adminPlanExpiresAt?: string | null;
+  adminPlanDurationDays?: number | null;
   updatedAt?: string;
   createdAt?: string;
   status?: string;
@@ -313,6 +316,8 @@ const Admin = () => {
 
   // Plan toggle management
   const [togglingPlanUserId, setTogglingPlanUserId] = useState<string | null>(null);
+  const [planGrantDialogUser, setPlanGrantDialogUser] = useState<AdminUser | null>(null);
+  const [planGrantDays, setPlanGrantDays] = useState<30 | 90 | 365>(30);
   const [addonCreditsExpiry, setAddonCreditsExpiry] = useState("");
   const [savingAddonCredits, setSavingAddonCredits] = useState(false);
 
@@ -1292,41 +1297,68 @@ const Admin = () => {
     }
   };
 
-  const handleTogglePlan = async (userId: string, currentPlan: string) => {
-    setTogglingPlanUserId(userId);
+  const handleTogglePlan = async (user: AdminUser) => {
+    if (user.plan !== "Pro") {
+      // Open duration dialog before granting Pro
+      setPlanGrantDialogUser(user);
+      setPlanGrantDays(30);
+      return;
+    }
+    // Downgrade directly
+    setTogglingPlanUserId(user.id);
     try {
       const response = await fetch("/api/admin/toggle-plan", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ userId }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id }),
       });
-
       const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to toggle plan");
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === user.id
+            ? { ...u, plan: "Free", wordLimit: data.wordLimit, subscriptionStatus: data.subscriptionStatus, adminPlanExpiresAt: null }
+            : u
+        )
+      );
+      toast.success("User downgraded to Free");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to toggle plan");
+    } finally {
+      setTogglingPlanUserId(null);
+    }
+  };
 
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to toggle plan");
-      }
-
-      // Update local state
+  const handleConfirmPlanGrant = async () => {
+    if (!planGrantDialogUser) return;
+    const userId = planGrantDialogUser.id;
+    setTogglingPlanUserId(userId);
+    setPlanGrantDialogUser(null);
+    try {
+      const response = await fetch("/api/admin/toggle-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, durationDays: planGrantDays }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to grant plan");
       setUsers((prev) =>
         prev.map((u) =>
           u.id === userId
             ? {
                 ...u,
-                plan: data.newPlan === "pro" ? "Pro" : "Free",
+                plan: "Pro",
                 wordLimit: data.wordLimit,
                 subscriptionStatus: data.subscriptionStatus,
+                adminPlanExpiresAt: data.adminPlanExpiresAt,
               }
             : u
         )
       );
-
-      toast.success(`User plan changed to ${data.newPlan.toUpperCase()}`);
+      const label = planGrantDays === 30 ? "30 days" : planGrantDays === 90 ? "3 months" : "1 year";
+      toast.success(`Pro plan granted for ${label}`);
     } catch (err: any) {
-      console.error("Failed to toggle plan", err);
-      toast.error(err.message || "Failed to toggle plan");
+      toast.error(err.message || "Failed to grant plan");
     } finally {
       setTogglingPlanUserId(null);
     }
@@ -2809,7 +2841,7 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                                       variant={user.plan === "Pro" ? "destructive" : "default"}
                                       size="sm"
                                       className="h-7 px-2.5 text-xs"
-                                      onClick={() => handleTogglePlan(user.id, user.plan)}
+                                      onClick={() => handleTogglePlan(user)}
                                       disabled={togglingPlanUserId === user.id}
                                       title={user.plan === "Pro" ? "Downgrade to Free" : "Upgrade to Pro (Manual - No auto-renewal)"}
                                     >
@@ -2839,8 +2871,52 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
                                   {user.plan}
                                 </Badge>
                                 {user.plan === "Pro" && !user.razorpaySubscriptionId && !user.stripeSubscriptionId && (
-                                  <span className="text-[10px] text-muted-foreground italic">Manual Grant</span>
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className="text-[10px] text-muted-foreground italic">Manual Grant</span>
+                                    {user.adminPlanExpiresAt && (() => {
+                                      const expiresAt = new Date(user.adminPlanExpiresAt);
+                                      const now = new Date();
+                                      const daysLeft = Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                                      const expired = daysLeft <= 0;
+                                      const critical = daysLeft > 0 && daysLeft <= 7;
+                                      const warning = daysLeft > 7 && daysLeft <= 14;
+                                      return (
+                                        <span className={`text-[10px] font-medium ${expired ? "text-red-500" : critical ? "text-red-400" : warning ? "text-amber-500" : "text-muted-foreground"}`}>
+                                          {expired
+                                            ? `⚠ Expired ${Math.abs(daysLeft)}d ago`
+                                            : critical
+                                            ? `⚠ Expires in ${daysLeft}d`
+                                            : warning
+                                            ? `Expires in ${daysLeft}d`
+                                            : `Until ${expiresAt.toLocaleDateString()}`}
+                                        </span>
+                                      );
+                                    })()}
+                                  </div>
                                 )}
+                                {user.plan === "Pro" && (user.razorpaySubscriptionId || user.stripeSubscriptionId) && (() => {
+                                  const periodEnd = user.subscriptionCurrentPeriodEnd;
+                                  if (!periodEnd) return <span className="text-[10px] text-muted-foreground italic">Subscribed</span>;
+                                  const expiresAt = new Date(periodEnd);
+                                  const now = new Date();
+                                  const daysLeft = Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                                  const expired = daysLeft <= 0;
+                                  const critical = daysLeft > 0 && daysLeft <= 5;
+                                  return (
+                                    <div className="flex flex-col gap-0.5">
+                                      <span className="text-[10px] text-muted-foreground italic">
+                                        {user.razorpaySubscriptionId ? "Razorpay" : "Stripe"}
+                                      </span>
+                                      <span className={`text-[10px] font-medium ${expired ? "text-red-500" : critical ? "text-amber-500" : "text-muted-foreground"}`}>
+                                        {expired
+                                          ? `⚠ Renewal overdue`
+                                          : critical
+                                          ? `Renews in ${daysLeft}d`
+                                          : `Renews ${expiresAt.toLocaleDateString()}`}
+                                      </span>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </td>
                             <td className="py-4 px-6">
@@ -6086,6 +6162,49 @@ Bob Wilson,bob${timestamp}@example.com,,Uncategorized,password789`;
             )}
           </main>
         </div>
+
+        {/* Plan Grant Duration Dialog */}
+        <Dialog open={!!planGrantDialogUser} onOpenChange={(open) => { if (!open) setPlanGrantDialogUser(null); }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Grant Pro Plan</DialogTitle>
+              <DialogDescription>
+                Select how long to grant Pro access for <strong>{planGrantDialogUser?.name || planGrantDialogUser?.email}</strong>. The plan will automatically expire after the selected period.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-3 gap-3 py-2">
+              {([30, 90, 365] as const).map((days) => {
+                const label = days === 30 ? "30 Days" : days === 90 ? "3 Months" : "1 Year";
+                const sub = days === 30 ? "~1 month" : days === 90 ? "~quarter" : "annual";
+                return (
+                  <button
+                    key={days}
+                    onClick={() => setPlanGrantDays(days)}
+                    className={`flex flex-col items-center justify-center rounded-lg border-2 p-3 transition-colors ${
+                      planGrantDays === days
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border hover:border-primary/50 text-foreground"
+                    }`}
+                  >
+                    <span className="font-semibold text-sm">{label}</span>
+                    <span className="text-[10px] text-muted-foreground mt-0.5">{sub}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Expires: <strong>{(() => {
+                const d = new Date();
+                d.setDate(d.getDate() + planGrantDays);
+                return d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+              })()}</strong>
+            </p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPlanGrantDialogUser(null)}>Cancel</Button>
+              <Button onClick={handleConfirmPlanGrant}>Grant Pro</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Delete Confirmation Dialog */}
         <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

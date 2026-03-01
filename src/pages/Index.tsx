@@ -66,6 +66,10 @@ const Index = () => {
     addonCreditsExpiryAt: string | null;
     adminCredits: number;
     adminCreditsExpiryAt: string | null;
+    subscriptionCurrentPeriodEnd: string | null;
+    adminPlanExpiresAt: string | null;
+    razorpaySubscriptionId: string | null;
+    stripeSubscriptionId: string | null;
   } | null>(null);
   const [isLoadingProfile, setIsLoadingProfile] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -140,6 +144,10 @@ const Index = () => {
                       addonCreditsExpiryAt: data.addonCreditsExpiryAt || null,
                       adminCredits: data.adminCredits || 0,
                       adminCreditsExpiryAt: data.adminCreditsExpiryAt || null,
+                      subscriptionCurrentPeriodEnd: data.subscriptionCurrentPeriodEnd || null,
+                      adminPlanExpiresAt: data.adminPlanExpiresAt || null,
+                      razorpaySubscriptionId: data.razorpaySubscriptionId || null,
+                      stripeSubscriptionId: data.stripeSubscriptionId || null,
                     });
                   } else {
                     // User document doesn't exist, set defaults
@@ -154,6 +162,10 @@ const Index = () => {
                       addonCreditsExpiryAt: null,
                       adminCredits: 0,
                       adminCreditsExpiryAt: null,
+                      subscriptionCurrentPeriodEnd: null,
+                      adminPlanExpiresAt: null,
+                      razorpaySubscriptionId: null,
+                      stripeSubscriptionId: null,
                     });
                   }
                   setIsLoadingProfile(false);
@@ -935,6 +947,63 @@ const Index = () => {
                                   <span className="text-muted-foreground">Status</span>
                                   <span className="font-semibold text-foreground capitalize">{effective.subscriptionStatus || "inactive"}</span>
                                 </div>
+                                {effective.planKey === "pro" && (() => {
+                                  const periodEnd = userProfile?.subscriptionCurrentPeriodEnd;
+                                  const manualExpiry = userProfile?.adminPlanExpiresAt;
+                                  const isSub = !!(userProfile?.razorpaySubscriptionId || userProfile?.stripeSubscriptionId);
+
+                                  if (isSub) {
+                                    // Paying subscriber — show renewal date
+                                    const rows = [];
+                                    rows.push(
+                                      <div key="type" className="flex items-center justify-between">
+                                        <span className="text-muted-foreground">Plan type</span>
+                                        <span className="font-semibold text-foreground">
+                                          {userProfile?.razorpaySubscriptionId ? "Razorpay" : "Stripe"}
+                                        </span>
+                                      </div>
+                                    );
+                                    if (periodEnd) {
+                                      const d = new Date(periodEnd);
+                                      const daysLeft = Math.ceil((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                                      const overdue = daysLeft <= 0;
+                                      const soon = daysLeft > 0 && daysLeft <= 5;
+                                      rows.push(
+                                        <div key="renewal" className="flex items-center justify-between">
+                                          <span className="text-muted-foreground">Next renewal</span>
+                                          <span className={`font-semibold ${overdue ? "text-red-500" : soon ? "text-amber-500" : "text-foreground"}`}>
+                                            {overdue ? "Overdue" : soon ? `In ${daysLeft}d` : d.toLocaleDateString()}
+                                          </span>
+                                        </div>
+                                      );
+                                    }
+                                    return <>{rows}</>;
+                                  }
+
+                                  // Admin-granted Pro
+                                  const rows = [];
+                                  rows.push(
+                                    <div key="type" className="flex items-center justify-between">
+                                      <span className="text-muted-foreground">Plan type</span>
+                                      <span className="font-semibold text-foreground">Admin grant</span>
+                                    </div>
+                                  );
+                                  if (manualExpiry) {
+                                    const d = new Date(manualExpiry);
+                                    const daysLeft = Math.ceil((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                                    const expired = daysLeft <= 0;
+                                    const critical = daysLeft > 0 && daysLeft <= 7;
+                                    rows.push(
+                                      <div key="expiry" className="flex items-center justify-between">
+                                        <span className="text-muted-foreground">Plan expires</span>
+                                        <span className={`font-semibold ${expired ? "text-red-500" : critical ? "text-amber-500" : "text-foreground"}`}>
+                                          {expired ? "Expired" : critical ? `In ${daysLeft}d` : d.toLocaleDateString()}
+                                        </span>
+                                      </div>
+                                    );
+                                  }
+                                  return <>{rows}</>;
+                                })()}
                                     </>
                                   );
                                 })()}
