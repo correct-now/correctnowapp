@@ -4432,7 +4432,8 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                         </div>
                       )}
 
-                      {/* ─── Image Generator ─── */}
+                      {/* ─── Image Generator (hidden) ─── */}
+                      {false && (
                       <div className="pt-3 border-t border-purple-200 dark:border-purple-800 space-y-2">
                         <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">🖼 AI Image Generator</p>
                         <div className="flex gap-2">
@@ -4482,6 +4483,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                           </div>
                         )}
                       </div>
+                      )}
                     </div>
                     {/* ────────────────────────────────────────────────── */}
 
