@@ -2700,6 +2700,11 @@ app.post("/api/proofread", async (req, res) => {
         res.setHeader('X-Checks-Limit', entitlements.checksLimit === -1 ? 'unlimited' : entitlements.checksLimit.toString());
       } else {
         console.log('⚠️ Invalid auth token');
+        return res.status(401).json({
+          message: 'Invalid or expired auth token. Please sign in again.',
+          requiresAuth: true,
+          code: 'INVALID_AUTH_TOKEN',
+        });
       }
     }
 
