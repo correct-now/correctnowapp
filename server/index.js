@@ -2067,13 +2067,30 @@ PROPER NOUNS / NAMES (CRITICAL, NEWS-GRADE):
 - If you are NOT confident it is a misspelling, do NOT change it.
 
 SPECIFIC FOR TAMIL:
-- Strictly follow 'Valinam Migum/Miga' rules.
+- Strictly follow 'Valinam Migum/Miga' (வலினம் மிகும்) rules. This is the HIGHEST PRIORITY for Tamil.
+- VALINAM MIGUM RULES (MANDATORY - Apply to ALL hard consonants: க், ச், த், ப்):
+  * After words ending in vowels/ஒற்று when followed by words starting with க, ச, த, ப:
+    - "செய்வதற்கு பதில்" → "செய்வதற்குப் பதில்" (ப் added before ப)
+    - "அவர்களுக்கு கொடுத்தார்" → "அவர்களுக்குக் கொடுத்தார்" (க் added before க)
+    - "இவர்களுக்கு சொல்ல" → "இவர்களுக்குச் சொல்ல" (ச் added before ச)
+    - "அதற்கு தகுந்த" → "அதற்குத் தகுந்த" (த் added before த)
+  * After உம், ஆன, ஆக, இல், ஐ suffixes before hard consonants:
+    - "நல்லதும் கெட்டதும்" → correct (no change needed - already has joining)
+    - "அழகான பூக்கள்" → "அழகானப் பூக்கள்" OR keep if contextually natural
+  * CRITICAL: Words starting with "ப" (pa) are most commonly missed:
+    - "என்று பேசினார்" → "என்றுப் பேசினார்" (add ப் before ப after று)
+    - "மக்களுக்கு பயன்" → "மக்களுக்குப் பயன்" (add ப் before ப after கு)
+    - "அவருக்கு பிடிக்கும்" → "அவருக்குப் பிடிக்கும்"
+  * After சொல்லி, கொண்டு, வந்து, சென்று, etc. before க, ச, த, ப words.
 - Fix run-on words (Otrumizhal) (e.g., 'இன்னும்கடுமையாக' -> 'இன்னும் கடுமையாக').
 - Join postpositions correctly when natural (e.g., "எடப்பாடியுடன்", "என்றெல்லாம்").
 - COMMON WORD VALIDATION: Double-check frequently used words for correctness:
   * "எதிரபார்க்கப்படுகிறது" (incorrect) → "எதிர்பார்க்கப்படுகிறது" (correct)
+  * "பயன்படுதுகிறது" (incorrect) → "பயன்படுத்துகிறது" (correct)
+  * "தெரிவிக்கபட்டது" (incorrect) → "தெரிவிக்கப்பட்டது" (correct)
   * Pay special attention to words with compound formation and sandhi rules
 - VERB FORMS: Validate passive and compound verb forms carefully
+- SANDHI ACCURACY CHECK: For every word starting with க, ச, த, ப, verify whether the preceding word requires consonant doubling. When in doubt, APPLY the sandhi rule.
 
 LOANWORD DETECTION (ALL LANGUAGES):
 - If an English word is written/transliterated in a non-English script/language, provide dual options.
@@ -2125,7 +2142,14 @@ UNIVERSAL LINGUISTIC RULES (Apply to ALL languages):
 
 3. STRUCTURAL INTEGRITY (Word Joining/Splitting):
    - Fix errors where words are incorrectly merged or separated.
-   - Tamil Sandhi: "செய்வதற்கு சமம்" → "செய்வதற்குச் சமம்" (hard consonant doubling)
+   - Tamil Sandhi (வலினம் மிகும் - HIGHEST PRIORITY):
+     * "செய்வதற்கு சமம்" → "செய்வதற்குச் சமம்" (ச் doubling before ச)
+     * "அவருக்கு பணம்" → "அவருக்குப் பணம்" (ப் doubling before ப)
+     * "இவர்களுக்கு தெரியும்" → "இவர்களுக்குத் தெரியும்" (த் doubling before த)
+     * "எனக்கு கொடு" → "எனக்குக் கொடு" (க் doubling before க)
+     * Rule: After -கு, -து, -று, -டு suffixes → add ப்/க்/ச்/த் before next word starting with ப/க/ச/த
+     * "என்று பார்த்தார்" → "என்றுப் பார்த்தார்" (ப் before ப after று)
+     * "கொண்டு போனார்" → "கொண்டுப் போனார்" (ப் before ப after டு)
   - Tamil Case Endings / Postpositions: "எடப்பாடி உடன்" → "எடப்பாடியுடன்" (join postpositions)
   - Tamil Sandhi/Clitics: "என்று எல்லாம்" → "என்றெல்லாம்" (join natural clitics)
    - English: "alot" → "a lot", "cannot" (keep as one word)
@@ -2211,7 +2235,15 @@ UNIVERSAL LINGUISTIC RULES (Apply to ALL languages):
     - "இதைடுத்து" → "இதையடுத்து" (orthographic join)
 
 9. LANGUAGE-SPECIFIC REFINEMENTS:
-   - Tamil: Apply Valinam Migum/Miga rules (hard consonants: க், ச், த், ப்)
+   - Tamil: Apply Valinam Migum/Miga rules (hard consonants: க், ச், த், ப்) with 100% accuracy.
+     * SCAN EVERY word boundary: if word N+1 starts with க/ச/த/ப, check if word N requires doubling.
+     * Common suffixes that trigger doubling: -கு, -து, -று, -டு, -ல், -ன், -ம்
+     * The ப் consonant is MOST FREQUENTLY missed by writers - be extra vigilant.
+     * Examples commonly missed:
+       - "அதற்கு பிறகு" → "அதற்குப் பிறகு"
+       - "என்பதற்கு பதிலாக" → "என்பதற்குப் பதிலாக"
+       - "வருவதற்கு பதில்" → "வருவதற்குப் பதில்"
+       - "அவர்களுக்கு போதுமானது" → "அவர்களுக்குப் போதுமானது"
    - English: Fix slang ("u" → "you", "r" → "are"), contractions, and informal texting.
    - Apply proper capitalization, sentence boundaries, and common misspellings.
 

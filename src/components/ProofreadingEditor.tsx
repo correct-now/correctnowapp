@@ -384,7 +384,9 @@ const parseDualSuggestion = (explanation: string) => {
 };
 
 const highlightText = (text: string, changeList: Change[]) => {
-  let safeText = formatText(text);
+  // Use only escapeHtml + newline conversion (NOT formatText which applies markdown
+  // transformations that alter character widths and break overlay alignment)
+  let safeText = escapeHtml(text).replace(/\n/g, "<br>");
   if (!changeList.length) return safeText;
 
   // Highlighting is expensive for very large suggestion sets.
@@ -917,7 +919,15 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
     const target = suggestionRefs.current[index];
     if (target) {
       setActiveSuggestionIndex(index);
-      target.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      // Scroll only within the suggestions scrollable container (not the page)
+      const scrollParent = target.closest('.overflow-auto');
+      if (scrollParent) {
+        const parentRect = scrollParent.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        const offsetTop = targetRect.top - parentRect.top + scrollParent.scrollTop;
+        const targetCenter = offsetTop - (parentRect.height / 2) + (targetRect.height / 2);
+        scrollParent.scrollTo({ top: Math.max(0, targetCenter), behavior: "smooth" });
+      }
     }
   };
 
@@ -947,6 +957,8 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
   const handleHighlightClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
     if (target.classList.contains('change-error')) {
+      event.preventDefault();
+      event.stopPropagation();
       const errorText = target.textContent?.trim() || "";
       if (errorText) {
         if (hoverTimerRef.current) {

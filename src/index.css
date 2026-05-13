@@ -171,6 +171,8 @@
     @apply bg-card border border-border rounded-lg;
     @apply focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent;
     @apply transition-all duration-200;
+    word-break: break-word;
+    overflow-wrap: anywhere;
   }
 
   .editor-overlay {
@@ -188,6 +190,7 @@
     word-break: break-word;
     overflow-wrap: anywhere;
     pointer-events: none;
+    border: 1px solid transparent;
   }
 
   .editor-input {
@@ -332,22 +335,24 @@
   }
 
   .editor-highlight .change-error {
-    background: linear-gradient(transparent calc(100% - 2px), hsl(var(--warning)) 0) no-repeat;
-    background-size: 100% 2px;
-    background-position: 0 calc(100% - 0px);
+    text-decoration: underline;
+    text-decoration-color: hsl(var(--warning));
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+    text-decoration-style: wavy;
     background-color: transparent;
-    padding: 0 0 3px 0;
+    padding: 0;
+    margin: 0;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background-color 0.2s ease, text-decoration-thickness 0.2s ease;
     position: relative;
   }
 
   .editor-highlight .change-error:hover {
     background-color: hsl(var(--warning) / 0.15);
-    background-size: 100% 3px;
+    text-decoration-thickness: 3px;
     color: hsl(var(--foreground));
     border-radius: 3px;
-    padding: 0 2px 3px 2px;
     box-shadow: 0 2px 8px hsl(var(--warning) / 0.2);
   }
 
