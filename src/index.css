@@ -349,11 +349,9 @@
   }
 
   .editor-highlight .change-error:hover {
-    background-color: hsl(var(--warning) / 0.15);
-    text-decoration-thickness: 3px;
+    background-color: hsl(var(--warning) / 0.12);
     color: hsl(var(--foreground));
-    border-radius: 3px;
-    box-shadow: 0 2px 8px hsl(var(--warning) / 0.2);
+    border-radius: 2px;
   }
 
   .editor-highlight .change-error {

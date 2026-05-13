@@ -1334,7 +1334,9 @@ app.post("/api/admin/toggle-plan", async (req, res) => {
     const newPlan = currentPlan === "pro" ? "free" : "pro";
     const updates = {
       plan: newPlan,
-      wordLimit: newPlan === "pro" ? 25000 : 200,
+      wordLimit: newPlan === "pro" ? 5000 : 200,
+      credits: newPlan === "pro" ? 25000 : 0,
+      creditsUsed: 0,
       subscriptionStatus: newPlan === "pro" ? "active" : "inactive",
       updatedAt: new Date().toISOString(),
     };
@@ -1398,7 +1400,9 @@ app.post("/api/admin/bulk-action", async (req, res) => {
             expiresAt.setDate(expiresAt.getDate() + days);
             batch.update(ref, {
               plan: "pro",
-              wordLimit: 25000,
+              wordLimit: 5000,
+              credits: 25000,
+              creditsUsed: 0,
               subscriptionStatus: "active",
               adminPlanExpiresAt: expiresAt.toISOString(),
               adminPlanDurationDays: days,
@@ -2614,9 +2618,8 @@ app.get("/api/user/stats", async (req, res) => {
     const planField = String(userData.plan || '').toLowerCase();
     const wordLimit = Number(userData.wordLimit) || 0;
     
-    // Pro users have wordLimit >= 25,000 or plan = 'pro'
-    // Free users typically have 5,000 or less
-    const isPro = wordLimit >= 25000 || planField === 'pro';
+    // Pro users have wordLimit >= 5,000 or plan = 'pro'
+    const isPro = wordLimit >= 5000 || planField === 'pro';
     
     // Get credit information
     const creditsUsed = Number(userData.creditsUsed || 0);
