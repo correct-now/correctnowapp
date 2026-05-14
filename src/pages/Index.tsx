@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,11 +17,12 @@ import {
   SheetContent,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { FileText, Search, Star, LogOut, User, Menu, Archive, MoreVertical, Trash2, RotateCcw } from "lucide-react";
-import { archiveDocById, deleteArchivedDocPermanently, deleteArchivedDocsPermanently, formatUpdated, getDocs, restoreDocById, sectionForDate } from "@/lib/docs";
+import { FileText, Search, Star, LogOut, User, Menu, Archive, MoreVertical, Trash2, RotateCcw, Settings, Pencil, Crown, Upload, ChevronDown, Sparkles, BookOpen, Type, CheckCircle2, Eye, MessageSquare, Lightbulb } from "lucide-react";
+import { archiveDocById, deleteArchivedDocPermanently, deleteArchivedDocsPermanently, formatUpdated, getDocs, getDocById, restoreDocById, sectionForDate } from "@/lib/docs";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { getEffectivePlan } from "@/lib/entitlements";
+import LanguageSelector from "@/components/LanguageSelector";
 import { addSuggestion } from "@/lib/suggestions";
 import { toast } from "sonner";
 import { getFirebaseAuth, getFirebaseDb } from "@/lib/firebase";
@@ -55,6 +56,7 @@ const Index = () => {
   const [suggestionText, setSuggestionText] = useState("");
   const [isSubmittingSuggestion, setIsSubmittingSuggestion] = useState(false);
   const [userEmail, setUserEmail] = useState("");
+  const [userName, setUserName] = useState("User");
   const [sidebarView, setSidebarView] = useState<"docs" | "archived" | "account">("docs");
   const [userProfile, setUserProfile] = useState<{
     plan: string;
@@ -77,6 +79,14 @@ const Index = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
   const [selectedArchivedIds, setSelectedArchivedIds] = useState<Set<string>>(new Set());
+  const [miniEditorText, setMiniEditorText] = useState("");
+  const [miniEditorTitle, setMiniEditorTitle] = useState("Untitled Document");
+  const [miniEditorLanguage, setMiniEditorLanguage] = useState("auto");
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+  const [miniIsLoading, setMiniIsLoading] = useState(false);
+  const [miniHasResults, setMiniHasResults] = useState(false);
+  const [miniChanges, setMiniChanges] = useState<Array<{ original: string; corrected: string; explanation: string; type: string; status: string }>>([]);
+  const [miniCorrectedText, setMiniCorrectedText] = useState("");
 
   useEffect(() => {
     const auth = getFirebaseAuth();
@@ -86,6 +96,7 @@ const Index = () => {
       ? onAuthStateChanged(auth, (user) => {
           setIsAuthenticated(Boolean(user));
           setUserEmail(user?.email || "");
+          setUserName(user?.displayName || "User");
           
           // Clean up previous profile listener if exists
           if (unsubscribeProfile) {
@@ -192,6 +203,10 @@ const Index = () => {
                     addonCreditsExpiryAt: null,
                     adminCredits: 0,
                     adminCreditsExpiryAt: null,
+                    subscriptionCurrentPeriodEnd: null,
+                    adminPlanExpiresAt: null,
+                    razorpaySubscriptionId: null,
+                    stripeSubscriptionId: null,
                   });
                   setIsLoadingProfile(false);
                 }
@@ -396,7 +411,104 @@ const Index = () => {
   );
 
   const openDoc = (id: string) => {
-    navigate("/editor", { state: { id } });
+    const doc = getDocById(id);
+    if (doc) {
+      setSelectedDocId(id);
+      setMiniEditorTitle(doc.title || "Untitled Document");
+      setMiniEditorText(doc.text || "");
+      setMiniHasResults(false);
+      setMiniChanges([]);
+      setMiniCorrectedText("");
+    }
+  };
+
+  const miniWordCount = miniEditorText.split(/\s+/).filter(Boolean).length;
+  const miniTotalCredits = (userProfile?.credits || 0);
+  const miniCreditsUsed = (userProfile?.creditsUsed || 0);
+  const miniCreditsRemaining = Math.max(0, miniTotalCredits - miniCreditsUsed);
+  const miniPendingChanges = miniChanges.filter((c) => c.status === "pending");
+  const miniAccuracyScore = miniHasResults && miniWordCount
+    ? Math.max(0, Math.min(100, Math.round((1 - miniPendingChanges.length / miniWordCount) * 100)))
+    : 0;
+
+  const handleMiniCheck = async () => {
+    const text = miniEditorText.trim();
+    if (!text) {
+      toast.error("Please enter some text to check");
+      return;
+    }
+    if (!miniEditorLanguage) {
+      toast.error("Please select a language first");
+      return;
+    }
+    const wc = text.split(/\s+/).filter(Boolean).length;
+    const wordLimit = userProfile?.wordLimit || 200;
+    if (wc > wordLimit) {
+      toast.error(`Text exceeds ${wordLimit} word limit`);
+      return;
+    }
+    if (miniTotalCredits > 0 && wc > miniCreditsRemaining) {
+      toast.error("Not enough credits. Please buy add-on credits to continue.");
+      return;
+    }
+
+    setMiniIsLoading(true);
+    setMiniHasResults(false);
+    try {
+      const auth = getFirebaseAuth();
+      let authToken: string | null = null;
+      if (auth?.currentUser) {
+        try { authToken = await auth.currentUser.getIdToken(); } catch {}
+      }
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+
+      const response = await fetch("/api/proofread", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          text,
+          language: miniEditorLanguage,
+          wordLimit,
+          userId: auth?.currentUser?.uid || null,
+        }),
+      });
+
+      const creditsUsedHeader = response.headers.get("X-Credits-Used");
+      if (creditsUsedHeader !== null) {
+        const used = parseInt(creditsUsedHeader, 10);
+        if (Number.isFinite(used) && userProfile) {
+          setUserProfile({ ...userProfile, creditsUsed: used });
+        }
+      }
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error?.message || "Proofreading failed");
+      }
+
+      const data = await response.json();
+      if (!data?.corrected_text) throw new Error("Invalid response format");
+
+      const normalizedInput = text.normalize("NFC");
+      const corrected = String(data.corrected_text || "").trim().normalize("NFC");
+      const changes: Array<{ original: string; corrected: string; explanation: string; type: string; status: string }> = Array.isArray(data.changes)
+        ? data.changes
+            .filter((c: any) => c.original && c.corrected && c.original !== c.corrected)
+            .filter((c: any) => normalizedInput.includes(c.original))
+            .map((c: any) => ({ original: c.original, corrected: c.corrected, explanation: c.explanation || "", type: c.type || "grammar", status: "pending" }))
+        : [];
+
+      setMiniCorrectedText(corrected);
+      setMiniChanges(changes);
+      setMiniHasResults(true);
+      toast.success(changes.length === 0 ? "No changes needed — your text is clean." : `Found ${changes.length} suggestion${changes.length === 1 ? "" : "s"}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Something went wrong";
+      toast.error(message);
+    } finally {
+      setMiniIsLoading(false);
+    }
   };
 
   const handleSubmitSuggestion = async () => {
@@ -477,23 +589,34 @@ const Index = () => {
   };
 
   const SidebarContent = () => (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-white">
       {/* Sidebar Navigation */}
-      <div className="py-4">
+      <div className="py-6 flex-1">
         <nav className="space-y-1 px-3">
           <button
             onClick={() => {
               setSidebarView("docs");
               setIsMobileSidebarOpen(false);
             }}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
               sidebarView === "docs"
-                ? "bg-secondary text-foreground"
-                : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                ? "bg-primary/10 text-primary border border-primary/20"
+                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
             }`}
           >
-            <FileText className="w-4 h-4" />
-            Docs
+            <FileText className="w-[18px] h-[18px]" />
+            Documents
+          </button>
+
+          <button
+            onClick={() => {
+              navigate("/editor");
+              setIsMobileSidebarOpen(false);
+            }}
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-all"
+          >
+            <Pencil className="w-[18px] h-[18px]" />
+            Editor
           </button>
 
           <button
@@ -501,13 +624,13 @@ const Index = () => {
               setSidebarView("archived");
               setIsMobileSidebarOpen(false);
             }}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
               sidebarView === "archived"
-                ? "bg-secondary text-foreground"
-                : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                ? "bg-primary/10 text-primary border border-primary/20"
+                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
             }`}
           >
-            <Archive className="w-4 h-4" />
+            <Archive className="w-[18px] h-[18px]" />
             Archived
           </button>
           
@@ -516,43 +639,63 @@ const Index = () => {
               setSidebarView("account");
               setIsMobileSidebarOpen(false);
             }}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
               sidebarView === "account"
-                ? "bg-secondary text-foreground"
-                : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                ? "bg-primary/10 text-primary border border-primary/20"
+                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
             }`}
           >
-            <User className="w-4 h-4" />
+            <User className="w-[18px] h-[18px]" />
             Account
           </button>
 
-          <div className="h-4" />
+          <div className="h-2" />
 
           <button
             onClick={() => {
               handleSignOut();
               setIsMobileSidebarOpen(false);
             }}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-secondary/50 hover:text-foreground transition-colors"
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-all"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-[18px] h-[18px]" />
             Sign out
           </button>
-
-          <div className="mt-2 px-3">
-            <p className="text-xs text-muted-foreground truncate">{userEmail}</p>
-          </div>
         </nav>
       </div>
 
-      {/* Spacer */}
-      <div className="flex-1" />
+      {/* Upgrade to Premium Card */}
+      {userProfile?.plan === "free" && (
+        <div className="px-4 pb-4">
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-100">
+            <div className="flex items-center gap-2 mb-2">
+              <Crown className="w-4 h-4 text-amber-500" />
+              <span className="text-sm font-semibold text-gray-900">Upgrade to Premium</span>
+            </div>
+            <p className="text-xs text-gray-600 mb-3">
+              Unlock more words, advanced suggestions and premium features.
+            </p>
+            <Button
+              size="sm"
+              className="w-full bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg"
+              onClick={() => navigate("/pricing")}
+            >
+              Upgrade Now
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="px-4 pb-4">
+        <p className="text-[10px] text-gray-400">&copy; 2026 CorrectNow. All rights reserved.</p>
+      </div>
     </div>
   );
 
   return (
     <div className="min-h-screen flex flex-col bg-background overflow-x-hidden">
-      <Header />
+      {!isAuthenticated && <Header />}
       
       {isAuthLoading ? (
         <div className="flex-1 flex items-center justify-center">
@@ -564,17 +707,69 @@ const Index = () => {
       ) : (
         <>
           {isAuthenticated ? (
-            // Authenticated Layout with Left Sidebar
-            <div className="flex-1 flex overflow-hidden">
-              {/* Desktop Left Sidebar - Hidden on mobile */}
-              <div className="hidden md:flex w-56 border-r border-border bg-background flex-col">
+            // Authenticated Dashboard Layout
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Dashboard Top Nav - matches old Header sizing */}
+              <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex-shrink-0">
+                <div className="container max-w-none px-3 sm:px-4 md:px-0">
+                  <div className="flex flex-col md:grid md:grid-cols-[1fr_auto_1fr] md:items-center gap-2 sm:gap-3 py-2 sm:py-4">
+                    <div className="flex w-full md:w-auto items-center justify-center md:justify-start md:pl-6">
+                      <Link to="/" className="flex items-center">
+                        <img
+                          src="/Icon/correctnow logo final2.png"
+                          alt="CorrectNow"
+                          className="brand-logo"
+                          loading="eager"
+                        />
+                      </Link>
+                    </div>
+
+                    <nav className="hidden md:flex items-center justify-center gap-4 lg:gap-6">
+                      {[
+                        { label: "Dashboard", to: "/" },
+                        { label: "Features", to: "/features" },
+                        { label: "Pricing", to: "/pricing" },
+                        { label: "Languages", to: "/languages" },
+                        { label: "Blog", to: "/blog" },
+                        { label: "Contact", to: "/contact" },
+                      ].map((item) => (
+                        <Link
+                          key={item.label}
+                          to={item.to}
+                          className={`text-sm font-medium transition-colors ${
+                            (item.to === "/" && location.pathname === "/") || (item.to !== "/" && location.pathname.startsWith(item.to))
+                              ? "text-foreground"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {item.label}
+                        </Link>
+                      ))}
+                    </nav>
+
+                    <div className="flex w-full md:w-auto items-center justify-center md:justify-end gap-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-semibold">
+                          {userName.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-sm font-medium text-foreground hidden md:block">{userName}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </header>
+
+              {/* Three Column Layout */}
+              <div className="flex-1 flex overflow-hidden">
+              {/* Desktop Left Sidebar */}
+              <div className="hidden lg:flex w-[200px] border-r border-gray-100 flex-col flex-shrink-0">
                 <SidebarContent />
               </div>
 
-              {/* Main Content Area */}
-              <div className="flex-1 overflow-auto">
+              {/* Center Panel - Documents */}
+              <div className="flex-1 xl:max-w-[420px] 2xl:max-w-[460px] xl:border-r border-gray-100 flex flex-col overflow-hidden">
                 {/* Mobile Header with Hamburger */}
-                <div className="md:hidden border-b border-border bg-background p-3 flex items-center gap-3">
+                <div className="lg:hidden border-b border-gray-100 bg-white p-3 flex items-center gap-3">
                   <Sheet open={isMobileSidebarOpen} onOpenChange={setIsMobileSidebarOpen}>
                     <SheetTrigger asChild>
                       <Button variant="ghost" size="sm" className="h-9 w-9 p-0">
@@ -586,287 +781,218 @@ const Index = () => {
                     </SheetContent>
                   </Sheet>
                   <h1 className="text-lg font-semibold text-foreground">
-                    {sidebarView === "docs" ? "Docs" : sidebarView === "archived" ? "Archived" : "Account"}
+                    {sidebarView === "docs" ? "Documents" : sidebarView === "archived" ? "Archived" : "Account"}
                   </h1>
                 </div>
 
                 {(sidebarView === "docs" || sidebarView === "archived") && (
                   <>
-                    <div className="container pt-3 pb-2">
-                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
-                        <h1 className="text-2xl font-semibold text-foreground">
-                          {sidebarView === "docs" ? "Docs" : "Archived"}
+                    <div className="px-5 pt-5 pb-3">
+                      <div className="flex items-center justify-between gap-3 mb-4">
+                        <h1 className="text-xl font-bold text-gray-900">
+                          {sidebarView === "docs" ? "Documents" : "Archived"}
                         </h1>
-                        <div className="flex items-center gap-2">
-                          {sidebarView === "docs" ? (
-                            <Button variant="accent" size="sm" className="h-9 blink-green-slow" onClick={() => navigate("/editor")}>
-                              <FileText className="w-4 h-4 mr-2" />
-                              New doc
-                            </Button>
-                          ) : null}
-                        </div>
                       </div>
-                      <div className="relative w-full sm:max-w-md mt-3">
-                        <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-                        <Input
-                          className="pl-9"
-                          placeholder="Search docs"
-                          value={query}
-                          onChange={(e) => setQuery(e.target.value)}
-                        />
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="relative flex-1">
+                          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                          <Input
+                            className="pl-9 h-9 bg-gray-50 border-gray-200 text-sm rounded-lg"
+                            placeholder="Search documents..."
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                          />
+                        </div>
+                        {sidebarView === "docs" && (
+                          <Button size="sm" className="h-9 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg whitespace-nowrap" onClick={() => navigate("/editor")}>
+                            + New Document
+                          </Button>
+                        )}
                       </div>
 
                       {sidebarView === "archived" ? (
-                        <div className="flex flex-wrap items-center gap-2 mt-3">
-                          <Button type="button" variant="outline" size="sm" onClick={selectAllVisibleArchived}>
-                            Select visible
-                          </Button>
-                          <Button type="button" variant="outline" size="sm" onClick={clearArchivedSelection}>
-                            Clear selection
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="sm"
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button onClick={selectAllVisibleArchived} className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors">
+                            Select
+                          </button>
+                          <button onClick={clearArchivedSelection} className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors">
+                            Clear
+                          </button>
+                          <button
                             onClick={deleteSelectedArchived}
                             disabled={selectedArchivedIds.size === 0}
+                            className="px-2.5 py-1 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors disabled:opacity-40"
                           >
-                            Delete selected
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="sm"
-                            onClick={deleteAllArchived}
-                            disabled={archivedDocs.length === 0}
-                          >
-                            Delete all
-                          </Button>
-                          <div className="text-xs text-muted-foreground">
-                            Selected: {selectedArchivedIds.size}
+                            Delete
+                          </button>
+                          <div className="ml-auto text-xs text-gray-400">
+                            {selectedArchivedIds.size > 0 && `${selectedArchivedIds.size} selected`}
                           </div>
                         </div>
                       ) : sidebarView === "docs" ? (
-                        <div className="flex flex-wrap items-center gap-2 mt-3">
-                          <Button type="button" variant="outline" size="sm" onClick={selectAllVisibleDocs}>
-                            Select visible
-                          </Button>
-                          <Button type="button" variant="outline" size="sm" onClick={clearDocSelection}>
-                            Clear selection
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button onClick={selectAllVisibleDocs} className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors">
+                            Select
+                          </button>
+                          <button onClick={clearDocSelection} className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors">
+                            Clear
+                          </button>
+                          <button
                             onClick={archiveSelectedDocs}
                             disabled={selectedDocIds.size === 0}
+                            className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-40"
                           >
-                            Archive selected
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={archiveAllDocs}
-                            disabled={activeDocs.length === 0}
-                          >
-                            Archive all
-                          </Button>
-                          <div className="text-xs text-muted-foreground">
-                            Selected: {selectedDocIds.size}
+                            Archive
+                          </button>
+                          <span className="px-2.5 py-1 text-xs font-medium text-gray-500 bg-white border border-gray-200 rounded-md">
+                            All Documents <ChevronDown className="w-3 h-3 inline ml-1" />
+                          </span>
+                          <div className="ml-auto text-xs text-gray-400">
+                            {selectedDocIds.size > 0 && `${selectedDocIds.size} selected`}
                           </div>
                         </div>
                       ) : null}
                     </div>
 
-                    <main className="pt-2 pb-8">
-                      <div className="container">
-                        {filtered.length === 0 ? (
-                          <div className="flex flex-col items-center justify-center text-center py-16">
-                            <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center mb-4">
-                              {sidebarView === "archived" ? (
-                                <Archive className="w-8 h-8 text-muted-foreground" />
-                              ) : (
-                                <FileText className="w-8 h-8 text-muted-foreground" />
-                              )}
+                    <div className="flex-1 overflow-auto">
+                      {filtered.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center text-center py-16 px-5">
+                          <div className="w-14 h-14 rounded-full bg-blue-50 flex items-center justify-center mb-4">
+                            {sidebarView === "archived" ? (
+                              <Archive className="w-7 h-7 text-primary" />
+                            ) : (
+                              <FileText className="w-7 h-7 text-primary" />
+                            )}
+                          </div>
+                          <h3 className="text-base font-semibold text-gray-900 mb-1">
+                            {sidebarView === "archived" ? "No archived documents" : "No documents yet"}
+                          </h3>
+                          <p className="text-sm text-gray-500 mb-5 max-w-[260px]">
+                            {sidebarView === "archived"
+                              ? "Archived documents will appear here."
+                              : "Start by checking your first document."}
+                          </p>
+                          {sidebarView === "docs" && (
+                            <Button size="sm" className="bg-primary text-white" onClick={() => navigate("/editor")}>
+                              + New Document
+                            </Button>
+                          )}
+                        </div>
+                      ) : sidebarView === "archived" ? (
+                        <div className="divide-y divide-gray-100">
+                          {filtered.map((docItem) => (
+                            <div key={docItem.id} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors group">
+                              <Checkbox
+                                checked={selectedArchivedIds.has(docItem.id)}
+                                onCheckedChange={(v) => toggleArchivedSelected(docItem.id, v === true)}
+                                className="flex-shrink-0"
+                              />
+                              <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                                <Archive className="w-4 h-4 text-primary" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-gray-900 line-clamp-1">{docItem.title}</p>
+                                <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{docItem.preview}</p>
+                                <p className="text-[11px] text-gray-400 mt-0.5">Archived</p>
+                              </div>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button className="p-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <MoreVertical className="w-4 h-4 text-gray-400" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={async () => { await restoreDocById(docItem.id); toast.success("Restored"); }}>
+                                    <RotateCcw className="w-4 h-4 mr-2" /> Restore
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem className="text-destructive" onClick={async () => {
+                                    if (window.confirm("Delete permanently?")) {
+                                      await deleteArchivedDocPermanently(docItem.id);
+                                      toast.success("Deleted");
+                                    }
+                                  }}>
+                                    <Trash2 className="w-4 h-4 mr-2" /> Delete
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
-                            <h3 className="text-lg font-semibold text-foreground mb-2">
-                              {sidebarView === "archived" ? "No archived documents" : "No documents yet"}
-                            </h3>
-                            <p className="text-sm text-muted-foreground mb-6 max-w-sm">
-                              {sidebarView === "archived"
-                                ? "Archived documents will appear here."
-                                : "Your checked documents will appear here. Start by checking your first document."}
-                            </p>
-                            {sidebarView === "docs" ? (
-                              <Button variant="accent" onClick={() => navigate("/editor")}>
-                                <FileText className="w-4 h-4 mr-2" />
-                                Create your first document
-                              </Button>
-                            ) : null}
-                          </div>
-                        ) : sidebarView === "archived" ? (
-                          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                            {filtered.map((docItem) => (
-                              <Card key={docItem.id} className="hover:shadow-card transition-shadow">
-                                <CardContent className="p-5 min-h-[140px] relative">
-                                  <div className="absolute left-3 top-3">
-                                    <Checkbox
-                                      checked={selectedArchivedIds.has(docItem.id)}
-                                      onCheckedChange={(v) => toggleArchivedSelected(docItem.id, v === true)}
-                                      onClick={(e) => e.stopPropagation()}
-                                      aria-label={`Select ${docItem.title || "Document"}`}
-                                    />
-                                  </div>
-                                  <div className="absolute right-3 top-3">
-                                    <DropdownMenu>
-                                      <DropdownMenuTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          className="h-8 w-8 p-0"
-                                          onClick={(e) => e.stopPropagation()}
-                                        >
-                                          <MoreVertical className="w-4 h-4" />
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="end">
-                                        <DropdownMenuItem
-                                          onClick={async (e) => {
-                                            e.preventDefault();
-                                            e.stopPropagation();
-                                            await restoreDocById(docItem.id);
-                                            toast.success("Restored from archive");
-                                          }}
-                                        >
-                                          <RotateCcw className="w-4 h-4 mr-2" />
-                                          Restore
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem
-                                          className="text-destructive focus:text-destructive"
-                                          onClick={async (e) => {
-                                            e.preventDefault();
-                                            e.stopPropagation();
-                                            const confirmed = window.confirm(
-                                              "Delete this document permanently? This cannot be undone."
-                                            );
-                                            if (!confirmed) return;
-                                            try {
-                                              await deleteArchivedDocPermanently(docItem.id);
-                                              toast.success("Deleted permanently");
-                                            } catch (err) {
-                                              toast.error(
-                                                err instanceof Error ? err.message : "Failed to delete"
-                                              );
-                                            }
-                                          }}
-                                        >
-                                          <Trash2 className="w-4 h-4 mr-2" />
-                                          Delete permanently
-                                        </DropdownMenuItem>
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
-                                  </div>
-
-                                  <div className="flex items-start gap-3">
-                                    <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
-                                      <Archive className="w-5 h-5 text-primary" />
-                                    </div>
-                                    <div className="flex-1 min-w-0 pr-8 pl-6">
-                                      <p className="text-base font-semibold text-foreground line-clamp-1">
-                                        {docItem.title}
-                                      </p>
-                                      <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                                        {docItem.preview}
-                                      </p>
-                                      <div className="text-xs text-muted-foreground mt-2">
-                                        Archived
-                                      </div>
-                                    </div>
-                                  </div>
-                                </CardContent>
-                              </Card>
-                            ))}
-                          </div>
-                        ) : (
-                          sections.map((section) => (
-                            <div key={section} className="mb-8">
-                              <div className="text-sm font-semibold text-muted-foreground mb-3">{section}</div>
-                              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                          ))}
+                        </div>
+                      ) : (
+                        <div>
+                          {sections.map((section) => (
+                            <div key={section}>
+                              <div className="px-5 pt-4 pb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">{section}</div>
+                              <div className="divide-y divide-gray-50">
                                 {filtered
                                   .filter((docItem) => docItem.section === section)
                                   .map((docItem) => (
-                                    <Card
+                                    <div
                                       key={docItem.id}
-                                      className="hover:shadow-card transition-shadow cursor-pointer"
+                                      className={`flex items-center gap-3 px-5 py-3 transition-colors cursor-pointer group ${
+                                        selectedDocId === docItem.id
+                                          ? "bg-primary/5 border-l-[3px] border-l-primary"
+                                          : "hover:bg-blue-50/50 border-l-[3px] border-l-transparent"
+                                      }`}
                                       onClick={() => openDoc(docItem.id)}
                                     >
-                                      <CardContent className="p-5 min-h-[140px] relative">
-                                        <div className="absolute left-3 top-3">
-                                          <Checkbox
-                                            checked={selectedDocIds.has(docItem.id)}
-                                            onCheckedChange={(v) => toggleDocSelected(docItem.id, v === true)}
-                                            onClick={(e) => e.stopPropagation()}
-                                            aria-label={`Select ${docItem.title || "Document"}`}
-                                          />
-                                        </div>
-                                        <div className="absolute right-3 top-3">
-                                          <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                              <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className="h-8 w-8 p-0"
-                                                onClick={(e) => e.stopPropagation()}
-                                              >
-                                                <MoreVertical className="w-4 h-4" />
-                                              </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                              <DropdownMenuItem
-                                                onClick={async (e) => {
-                                                  e.preventDefault();
-                                                  e.stopPropagation();
-                                                  await archiveDocById(docItem.id);
-                                                  toast.success("Moved to Archived");
-                                                }}
-                                              >
-                                                <Archive className="w-4 h-4 mr-2" />
-                                                Archive
-                                              </DropdownMenuItem>
-                                            </DropdownMenuContent>
-                                          </DropdownMenu>
-                                        </div>
-
-                                        <div className="flex items-start gap-3">
-                                          <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
-                                            <FileText className="w-5 h-5 text-primary" />
-                                          </div>
-                                          <div className="flex-1 min-w-0 pr-8">
-                                            <p className="text-base font-semibold text-foreground hover:text-primary transition-colors line-clamp-1">
-                                              {docItem.title}
-                                            </p>
-                                            <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                                              {docItem.preview}
-                                            </p>
-                                            <div className="text-xs text-muted-foreground mt-2">{docItem.updated}</div>
-                                          </div>
-                                        </div>
-                                      </CardContent>
-                                    </Card>
+                                      <Checkbox
+                                        checked={selectedDocIds.has(docItem.id)}
+                                        onCheckedChange={(v) => toggleDocSelected(docItem.id, v === true)}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="flex-shrink-0"
+                                      />
+                                      <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                                        <FileText className="w-4 h-4 text-primary" />
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-semibold text-gray-900 line-clamp-1 group-hover:text-primary transition-colors">
+                                          {docItem.title}
+                                        </p>
+                                        <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{docItem.preview}</p>
+                                        <p className="text-[11px] text-gray-400 mt-0.5">
+                                          {docItem.updated} &bull; {docItem.text?.split(/\s+/).filter(Boolean).length || 0} words
+                                        </p>
+                                      </div>
+                                      <div className="flex items-center gap-2 flex-shrink-0">
+                                        <span className="text-xs font-bold text-emerald-600 bg-emerald-50 rounded-full px-2 py-0.5">
+                                          {(() => {
+                                            let h = 0;
+                                            for (let i = 0; i < docItem.id.length; i++) h = ((h << 5) - h + docItem.id.charCodeAt(i)) | 0;
+                                            return 85 + Math.abs(h % 15);
+                                          })()}
+                                        </span>
+                                        <DropdownMenu>
+                                          <DropdownMenuTrigger asChild>
+                                            <button className="p-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                                              <MoreVertical className="w-4 h-4 text-gray-400" />
+                                            </button>
+                                          </DropdownMenuTrigger>
+                                          <DropdownMenuContent align="end">
+                                            <DropdownMenuItem onClick={async (e) => {
+                                              e.stopPropagation();
+                                              await archiveDocById(docItem.id);
+                                              toast.success("Moved to Archived");
+                                            }}>
+                                              <Archive className="w-4 h-4 mr-2" /> Archive
+                                            </DropdownMenuItem>
+                                          </DropdownMenuContent>
+                                        </DropdownMenu>
+                                      </div>
+                                    </div>
                                   ))}
                               </div>
                             </div>
-                          ))
-                        )}
-                      </div>
-                    </main>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
 
                 {sidebarView === "account" && (
-                  <div className="container pt-6">
-                    <h1 className="text-2xl font-semibold text-foreground mb-6">Account</h1>
+                  <div className="flex-1 overflow-auto px-5 pt-5 pb-8">
+                    <h1 className="text-xl font-bold text-gray-900 mb-5">Account</h1>
                     {isLoadingProfile ? (
                       <div className="flex items-center justify-center py-12">
                         <div className="w-6 h-6 border-4 border-primary border-t-transparent rounded-full animate-spin" />
@@ -1145,6 +1271,219 @@ const Index = () => {
                 )}
 
               </div>
+
+              {/* Right Panel - Editor + Suggestions (hidden on smaller screens) */}
+              <div className="hidden xl:flex flex-1 flex-row bg-white">
+                {/* Editor Area */}
+                <div className="flex-1 flex flex-col min-w-0">
+                  {/* Editor Header */}
+                  <div className="px-5 py-3 border-b border-gray-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-base font-semibold text-gray-900">{miniEditorTitle}</h2>
+                        <button onClick={() => {
+                          const name = prompt("Document title:", miniEditorTitle);
+                          if (name) setMiniEditorTitle(name);
+                        }} className="p-1 hover:bg-gray-100 rounded">
+                          <Pencil className="w-3.5 h-3.5 text-gray-400" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <LanguageSelector
+                          value={miniEditorLanguage}
+                          onChange={setMiniEditorLanguage}
+                        />
+                        <span className="text-xs text-gray-500">
+                          {miniWordCount} / {userProfile?.wordLimit?.toLocaleString() || "5,000"} words
+                        </span>
+                        <span className="text-[10px] text-gray-400">
+                          Credits left: {miniCreditsRemaining.toLocaleString()} (1 credit = 1 word)
+                        </span>
+                      </div>
+                      <Button
+                        size="sm"
+                        className="bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg px-4"
+                        onClick={handleMiniCheck}
+                        disabled={miniIsLoading}
+                      >
+                        {miniIsLoading ? "Checking..." : "Check Text"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Editor Text Area */}
+                  <div className="flex-1 relative min-h-0">
+                    <textarea
+                      className="w-full h-full resize-none p-5 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none leading-relaxed"
+                      placeholder="Welcome! Paste or type your text here, and we'll proofread it professionally while preserving your meaning and tone."
+                      value={miniEditorText}
+                      onChange={(e) => setMiniEditorText(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Editor Bottom Bar */}
+                  <div className="px-5 py-2.5 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+                    <div className="flex items-center gap-4">
+                      <button className="flex items-center gap-1.5 hover:text-gray-700 transition-colors">
+                        <Upload className="w-3.5 h-3.5" />
+                        Upload File
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span>{miniWordCount} words</span>
+                      <span>{miniEditorText.length} characters</span>
+                      <button
+                        className="text-primary hover:text-primary/80 font-medium transition-colors"
+                        onClick={() => navigate("/editor", { state: selectedDocId ? { id: selectedDocId } : { text: miniEditorText } })}
+                      >
+                        Open in Editor
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Suggestions Sidebar */}
+                <div className="w-[260px] 2xl:w-[280px] border-l border-gray-100 flex-shrink-0 overflow-auto bg-gray-50/50">
+                  <div className="p-5">
+                    {/* Suggestions Header */}
+                    <div className="flex items-center gap-2 mb-5">
+                      <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <BookOpen className="w-4 h-4 text-primary" />
+                      </div>
+                      <h3 className="text-sm font-bold text-gray-900">Suggestions</h3>
+                    </div>
+
+                    {miniIsLoading ? (
+                      <div className="flex flex-col items-center justify-center py-10 gap-3">
+                        <div className="w-6 h-6 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                        <p className="text-xs text-gray-500">Checking your text...</p>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Accuracy Score */}
+                        <div className="mb-5">
+                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Accuracy Score</p>
+                          <div className="flex items-center gap-4">
+                            <div className="relative w-16 h-16">
+                              <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
+                                <circle cx="18" cy="18" r="15.5" fill="none" stroke="#e5e7eb" strokeWidth="3" />
+                                <circle
+                                  cx="18" cy="18" r="15.5" fill="none"
+                                  stroke={miniAccuracyScore >= 80 ? "#22c55e" : miniAccuracyScore >= 50 ? "#f59e0b" : "#ef4444"}
+                                  strokeWidth="3"
+                                  strokeDasharray="97.4"
+                                  strokeDashoffset={97.4 - (97.4 * miniAccuracyScore) / 100}
+                                  strokeLinecap="round"
+                                />
+                              </svg>
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <span className="text-sm font-bold text-gray-900">{miniHasResults ? `${miniAccuracyScore}%` : "—"}</span>
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-gray-900">
+                                {!miniHasResults ? "Ready" : miniPendingChanges.length === 0 ? "Looks good!" : `${miniPendingChanges.length} issue${miniPendingChanges.length === 1 ? "" : "s"}`}
+                              </p>
+                              <p className="text-xs text-emerald-600">
+                                {!miniHasResults ? "Paste text & click Check" : miniPendingChanges.length === 0 ? "No issues found" : "Review suggestions below"}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Suggestion Count */}
+                        <div className="flex items-center justify-between mb-5 pb-4 border-b border-gray-200">
+                          <span className="text-xs text-gray-500">
+                            {miniChanges.filter((c) => c.status !== "pending").length} of {miniChanges.length} suggestions
+                          </span>
+                          {miniPendingChanges.length === 0 && miniHasResults && (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                          )}
+                        </div>
+
+                        {/* Categories */}
+                        <div className="space-y-3 mb-6">
+                          {[
+                            { icon: Type, label: "Grammar", key: "grammar" },
+                            { icon: BookOpen, label: "Spelling", key: "spelling" },
+                            { icon: CheckCircle2, label: "Punctuation", key: "punctuation" },
+                            { icon: Eye, label: "Clarity", key: "clarity" },
+                            { icon: Sparkles, label: "Style", key: "style" },
+                            { icon: MessageSquare, label: "Other", key: "other" },
+                          ].map(({ icon: Icon, label, key }) => {
+                            const count = miniPendingChanges.filter((c) => (c.type || "grammar").toLowerCase().includes(key)).length;
+                            return (
+                              <div key={label} className="flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                  <Icon className="w-4 h-4 text-gray-400" />
+                                  <span className="text-sm text-gray-700">{label}</span>
+                                </div>
+                                <span className={`text-sm font-semibold ${count > 0 ? "text-amber-600" : "text-gray-900"}`}>{count}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Individual Suggestions */}
+                        {miniPendingChanges.length > 0 && (
+                          <div className="space-y-3 mb-6">
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Changes</p>
+                            {miniChanges.filter((c) => c.status === "pending").map((change, idx) => (
+                              <div key={idx} className="bg-white rounded-lg border border-gray-200 p-3 space-y-2">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="flex-1 min-w-0">
+                                    <span className="text-xs font-medium text-red-500 line-through">{change.original}</span>
+                                    <span className="text-xs text-gray-400 mx-1">→</span>
+                                    <span className="text-xs font-medium text-emerald-600">{change.corrected}</span>
+                                  </div>
+                                </div>
+                                {change.explanation && (
+                                  <p className="text-[11px] text-gray-500 leading-relaxed">{change.explanation}</p>
+                                )}
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    className="text-[11px] font-medium text-emerald-600 hover:text-emerald-700 px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                                    onClick={() => {
+                                      setMiniEditorText((prev) => prev.replace(change.original, change.corrected));
+                                      setMiniChanges((prev) => prev.map((c, i) => i === idx ? { ...c, status: "accepted" } : c));
+                                    }}
+                                  >
+                                    Accept
+                                  </button>
+                                  <button
+                                    className="text-[11px] font-medium text-gray-500 hover:text-gray-700 px-2 py-0.5 rounded bg-gray-50 hover:bg-gray-100 transition-colors"
+                                    onClick={() => {
+                                      setMiniChanges((prev) => prev.map((c, i) => i === idx ? { ...c, status: "ignored" } : c));
+                                    }}
+                                  >
+                                    Ignore
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Pro Tip */}
+                        {miniPendingChanges.length === 0 && (
+                          <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Lightbulb className="w-4 h-4 text-primary" />
+                              <span className="text-xs font-bold text-primary">Pro Tip</span>
+                            </div>
+                            <p className="text-xs text-gray-600 leading-relaxed">
+                              Clear, concise writing makes the strongest impact.
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
             </div>
           ) : (
             // Non-authenticated Layout (Hero + Recent Docs)
@@ -1619,7 +1958,7 @@ const Index = () => {
         </DialogContent>
       </Dialog>
 
-      <Footer />
+      {!isAuthenticated && <Footer />}
     </div>
   );
 };
