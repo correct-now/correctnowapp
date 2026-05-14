@@ -367,6 +367,55 @@
     pointer-events: auto;
   }
 
+  /* Mini-editor (dashboard right panel) overlay */
+  .mini-editor-overlay {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+
+  .mini-editor-highlight {
+    position: absolute;
+    inset: 0;
+    padding: 1.25rem;
+    font-size: 1rem;
+    line-height: 1.625;
+    white-space: pre-wrap;
+    overflow: hidden;
+    color: transparent;
+    font-family: inherit;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    pointer-events: none;
+    border: 1px solid transparent;
+  }
+
+  .mini-editor-highlight .change-error {
+    pointer-events: auto;
+  }
+
+  .mini-editor-textarea {
+    /* NO position:relative — must stay static so the absolute highlight div paints on top for hover/click */
+    width: 100%;
+    height: 100%;
+    resize: none;
+    padding: 1.25rem;
+    font-size: 1rem;
+    line-height: 1.625;
+    background: transparent;
+    color: hsl(var(--foreground));
+    caret-color: hsl(var(--foreground));
+    font-family: inherit;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    outline: none;
+  }
+
+  .mini-editor-textarea::placeholder {
+    color: hsl(var(--muted-foreground));
+    opacity: 1;
+  }
+
   .blog-content {
     font-size: 1.125rem;
     line-height: 1.75;

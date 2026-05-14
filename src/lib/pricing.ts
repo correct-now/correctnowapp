@@ -62,7 +62,7 @@ export const resolvePricing = (countryCode: string): RegionalPricing => {
     return {
       regionLabel: "India",
       currency: "INR",
-      amount: 499,
+      amount: 999,
       useRazorpay: true,
     };
   }
@@ -71,8 +71,8 @@ export const resolvePricing = (countryCode: string): RegionalPricing => {
     return {
       regionLabel: "Japan",
       currency: "JPY",
-      amount: 800,
-      stripePriceId: env.VITE_STRIPE_PRICE_ID_JPY_800,
+      amount: 1600,
+      stripePriceId: env.VITE_STRIPE_PRICE_ID_JPY_1600,
     };
   }
 
@@ -80,8 +80,8 @@ export const resolvePricing = (countryCode: string): RegionalPricing => {
     return {
       regionLabel: "US / Canada",
       currency: "USD",
-      amount: 9,
-      stripePriceId: env.VITE_STRIPE_PRICE_ID_USD_9,
+      amount: 18,
+      stripePriceId: env.VITE_STRIPE_PRICE_ID_USD_18,
     };
   }
 
@@ -89,8 +89,8 @@ export const resolvePricing = (countryCode: string): RegionalPricing => {
     return {
       regionLabel: "United Kingdom",
       currency: "GBP",
-      amount: 7,
-      stripePriceId: env.VITE_STRIPE_PRICE_ID_GBP_7,
+      amount: 14,
+      stripePriceId: env.VITE_STRIPE_PRICE_ID_GBP_14,
     };
   }
 
@@ -98,8 +98,8 @@ export const resolvePricing = (countryCode: string): RegionalPricing => {
     return {
       regionLabel: "Europe",
       currency: "EUR",
-      amount: 8,
-      stripePriceId: env.VITE_STRIPE_PRICE_ID_EUR_8,
+      amount: 16,
+      stripePriceId: env.VITE_STRIPE_PRICE_ID_EUR_16,
     };
   }
 
@@ -107,8 +107,8 @@ export const resolvePricing = (countryCode: string): RegionalPricing => {
     return {
       regionLabel: "Southeast Asia",
       currency: "USD",
-      amount: 4.99,
-      stripePriceId: env.VITE_STRIPE_PRICE_ID_USD_4_99,
+      amount: 9.99,
+      stripePriceId: env.VITE_STRIPE_PRICE_ID_USD_9_99,
     };
   }
 
@@ -116,8 +116,8 @@ export const resolvePricing = (countryCode: string): RegionalPricing => {
     return {
       regionLabel: "Latin America",
       currency: "USD",
-      amount: 4.99,
-      stripePriceId: env.VITE_STRIPE_PRICE_ID_USD_4_99,
+      amount: 9.99,
+      stripePriceId: env.VITE_STRIPE_PRICE_ID_USD_9_99,
     };
   }
 
@@ -125,8 +125,8 @@ export const resolvePricing = (countryCode: string): RegionalPricing => {
     return {
       regionLabel: "Middle East",
       currency: "USD",
-      amount: 6.99,
-      stripePriceId: env.VITE_STRIPE_PRICE_ID_USD_6_99,
+      amount: 13.99,
+      stripePriceId: env.VITE_STRIPE_PRICE_ID_USD_13_99,
     };
   }
 
@@ -134,16 +134,16 @@ export const resolvePricing = (countryCode: string): RegionalPricing => {
     return {
       regionLabel: "Africa",
       currency: "USD",
-      amount: 3.99,
-      stripePriceId: env.VITE_STRIPE_PRICE_ID_USD_3_99,
+      amount: 7.99,
+      stripePriceId: env.VITE_STRIPE_PRICE_ID_USD_7_99,
     };
   }
 
   return {
     regionLabel: "Rest of World",
     currency: "USD",
-    amount: 5.99,
-    stripePriceId: env.VITE_STRIPE_PRICE_ID_USD_5_99,
+    amount: 11.99,
+    stripePriceId: env.VITE_STRIPE_PRICE_ID_USD_11_99,
   };
 };
 
@@ -161,29 +161,29 @@ export const formatPrice = (currency: string, amount: number) => {
 
 const CREDIT_PACKS_BY_CURRENCY: Record<string, CreditPack[]> = {
   INR: [
-    { key: "basic", credits: 10000, amount: 200, label: "Basic Pack" },
-    { key: "saver", credits: 25000, amount: 300, label: "Super Saver" },
-    { key: "ultra", credits: 50000, amount: 500, label: "Ultra Saver", highlight: true },
+    { key: "basic", credits: 10000, amount: 400, label: "Basic Pack" },
+    { key: "saver", credits: 25000, amount: 600, label: "Super Saver" },
+    { key: "ultra", credits: 50000, amount: 1000, label: "Ultra Saver", highlight: true },
   ],
   USD: [
-    { key: "basic", credits: 10000, amount: 2.99, label: "Basic Pack" },
-    { key: "saver", credits: 25000, amount: 4.99, label: "Super Saver" },
-    { key: "ultra", credits: 50000, amount: 7.99, label: "Ultra Saver", highlight: true },
+    { key: "basic", credits: 10000, amount: 5.99, label: "Basic Pack" },
+    { key: "saver", credits: 25000, amount: 9.99, label: "Super Saver" },
+    { key: "ultra", credits: 50000, amount: 15.99, label: "Ultra Saver", highlight: true },
   ],
   EUR: [
-    { key: "basic", credits: 10000, amount: 2.79, label: "Basic Pack" },
-    { key: "saver", credits: 25000, amount: 4.49, label: "Super Saver" },
-    { key: "ultra", credits: 50000, amount: 6.99, label: "Ultra Saver", highlight: true },
+    { key: "basic", credits: 10000, amount: 5.59, label: "Basic Pack" },
+    { key: "saver", credits: 25000, amount: 8.99, label: "Super Saver" },
+    { key: "ultra", credits: 50000, amount: 13.99, label: "Ultra Saver", highlight: true },
   ],
   GBP: [
-    { key: "basic", credits: 10000, amount: 2.49, label: "Basic Pack" },
-    { key: "saver", credits: 25000, amount: 3.99, label: "Super Saver" },
-    { key: "ultra", credits: 50000, amount: 6.49, label: "Ultra Saver", highlight: true },
+    { key: "basic", credits: 10000, amount: 4.99, label: "Basic Pack" },
+    { key: "saver", credits: 25000, amount: 7.99, label: "Super Saver" },
+    { key: "ultra", credits: 50000, amount: 12.99, label: "Ultra Saver", highlight: true },
   ],
   JPY: [
-    { key: "basic", credits: 10000, amount: 300, label: "Basic Pack" },
-    { key: "saver", credits: 25000, amount: 500, label: "Super Saver" },
-    { key: "ultra", credits: 50000, amount: 800, label: "Ultra Saver", highlight: true },
+    { key: "basic", credits: 10000, amount: 600, label: "Basic Pack" },
+    { key: "saver", credits: 25000, amount: 1000, label: "Super Saver" },
+    { key: "ultra", credits: 50000, amount: 1600, label: "Ultra Saver", highlight: true },
   ],
 };
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,6 +87,15 @@ const Index = () => {
   const [miniHasResults, setMiniHasResults] = useState(false);
   const [miniChanges, setMiniChanges] = useState<Array<{ original: string; corrected: string; explanation: string; type: string; status: string }>>([]);
   const [miniCorrectedText, setMiniCorrectedText] = useState("");
+  const miniTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const miniHighlightRef = useRef<HTMLDivElement>(null);
+  const miniHoverTimerRef = useRef<number | null>(null);
+  const miniHoverCloseTimerRef = useRef<number | null>(null);
+  const [miniIsHoverPopover, setMiniIsHoverPopover] = useState(false);
+  const [miniHoveredError, setMiniHoveredError] = useState<string | null>(null);
+  const [miniHoverSuggestion, setMiniHoverSuggestion] = useState<{
+    open: boolean; top: number; left: number; changeIdx?: number; original: string;
+  }>({ open: false, top: 0, left: 0, original: "" });
 
   useEffect(() => {
     const auth = getFirebaseAuth();
@@ -419,6 +428,109 @@ const Index = () => {
       setMiniHasResults(false);
       setMiniChanges([]);
       setMiniCorrectedText("");
+    }
+  };
+
+  const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const miniHighlightHtml = useMemo(() => {
+    const pending = miniChanges.filter((c) => c.status === "pending");
+    let html = escapeHtml(miniEditorText).replace(/\n/g, "<br>");
+    if (pending.length === 0) return html;
+    const sorted = [...pending].sort((a, b) => (b.original?.length || 0) - (a.original?.length || 0));
+    sorted.forEach((c) => {
+      if (!c.original) return;
+      const escaped = escapeHtml(c.original);
+      const pattern = escaped.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+      html = html.replace(new RegExp(pattern, "g"), `<span class="change-error">${escaped}</span>`);
+    });
+    return html;
+  }, [miniEditorText, miniChanges]);
+
+  const miniApplySingleChange = (text: string, original: string, corrected: string): string => {
+    if (!original) return text;
+    const idx = text.indexOf(original);
+    if (idx !== -1) return text.slice(0, idx) + corrected + text.slice(idx + original.length);
+    return text;
+  };
+
+  const handleMiniAccept = (originalIdx: number) => {
+    const change = miniChanges[originalIdx];
+    if (!change) return;
+    const updatedText = miniApplySingleChange(miniEditorText, change.original, change.corrected);
+    const updated = miniChanges.map((c, i) => {
+      if (i === originalIdx) return { ...c, status: "accepted" };
+      if (c.original === change.original && c.status === "pending") return { ...c, status: "ignored" };
+      return c;
+    });
+    const revalidated = updated.map((c) => {
+      if (c.status !== "pending") return c;
+      if (c.original && !updatedText.includes(c.original)) return { ...c, status: "ignored" };
+      return c;
+    });
+    setMiniEditorText(updatedText);
+    setMiniChanges(revalidated);
+  };
+
+  const handleMiniIgnore = (originalIdx: number) => {
+    setMiniChanges((prev) => prev.map((c, i) => i === originalIdx ? { ...c, status: "ignored" } : c));
+  };
+
+  const handleMiniAcceptAll = () => {
+    let text = miniEditorText;
+    const updated = miniChanges.map((c) => {
+      if (c.status !== "pending") return c;
+      text = miniApplySingleChange(text, c.original, c.corrected);
+      return { ...c, status: "accepted" };
+    });
+    setMiniEditorText(text);
+    setMiniChanges(updated);
+  };
+
+  const handleMiniHighlightClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (!target.classList.contains("change-error")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const errorText = target.textContent?.trim() || "";
+    if (!errorText) return;
+    if (miniHoverTimerRef.current) { clearTimeout(miniHoverTimerRef.current); miniHoverTimerRef.current = null; }
+    const matchIdx = miniChanges.findIndex((c) => c.status === "pending" && c.original?.trim() === errorText);
+    if (matchIdx === -1) return;
+    const rect = target.getBoundingClientRect();
+    setMiniHoverSuggestion({ open: true, top: Math.max(8, rect.top - 8), left: Math.min(window.innerWidth - 260, rect.right + 10), changeIdx: matchIdx, original: errorText });
+  };
+
+  const handleMiniHighlightMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.classList.contains("change-error")) {
+      const errorText = target.textContent?.trim() || "";
+      if (errorText && errorText !== miniHoveredError) {
+        setMiniHoveredError(errorText);
+        if (miniHoverCloseTimerRef.current) { clearTimeout(miniHoverCloseTimerRef.current); miniHoverCloseTimerRef.current = null; }
+        if (miniHoverTimerRef.current) clearTimeout(miniHoverTimerRef.current);
+        miniHoverTimerRef.current = window.setTimeout(() => {
+          const matchIdx = miniChanges.findIndex((c) => c.status === "pending" && c.original?.trim() === errorText);
+          if (matchIdx !== -1) {
+            const rect = target.getBoundingClientRect();
+            setMiniHoverSuggestion({ open: true, top: Math.max(8, rect.top - 8), left: Math.min(window.innerWidth - 260, rect.right + 10), changeIdx: matchIdx, original: errorText });
+          }
+          miniHoverTimerRef.current = null;
+        }, 400);
+      }
+    } else {
+      if (miniHoveredError) setMiniHoveredError(null);
+      if (miniHoverTimerRef.current) { clearTimeout(miniHoverTimerRef.current); miniHoverTimerRef.current = null; }
+      if (miniHoverSuggestion.open && !miniIsHoverPopover) {
+        miniHoverCloseTimerRef.current = window.setTimeout(() => { setMiniHoverSuggestion((prev) => ({ ...prev, open: false })); miniHoverCloseTimerRef.current = null; }, 200);
+      }
+    }
+  };
+
+  const handleMiniHighlightMouseLeave = () => {
+    setMiniHoveredError(null);
+    if (miniHoverTimerRef.current) { clearTimeout(miniHoverTimerRef.current); miniHoverTimerRef.current = null; }
+    if (miniHoverSuggestion.open && !miniIsHoverPopover) {
+      miniHoverCloseTimerRef.current = window.setTimeout(() => { setMiniHoverSuggestion((prev) => ({ ...prev, open: false })); miniHoverCloseTimerRef.current = null; }, 200);
     }
   };
 
@@ -922,7 +1034,7 @@ const Index = () => {
                         <div>
                           {sections.map((section) => (
                             <div key={section}>
-                              <div className="px-5 pt-4 pb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">{section}</div>
+                              <div className="px-5 pt-4 pb-2 text-sm font-semibold text-gray-400 uppercase tracking-wider">{section}</div>
                               <div className="divide-y divide-gray-50">
                                 {filtered
                                   .filter((docItem) => docItem.section === section)
@@ -946,16 +1058,16 @@ const Index = () => {
                                         <FileText className="w-4 h-4 text-primary" />
                                       </div>
                                       <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-semibold text-gray-900 line-clamp-1 group-hover:text-primary transition-colors">
+                                        <p className="text-base font-semibold text-gray-900 line-clamp-1 group-hover:text-primary transition-colors">
                                           {docItem.title}
                                         </p>
-                                        <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{docItem.preview}</p>
-                                        <p className="text-[11px] text-gray-400 mt-0.5">
+                                        <p className="text-sm text-gray-500 line-clamp-1 mt-0.5">{docItem.preview}</p>
+                                        <p className="text-xs text-gray-400 mt-0.5">
                                           {docItem.updated} &bull; {docItem.text?.split(/\s+/).filter(Boolean).length || 0} words
                                         </p>
                                       </div>
                                       <div className="flex items-center gap-2 flex-shrink-0">
-                                        <span className="text-xs font-bold text-emerald-600 bg-emerald-50 rounded-full px-2 py-0.5">
+                                        <span className="text-sm font-bold text-emerald-600 bg-emerald-50 rounded-full px-2 py-0.5">
                                           {(() => {
                                             let h = 0;
                                             for (let i = 0; i < docItem.id.length; i++) h = ((h << 5) - h + docItem.id.charCodeAt(i)) | 0;
@@ -1280,7 +1392,7 @@ const Index = () => {
                   <div className="px-5 py-3 border-b border-gray-100">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <h2 className="text-base font-semibold text-gray-900">{miniEditorTitle}</h2>
+                        <h2 className="text-lg font-semibold text-gray-900">{miniEditorTitle}</h2>
                         <button onClick={() => {
                           const name = prompt("Document title:", miniEditorTitle);
                           if (name) setMiniEditorTitle(name);
@@ -1295,11 +1407,11 @@ const Index = () => {
                           value={miniEditorLanguage}
                           onChange={setMiniEditorLanguage}
                         />
-                        <span className="text-xs text-gray-500">
+                        <span className="text-sm text-gray-500">
                           {miniWordCount} / {userProfile?.wordLimit?.toLocaleString() || "5,000"} words
                         </span>
-                        <span className="text-[10px] text-gray-400">
-                          Credits left: {miniCreditsRemaining.toLocaleString()} (1 credit = 1 word)
+                        <span className="text-xs text-gray-400">
+                          Credits left: {miniCreditsRemaining.toLocaleString()}
                         </span>
                       </div>
                       <Button
@@ -1315,16 +1427,37 @@ const Index = () => {
 
                   {/* Editor Text Area */}
                   <div className="flex-1 relative min-h-0">
-                    <textarea
-                      className="w-full h-full resize-none p-5 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none leading-relaxed"
-                      placeholder="Welcome! Paste or type your text here, and we'll proofread it professionally while preserving your meaning and tone."
-                      value={miniEditorText}
-                      onChange={(e) => setMiniEditorText(e.target.value)}
-                    />
+                    <div className="mini-editor-overlay">
+                      <div
+                        ref={miniHighlightRef}
+                        className="mini-editor-highlight editor-highlight"
+                        dangerouslySetInnerHTML={{ __html: miniHighlightHtml }}
+                        onClick={handleMiniHighlightClick}
+                        onMouseMove={handleMiniHighlightMouseMove}
+                        onMouseLeave={handleMiniHighlightMouseLeave}
+                      />
+                      <textarea
+                        ref={miniTextareaRef}
+                        className="mini-editor-textarea"
+                        placeholder="Welcome! Paste or type your text here, and we'll proofread it professionally while preserving your meaning and tone."
+                        value={miniEditorText}
+                        spellCheck={false}
+                        onChange={(e) => {
+                          setMiniEditorText(e.target.value);
+                          if (miniHasResults) { setMiniHasResults(false); setMiniChanges([]); setMiniCorrectedText(""); }
+                        }}
+                        onScroll={(e) => {
+                          if (miniHighlightRef.current) {
+                            miniHighlightRef.current.scrollTop = e.currentTarget.scrollTop;
+                            miniHighlightRef.current.scrollLeft = e.currentTarget.scrollLeft;
+                          }
+                        }}
+                      />
+                    </div>
                   </div>
 
                   {/* Editor Bottom Bar */}
-                  <div className="px-5 py-2.5 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+                  <div className="px-5 py-2.5 border-t border-gray-100 flex items-center justify-between text-sm text-gray-500">
                     <div className="flex items-center gap-4">
                       <button className="flex items-center gap-1.5 hover:text-gray-700 transition-colors">
                         <Upload className="w-3.5 h-3.5" />
@@ -1332,8 +1465,8 @@ const Index = () => {
                       </button>
                     </div>
                     <div className="flex items-center gap-4">
-                      <span>{miniWordCount} words</span>
-                      <span>{miniEditorText.length} characters</span>
+                      <span className="text-sm">{miniWordCount} words</span>
+                      <span className="text-sm">{miniEditorText.length} characters</span>
                       <button
                         className="text-primary hover:text-primary/80 font-medium transition-colors"
                         onClick={() => navigate("/editor", { state: selectedDocId ? { id: selectedDocId } : { text: miniEditorText } })}
@@ -1352,7 +1485,7 @@ const Index = () => {
                       <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
                         <BookOpen className="w-4 h-4 text-primary" />
                       </div>
-                      <h3 className="text-sm font-bold text-gray-900">Suggestions</h3>
+                      <h3 className="text-base font-bold text-gray-900">Suggestions</h3>
                     </div>
 
                     {miniIsLoading ? (
@@ -1364,7 +1497,7 @@ const Index = () => {
                       <>
                         {/* Accuracy Score */}
                         <div className="mb-5">
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Accuracy Score</p>
+                          <p className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Accuracy Score</p>
                           <div className="flex items-center gap-4">
                             <div className="relative w-16 h-16">
                               <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
@@ -1383,10 +1516,10 @@ const Index = () => {
                               </div>
                             </div>
                             <div>
-                              <p className="text-sm font-semibold text-gray-900">
+                              <p className="text-base font-semibold text-gray-900">
                                 {!miniHasResults ? "Ready" : miniPendingChanges.length === 0 ? "Looks good!" : `${miniPendingChanges.length} issue${miniPendingChanges.length === 1 ? "" : "s"}`}
                               </p>
-                              <p className="text-xs text-emerald-600">
+                              <p className="text-sm text-emerald-600">
                                 {!miniHasResults ? "Paste text & click Check" : miniPendingChanges.length === 0 ? "No issues found" : "Review suggestions below"}
                               </p>
                             </div>
@@ -1395,12 +1528,22 @@ const Index = () => {
 
                         {/* Suggestion Count */}
                         <div className="flex items-center justify-between mb-5 pb-4 border-b border-gray-200">
-                          <span className="text-xs text-gray-500">
+                          <span className="text-sm text-gray-500">
                             {miniChanges.filter((c) => c.status !== "pending").length} of {miniChanges.length} suggestions
                           </span>
-                          {miniPendingChanges.length === 0 && miniHasResults && (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                          )}
+                          <div className="flex items-center gap-2">
+                            {miniPendingChanges.length > 0 && (
+                              <button
+                                className="text-xs font-semibold text-white bg-emerald-500 hover:bg-emerald-600 px-3 py-1 rounded-md transition-colors"
+                                onClick={handleMiniAcceptAll}
+                              >
+                                Accept All
+                              </button>
+                            )}
+                            {miniPendingChanges.length === 0 && miniHasResults && (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                            )}
+                          </div>
                         </div>
 
                         {/* Categories */}
@@ -1418,9 +1561,9 @@ const Index = () => {
                               <div key={label} className="flex items-center justify-between">
                                 <div className="flex items-center gap-2.5">
                                   <Icon className="w-4 h-4 text-gray-400" />
-                                  <span className="text-sm text-gray-700">{label}</span>
+                                  <span className="text-base text-gray-700">{label}</span>
                                 </div>
-                                <span className={`text-sm font-semibold ${count > 0 ? "text-amber-600" : "text-gray-900"}`}>{count}</span>
+                                <span className={`text-base font-semibold ${count > 0 ? "text-amber-600" : "text-gray-900"}`}>{count}</span>
                               </div>
                             );
                           })}
@@ -1429,40 +1572,38 @@ const Index = () => {
                         {/* Individual Suggestions */}
                         {miniPendingChanges.length > 0 && (
                           <div className="space-y-3 mb-6">
-                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Changes</p>
-                            {miniChanges.filter((c) => c.status === "pending").map((change, idx) => (
-                              <div key={idx} className="bg-white rounded-lg border border-gray-200 p-3 space-y-2">
+                            <p className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Changes</p>
+                            {miniChanges.map((change, originalIdx) => {
+                              if (change.status !== "pending") return null;
+                              return (
+                              <div key={originalIdx} className="bg-white rounded-lg border border-gray-200 p-3 space-y-2">
                                 <div className="flex items-start justify-between gap-2">
                                   <div className="flex-1 min-w-0">
-                                    <span className="text-xs font-medium text-red-500 line-through">{change.original}</span>
-                                    <span className="text-xs text-gray-400 mx-1">→</span>
-                                    <span className="text-xs font-medium text-emerald-600">{change.corrected}</span>
+                                    <span className="text-sm font-medium text-red-500 line-through">{change.original}</span>
+                                    <span className="text-sm text-gray-400 mx-1">→</span>
+                                    <span className="text-sm font-medium text-emerald-600">{change.corrected}</span>
                                   </div>
                                 </div>
                                 {change.explanation && (
-                                  <p className="text-[11px] text-gray-500 leading-relaxed">{change.explanation}</p>
+                                  <p className="text-xs text-gray-500 leading-relaxed">{change.explanation}</p>
                                 )}
                                 <div className="flex items-center gap-2">
                                   <button
-                                    className="text-[11px] font-medium text-emerald-600 hover:text-emerald-700 px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 transition-colors"
-                                    onClick={() => {
-                                      setMiniEditorText((prev) => prev.replace(change.original, change.corrected));
-                                      setMiniChanges((prev) => prev.map((c, i) => i === idx ? { ...c, status: "accepted" } : c));
-                                    }}
+                                    className="text-xs font-medium text-emerald-600 hover:text-emerald-700 px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                                    onClick={() => handleMiniAccept(originalIdx)}
                                   >
                                     Accept
                                   </button>
                                   <button
-                                    className="text-[11px] font-medium text-gray-500 hover:text-gray-700 px-2 py-0.5 rounded bg-gray-50 hover:bg-gray-100 transition-colors"
-                                    onClick={() => {
-                                      setMiniChanges((prev) => prev.map((c, i) => i === idx ? { ...c, status: "ignored" } : c));
-                                    }}
+                                    className="text-xs font-medium text-gray-500 hover:text-gray-700 px-2 py-1 rounded bg-gray-50 hover:bg-gray-100 transition-colors"
+                                    onClick={() => handleMiniIgnore(originalIdx)}
                                   >
                                     Ignore
                                   </button>
                                 </div>
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
 
@@ -1484,6 +1625,40 @@ const Index = () => {
                 </div>
               </div>
             </div>
+
+            {/* Mini-editor hover suggestion popover (fixed over viewport) */}
+            {miniHoverSuggestion.open && typeof miniHoverSuggestion.changeIdx === "number" && miniChanges[miniHoverSuggestion.changeIdx] && (
+              <div
+                className="hover-suggestion-popover"
+                style={{ position: "fixed", top: miniHoverSuggestion.top, left: miniHoverSuggestion.left, zIndex: 9999 }}
+                onMouseEnter={() => {
+                  setMiniIsHoverPopover(true);
+                  if (miniHoverCloseTimerRef.current) { clearTimeout(miniHoverCloseTimerRef.current); miniHoverCloseTimerRef.current = null; }
+                }}
+                onMouseLeave={() => {
+                  setMiniIsHoverPopover(false);
+                  miniHoverCloseTimerRef.current = window.setTimeout(() => { setMiniHoverSuggestion((prev) => ({ ...prev, open: false })); miniHoverCloseTimerRef.current = null; }, 200);
+                }}
+              >
+                <div className="hover-suggestion-arrow" />
+                <div className="text-[11px] text-muted-foreground mb-1">Suggestion</div>
+                <div className="text-xs text-gray-500 mb-1">
+                  <span className="line-through text-red-400">{miniChanges[miniHoverSuggestion.changeIdx].original}</span>
+                  <span className="mx-1 text-gray-400">→</span>
+                  <span className="font-semibold text-emerald-600">{miniChanges[miniHoverSuggestion.changeIdx].corrected}</span>
+                </div>
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-emerald-600 hover:underline text-left mt-1"
+                  onClick={() => {
+                    handleMiniAccept(miniHoverSuggestion.changeIdx!);
+                    setMiniHoverSuggestion((prev) => ({ ...prev, open: false }));
+                  }}
+                >
+                  ✓ Accept
+                </button>
+              </div>
+            )}
             </div>
           ) : (
             // Non-authenticated Layout (Hero + Recent Docs)
