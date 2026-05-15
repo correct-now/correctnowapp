@@ -17,7 +17,7 @@ import {
   SheetContent,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { FileText, Search, Star, LogOut, User, Menu, Archive, MoreVertical, Trash2, RotateCcw, Settings, Pencil, Crown, Upload, ChevronDown, Sparkles, BookOpen, Type, CheckCircle2, Eye, MessageSquare, Lightbulb } from "lucide-react";
+import { FileText, Search, Star, LogOut, User, Menu, Archive, MoreVertical, Trash2, RotateCcw, Settings, Pencil, Crown, Upload, ChevronDown, Sparkles, BookOpen, Type, CheckCircle2, Eye, MessageSquare, Lightbulb, Shield, Globe, Zap, Monitor } from "lucide-react";
 import { archiveDocById, deleteArchivedDocPermanently, deleteArchivedDocsPermanently, formatUpdated, getDocs, getDocById, restoreDocById, sectionForDate } from "@/lib/docs";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -1663,222 +1663,214 @@ const Index = () => {
           ) : (
             // Non-authenticated Layout (Hero + Recent Docs)
             <>
-              <div className="container pt-3 pb-2">
-                <div className="flex items-center justify-end">
-                  <Button variant="accent" size="sm" className="h-9 blink-green-slow" onClick={() => navigate("/editor")}>New doc</Button>
+              <main className="flex-1 pt-0 pb-0">
+            {!isAuthenticated && (
+        <section className="mb-0 relative overflow-hidden bg-white">
+          {/* Decorative gradient orb — top right */}
+          <div className="pointer-events-none absolute right-0 top-0 w-[680px] h-[680px] rounded-full bg-gradient-to-br from-blue-200/60 via-indigo-300/40 to-violet-300/50 blur-[2px] translate-x-1/3 -translate-y-1/4" />
+          <div className="pointer-events-none absolute right-16 top-16 w-[420px] h-[420px] rounded-full bg-gradient-to-br from-blue-100/50 via-indigo-200/30 to-violet-200/40 blur-sm" />
+
+          <div className="container relative py-14 sm:py-20 md:py-28 px-4 sm:px-6">
+            <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] items-center">
+
+              {/* ── Left copy ── */}
+              <div className="max-w-xl">
+                {/* Badge pills */}
+                <div className="flex flex-wrap gap-3 mb-7">
+                  <span className="inline-flex items-center gap-1.5 text-sm text-gray-600 border border-gray-200 rounded-full px-3.5 py-1 bg-gray-50/80">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Global languages grammar check
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-sm text-gray-600 border border-gray-200 rounded-full px-3.5 py-1 bg-gray-50/80">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Grammarly alternative
+                  </span>
+                </div>
+
+                {/* Headline */}
+                <h1 className="text-4xl sm:text-5xl md:text-[3.5rem] font-extrabold text-gray-900 leading-[1.1] tracking-tight">
+                  AI Proofreader and<br />
+                  Grammar Checker<br />
+                  for <span className="text-primary">Every Language</span>
+                </h1>
+
+                {/* Description */}
+                <p className="text-gray-500 text-base sm:text-lg mt-5 leading-relaxed">
+                  Correct grammar, spelling, and punctuation errors instantly with CorrectNow. Your AI-powered writing assistant for clear, confident, and mistake-free content in 50+ languages.
+                </p>
+
+                {/* CTAs */}
+                <div className="flex flex-col sm:flex-row gap-3 mt-8">
+                  <Button
+                    className="rounded-full bg-gray-900 text-white px-7 py-5 text-base font-semibold hover:bg-gray-800 shadow-lg hover:shadow-xl transition-all w-full sm:w-auto"
+                    onClick={() => navigate("/editor")}
+                  >
+                    Check My Text Now — Free →
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="rounded-full border-gray-300 text-gray-700 px-7 py-5 text-base font-semibold hover:bg-gray-100 hover:text-gray-800 hover:border-gray-400 transition-all w-full sm:w-auto"
+                    onClick={() => navigate("/features")}
+                  >
+                    See How It Works ▷
+                  </Button>
+                </div>
+
+                {/* Trust bullets */}
+                <div className="flex flex-wrap gap-5 mt-6 text-sm text-gray-500">
+                  <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-gray-400" /> Free forever</span>
+                  <span className="flex items-center gap-1.5"><Zap className="w-4 h-4 text-gray-400" /> Instant results</span>
+                  <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-gray-400" /> No sign-up required</span>
+                </div>
+
+                {/* Privacy note */}
+                <div className="mt-4 flex items-center gap-1.5 text-xs text-gray-400 italic">
+                  <Shield className="w-3.5 h-3.5 shrink-0" />
+                  <span>Your privacy matters. We don't store or share your text</span>
                 </div>
               </div>
 
-              <main className="flex-1 pt-2 pb-0">
-            {!isAuthenticated && (
-        <section className="mb-0">
-          <div className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] w-screen overflow-hidden bg-gradient-to-br from-primary via-primary/90 to-primary/70 text-white shadow-[0_20px_60px_rgba(37,99,235,0.3)] md:shadow-[0_30px_80px_rgba(37,99,235,0.35)]">
-            <div className="absolute inset-0 opacity-20 md:opacity-25">
-              <div className="absolute -top-16 sm:-top-24 -right-12 sm:-right-20 h-48 sm:h-72 w-48 sm:w-72 rounded-full bg-white/25 blur-3xl" />
-              <div className="absolute -bottom-16 sm:-bottom-24 -left-10 sm:-left-16 h-56 sm:h-80 w-56 sm:w-80 rounded-full bg-white/20 blur-3xl" />
-            </div>
-            <div className="container relative py-8 sm:py-12 md:py-16 px-4 sm:px-6">
-              <div className="grid gap-6 sm:gap-8 md:gap-10 lg:grid-cols-[1.1fr_0.9fr] items-center">
-                <div className="max-w-2xl">
-                  <div className="flex justify-center sm:justify-start">
-                    <div className="inline-flex flex-col items-center sm:flex-row sm:items-center gap-1 sm:gap-2 md:gap-3 rounded-full border border-white/60 bg-white/90 text-primary px-3 sm:px-4 md:px-6 py-2 sm:py-2.5 md:py-3 text-xs sm:text-sm md:text-base font-bold sm:font-extrabold tracking-wide shadow-[0_8px_30px_rgba(255,255,255,0.4)] sm:shadow-[0_12px_40px_rgba(255,255,255,0.5)]">
-                      <span className="whitespace-nowrap">✓ Global languages grammar check</span>
-                      <span className="whitespace-nowrap">✓ Grammarly alternative</span>
-                    </div>
-                  </div>
-                  <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-bold leading-tight mt-4 sm:mt-5 tracking-tight px-2 sm:px-0">
-                    CorrectNow – An AI proofreader and grammar checker for multiple languages
-                  </h1>
-                  <p className="text-white/90 text-sm sm:text-base md:text-lg lg:text-xl mt-3 sm:mt-4 leading-relaxed px-2 sm:px-0">
-                    Correct grammar, spelling, and punctuation errors instantly with CorrectNow. 
-                    Professional AI-powered writing assistant for flawless content in 50+ languages.
-                  </p>
-                  <div className="flex flex-col sm:flex-row flex-wrap gap-3 mt-5 sm:mt-7 px-2 sm:px-0">
-                    <Button
-                      className="rounded-full bg-white text-primary px-5 sm:px-6 md:px-7 py-4 sm:py-4.5 md:py-5 text-sm sm:text-base font-semibold shadow-[0_8px_20px_rgba(255,255,255,0.2)] sm:shadow-[0_12px_30px_rgba(255,255,255,0.25)] hover:bg-white/95 w-full sm:w-auto"
-                      onClick={() => navigate("/editor")}
-                    >
-                      Check My Text Now - Free
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="rounded-full border-white/50 bg-transparent text-white px-5 sm:px-6 md:px-7 py-4 sm:py-4.5 md:py-5 text-sm sm:text-base font-semibold hover:bg-white/10 w-full sm:w-auto"
-                      onClick={() => navigate("/features")}
-                    >
-                      See How It Works
-                    </Button>
-                  </div>
-                  <div className="flex flex-wrap gap-4 sm:gap-6 mt-5 sm:mt-7 text-xs sm:text-sm text-white/85 justify-center sm:justify-start px-2 sm:px-0">
-                    <span className="inline-flex items-center gap-2">✓ Free forever</span>
-                    <span className="inline-flex items-center gap-2">✓ Instant results</span>
-                    <span className="inline-flex items-center gap-2">✓ No sign-up required</span>
-                  </div>
-                  <div className="mt-5 text-xs text-white/75 italic">
-                    🔒 Your privacy matters: We don't store or share your text
-                  </div>
-                </div>
-
-                <Card className="bg-white/95 text-foreground rounded-2xl shadow-[0_20px_60px_rgba(15,30,80,0.3)]">
-                  <CardContent className="p-6 md:p-7">
-                    <div className="flex items-center justify-between text-xs text-muted-foreground mb-4">
-                      <span className="font-semibold">Live preview</span>
-                      <span>Professional proofreading</span>
+              {/* ── Right: Preview card ── */}
+              <div className="relative">
+                <Card className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+                  <CardContent className="p-5 sm:p-6">
+                    <div className="flex items-center justify-between text-xs mb-4">
+                      <span className="font-semibold text-gray-700">Live preview</span>
+                      <span className="text-gray-400">Professional proofreading</span>
                     </div>
 
-                    <div className="rounded-xl border border-border bg-white p-4">
-                      <div className="text-xs font-semibold text-muted-foreground">Original</div>
-                      <div className="text-sm text-foreground mt-2">
-                        Please <span className="text-red-500 underline">recieve</span> the document and reply when <span className="text-red-500 underline">your</span> done.
+                    {/* Original */}
+                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 mb-3">
+                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Original</div>
+                      <div className="text-sm text-gray-700 leading-relaxed">
+                        Please <span className="text-red-500 underline decoration-red-400">recieve</span> the document and reply when <span className="text-red-500 underline decoration-red-400">your</span> done.
                       </div>
                     </div>
 
-                    <div className="rounded-xl border border-border bg-white p-4 mt-4">
-                      <div className="text-xs font-semibold text-muted-foreground">Corrected</div>
-                      <div className="text-sm text-foreground mt-2">
-                        Please <span className="text-emerald-600 font-semibold">receive</span> the document and reply when <span className="text-emerald-600 font-semibold">you’re</span> done.
+                    {/* Corrected */}
+                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 mb-3">
+                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Corrected</div>
+                      <div className="text-sm text-gray-700 leading-relaxed">
+                        Please <span className="text-emerald-600 font-semibold">receive</span> the document and reply when <span className="text-emerald-600 font-semibold">you're</span> done.
                       </div>
                     </div>
 
-                    <div className="rounded-xl border border-border bg-white p-4 mt-4">
-                      <div className="text-xs font-semibold text-muted-foreground">Change log</div>
-                      <div className="text-sm text-foreground mt-3 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground">recieve</span>
-                          <span className="font-medium">receive</span>
+                    {/* Change log */}
+                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2.5">Change log</div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-3 text-sm text-gray-600">
+                          <span className="flex-1">recieve</span>
+                          <span className="text-gray-300">→</span>
+                          <span className="flex-1 font-semibold text-gray-900">receive</span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground">your</span>
-                          <span className="font-medium">you’re</span>
+                        <div className="flex items-center gap-3 text-sm text-gray-600">
+                          <span className="flex-1">your</span>
+                          <span className="text-gray-300">→</span>
+                          <span className="flex-1 font-semibold text-gray-900">you're</span>
                         </div>
-                        <div className="text-xs text-muted-foreground pt-1">
-                          Explanations included for every fix
-                        </div>
+                      </div>
+                      <div className="text-[10px] text-gray-400 mt-3 pt-2.5 border-t border-gray-100">
+                        Explanations included for every fix
                       </div>
                     </div>
                   </CardContent>
                 </Card>
               </div>
             </div>
+
+            {/* ── Trusted by logos bar ── */}
+            <div className="mt-16 text-center">
+              <p className="text-sm font-semibold text-primary mb-7">Trusted by students, professionals, and teams worldwide</p>
+              <div className="flex flex-wrap items-center justify-center gap-8 md:gap-14">
+                <span className="text-xl font-bold tracking-tight" style={{ color: "#4285F4" }}>Google</span>
+                <span className="text-xl font-bold tracking-tight" style={{ color: "#00A4EF" }}>Microsoft</span>
+                <span className="text-xl font-semibold text-gray-800">GitHub</span>
+                <span className="text-xl font-semibold" style={{ color: "#FF7900" }}>Capterra</span>
+              </div>
+              <div className="mt-4 flex items-center justify-center gap-1">
+                {[0,1,2,3,4].map((i) => (
+                  <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
+                ))}
+                <span className="text-sm text-gray-500 ml-2">4.9/5 from 1,000+ users</span>
+              </div>
+            </div>
+
+            {/* ── 4 feature mini-cards ── */}
+            <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { icon: Globe,     title: "50+ Languages",        desc: "Check grammar and spelling in over 50 languages with native-level accuracy.",                             bg: "bg-blue-500" },
+                { icon: Zap,       title: "Instant Results",       desc: "Get real-time corrections and suggestions as you type or paste your text.",                              bg: "bg-emerald-500" },
+                { icon: Shield,    title: "Privacy First",         desc: "Your text is safe with us. We don't store or share your content with anyone.",                          bg: "bg-violet-500" },
+                { icon: Sparkles,  title: "AI-Powered Accuracy",   desc: "Advanced AI technology ensures context-aware corrections and better clarity.",                           bg: "bg-orange-500" },
+              ].map(({ icon: Icon, title, desc, bg }) => (
+                <Card key={title} className="border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+                  <CardContent className="p-5">
+                    <div className={`w-10 h-10 rounded-full ${bg} flex items-center justify-center mb-3`}>
+                      <Icon className="w-5 h-5 text-white" />
+                    </div>
+                    <h3 className="font-bold text-gray-900 mb-1.5 text-sm">{title}</h3>
+                    <p className="text-xs text-gray-500 leading-relaxed">{desc}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
         </section>
         )}
 
-        {/* Features Section with SEO Content */}
+        {/* Features Section */}
         {!isAuthenticated && (
-        <section className="container pt-16 pb-8 md:pt-20 md:pb-10">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-              Why Choose CorrectNow Grammar Checker?
+        <section className="container pt-20 pb-12 md:pt-28 md:pb-20">
+          <div className="text-center mb-16">
+            <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 border border-blue-100 px-4 py-1.5 text-sm font-semibold text-blue-600 mb-5">
+              <Sparkles className="w-3.5 h-3.5" /> Why Choose CorrectNow
+            </div>
+            <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-foreground tracking-tight">
+              Everything you need to write flawlessly
             </h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              The best free alternative to Grammarly for instant grammar and spelling corrections
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto mt-4">
+              The best free alternative to Grammarly — instant, accurate, and built for every language.
             </p>
           </div>
-          
-          <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3 mb-12">
-            <Card className="shadow-card hover:shadow-elevated transition-shadow">
-              <CardContent className="p-6">
-                <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">Instant Grammar Check</h3>
-                <p className="text-muted-foreground">
-                  Get real-time grammar, spelling, and punctuation corrections as you type. Fix errors instantly with AI-powered suggestions.
-                </p>
-              </CardContent>
-            </Card>
 
-            <Card className="shadow-card hover:shadow-elevated transition-shadow">
-              <CardContent className="p-6">
-                <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">50+ Languages Supported</h3>
-                <p className="text-muted-foreground">
-                  Check grammar in English, Spanish, French, German, Tamil, Hindi, and 45+ more languages. Perfect for multilingual content.
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-card hover:shadow-elevated transition-shadow">
-              <CardContent className="p-6">
-                <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">100% Private & Secure</h3>
-                <p className="text-muted-foreground">
-                  Your text is never stored or shared. We respect your privacy and ensure complete data security.
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-card hover:shadow-elevated transition-shadow">
-              <CardContent className="p-6">
-                <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">Free Forever</h3>
-                <p className="text-muted-foreground">
-                  No credit card required. Start checking your grammar, spelling, and punctuation for free. Upgrade anytime for advanced features.
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-card hover:shadow-elevated transition-shadow">
-              <CardContent className="p-6">
-                <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">Smart AI Assistant</h3>
-                <p className="text-muted-foreground">
-                  Powered by advanced AI to catch complex grammar mistakes, improve sentence structure, and enhance your writing quality.
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-card hover:shadow-elevated transition-shadow">
-              <CardContent className="p-6">
-                <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">Works Everywhere</h3>
-                <p className="text-muted-foreground">
-                  Use on desktop, mobile, or tablet. Check emails, essays, social media posts, and professional documents anywhere.
-                </p>
-              </CardContent>
-            </Card>
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {[
+              { icon: CheckCircle2, title: "Instant Grammar Check", desc: "Real-time grammar, spelling, and punctuation corrections powered by AI. Results in seconds.", color: "text-emerald-600", bg: "bg-emerald-50", border: "group-hover:border-emerald-200" },
+              { icon: Globe, title: "50+ Languages", desc: "English, Spanish, French, German, Tamil, Hindi, Arabic, and 45+ more languages supported natively.", color: "text-blue-600", bg: "bg-blue-50", border: "group-hover:border-blue-200" },
+              { icon: Shield, title: "100% Private & Secure", desc: "Your text is never stored or shared. End-to-end privacy with no data logging whatsoever.", color: "text-violet-600", bg: "bg-violet-50", border: "group-hover:border-violet-200" },
+              { icon: Zap, title: "Free Forever", desc: "No credit card, no limits on basic checks. Upgrade anytime for power features and higher limits.", color: "text-amber-600", bg: "bg-amber-50", border: "group-hover:border-amber-200" },
+              { icon: Sparkles, title: "Smart AI Engine", desc: "Catches complex grammar mistakes, improves sentence structure, and enhances overall clarity.", color: "text-rose-600", bg: "bg-rose-50", border: "group-hover:border-rose-200" },
+              { icon: Monitor, title: "Works Everywhere", desc: "Desktop, mobile, or tablet. Check emails, essays, social posts, and documents from any device.", color: "text-cyan-600", bg: "bg-cyan-50", border: "group-hover:border-cyan-200" },
+            ].map(({ icon: Icon, title, desc, color, bg, border }) => (
+              <Card key={title} className={`group border border-border/60 shadow-sm hover:shadow-xl ${border} transition-all duration-300 hover:-translate-y-1`}>
+                <CardContent className="p-6">
+                  <div className={`w-11 h-11 rounded-xl ${bg} flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300`}>
+                    <Icon className={`w-5 h-5 ${color}`} />
+                  </div>
+                  <h3 className="text-lg font-bold text-foreground mb-2">{title}</h3>
+                  <p className="text-muted-foreground text-sm leading-relaxed">{desc}</p>
+                </CardContent>
+              </Card>
+            ))}
           </div>
 
-          <div className="mt-6 sm:mt-8 rounded-2xl border border-border bg-secondary/30 p-6 md:p-8 text-center">
+          <div className="mt-16 rounded-2xl bg-gradient-to-br from-blue-50 via-white to-indigo-50 border border-blue-100 p-8 md:p-10 text-center">
             <h3 className="text-xl md:text-2xl font-bold text-foreground mb-3">
               Languages supported for grammar checking
             </h3>
-            <p className="text-sm md:text-base text-muted-foreground leading-relaxed">
-              Grammarly alternative and AI proofreader for English, Mandarin Chinese, Hindi, Spanish, French, Modern Standard Arabic, Bengali, Portuguese, Russian, Indonesian, Urdu, Standard German, Japanese, Marathi, Telugu, Turkish, Tamil, Vietnamese, Korean, Italian, Thai, Gujarati, Kannada, Malayalam, Polish, Dutch, Greek, Ukrainian, Romanian, Swedish, Hungarian, Czech, Arabic dialects, and more.
+            <p className="text-sm md:text-base text-muted-foreground leading-relaxed max-w-3xl mx-auto">
+              English, Mandarin Chinese, Hindi, Spanish, French, Arabic, Bengali, Portuguese, Russian, Indonesian, Urdu, German, Japanese, Marathi, Telugu, Turkish, Tamil, Vietnamese, Korean, Italian, Thai, Gujarati, Kannada, Malayalam, Polish, Dutch, Greek, Ukrainian, Romanian, Swedish, Hungarian, Czech, and more.
             </p>
           </div>
 
-          <div className="text-center">
-            <h3 className="text-2xl font-bold text-foreground mb-3">Ready to Write Error-Free Content?</h3>
-            <p className="text-muted-foreground mb-6">Join thousands of users who trust CorrectNow for professional writing</p>
-            <Button 
-              variant="accent" 
+          <div className="mt-16 text-center">
+            <h3 className="text-2xl md:text-3xl font-extrabold text-foreground mb-3">Ready to write error-free?</h3>
+            <p className="text-muted-foreground mb-8 text-lg">Join thousands of writers who trust CorrectNow daily.</p>
+            <Button
               size="lg"
+              className="rounded-full px-8 py-5 text-base font-bold shadow-lg hover:shadow-xl transition-all"
               onClick={() => navigate("/editor")}
             >
-              Try Free Grammar Checker Now
+              Try Free Grammar Checker
             </Button>
           </div>
         </section>
@@ -1886,163 +1878,65 @@ const Index = () => {
 
         {/* Testimonials Section */}
         {!isAuthenticated && (
-        <section className="container py-16 md:py-20">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-              Trusted by Professionals Worldwide
-            </h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              See what our users say about CorrectNow
-            </p>
-          </div>
-          
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {/* Testimonial 1 */}
-            <Card className="shadow-card hover:shadow-elevated transition-shadow">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-0.5 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                  ))}
-                </div>
-                <p className="text-foreground mb-4 leading-relaxed">
-                  "CorrectNow helps me write without fear of mistakes. Very easy to use. (English, Hindi)"
-                </p>
-                <div className="flex items-center gap-3 pt-3 border-t border-border">
-                  <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center text-accent font-semibold">
-                    A
-                  </div>
-                  <div>
-                    <div className="font-semibold text-foreground">Arjun Kumar</div>
-                    <div className="text-sm text-muted-foreground">University Student</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+        <section className="relative overflow-hidden py-20 md:py-28">
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-blue-50/30 to-transparent" />
+          <div className="container relative">
+            <div className="text-center mb-14">
+              <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 border border-amber-100 px-4 py-1.5 text-sm font-semibold text-amber-700 mb-5">
+                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> Trusted Worldwide
+              </div>
+              <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-foreground tracking-tight">
+                Loved by writers everywhere
+              </h2>
+              <p className="text-lg text-muted-foreground max-w-2xl mx-auto mt-4">
+                See what professionals, students, and creators say about CorrectNow.
+              </p>
+            </div>
 
-            {/* Testimonial 2 */}
-            <Card className="shadow-card hover:shadow-elevated transition-shadow">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-0.5 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                  ))}
-                </div>
-                <p className="text-foreground mb-4 leading-relaxed">
-                  "Finally, a grammar checker that understands native languages properly. (Malayalam, Tamil)"
-                </p>
-                <div className="flex items-center gap-3 pt-3 border-t border-border">
-                  <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center text-accent font-semibold">
-                    M
-                  </div>
-                  <div>
-                    <div className="font-semibold text-foreground">Meera Nair</div>
-                    <div className="text-sm text-muted-foreground">Author & Blogger</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Testimonial 3 */}
-            <Card className="shadow-card hover:shadow-elevated transition-shadow">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-0.5 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                  ))}
-                </div>
-                <p className="text-foreground mb-4 leading-relaxed">
-                  "We save time and improve clarity across languages. Highly useful. (English, Marathi)"
-                </p>
-                <div className="flex items-center gap-3 pt-3 border-t border-border">
-                  <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center text-accent font-semibold">
-                    R
-                  </div>
-                  <div>
-                    <div className="font-semibold text-foreground">Rohit Menon</div>
-                    <div className="text-sm text-muted-foreground">Senior Editor, Metro News Desk</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Testimonial 4 */}
-            <Card className="shadow-card hover:shadow-elevated transition-shadow">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-0.5 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                  ))}
-                </div>
-                <p className="text-foreground mb-4 leading-relaxed">
-                  "My emails and reports sound more professional now. (English, Telugu)"
-                </p>
-                <div className="flex items-center gap-3 pt-3 border-t border-border">
-                  <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center text-accent font-semibold">
-                    A
-                  </div>
-                  <div>
-                    <div className="font-semibold text-foreground">Anita Sharma</div>
-                    <div className="text-sm text-muted-foreground">Operations Manager, NextWave Solutions</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Testimonial 5 */}
-            <Card className="shadow-card hover:shadow-elevated transition-shadow">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-0.5 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                  ))}
-                </div>
-                <p className="text-foreground mb-4 leading-relaxed">
-                  "Excellent accuracy for research writing. Rating: 10/10. (German, English)"
-                </p>
-                <div className="flex items-center gap-3 pt-3 border-t border-border">
-                  <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center text-accent font-semibold">
-                    D
-                  </div>
-                  <div>
-                    <div className="font-semibold text-foreground">Dr. Lukas Schneider</div>
-                    <div className="text-sm text-muted-foreground">Research Fellow, Germany</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Testimonial 6 */}
-            <Card className="shadow-card hover:shadow-elevated transition-shadow">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-0.5 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                  ))}
-                </div>
-                <p className="text-foreground mb-4 leading-relaxed">
-                  "CorrectNow understands grammar and context perfectly. Powerful tool. (Tamil, English)"
-                </p>
-                <div className="flex items-center gap-3 pt-3 border-t border-border">
-                  <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center text-accent font-semibold">
-                    R
-                  </div>
-                  <div>
-                    <div className="font-semibold text-foreground">Ramesh Naidu</div>
-                    <div className="text-sm text-muted-foreground">Script Writer, Silver Screen Studios</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {[
+                { quote: "CorrectNow helps me write without fear of mistakes. Very easy to use.", name: "Arjun Kumar", role: "University Student", lang: "English, Hindi", initial: "A", gradient: "from-blue-500 to-indigo-600" },
+                { quote: "Finally, a grammar checker that understands native languages properly.", name: "Meera Nair", role: "Author & Blogger", lang: "Malayalam, Tamil", initial: "M", gradient: "from-violet-500 to-purple-600" },
+                { quote: "We save time and improve clarity across languages. Highly useful.", name: "Rohit Menon", role: "Senior Editor", lang: "English, Marathi", initial: "R", gradient: "from-emerald-500 to-teal-600" },
+                { quote: "My emails and reports sound more professional now. A game changer.", name: "Anita Sharma", role: "Operations Manager", lang: "English, Telugu", initial: "A", gradient: "from-amber-500 to-orange-600" },
+                { quote: "Excellent accuracy for research writing. I would rate it 10 out of 10.", name: "Dr. Lukas Schneider", role: "Research Fellow", lang: "German, English", initial: "D", gradient: "from-cyan-500 to-blue-600" },
+                { quote: "CorrectNow understands grammar and context perfectly. Powerful tool.", name: "Ramesh Naidu", role: "Script Writer", lang: "Tamil, English", initial: "R", gradient: "from-rose-500 to-pink-600" },
+              ].map(({ quote, name, role, lang, initial, gradient }) => (
+                <Card key={name} className="group border border-border/50 bg-card hover:shadow-xl hover:border-primary/15 transition-all duration-300">
+                  <CardContent className="p-6 flex flex-col h-full">
+                    <div className="flex items-center gap-0.5 mb-4">
+                      {[...Array(5)].map((_, i) => (
+                        <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
+                      ))}
+                    </div>
+                    <p className="text-foreground leading-relaxed flex-1 mb-4">
+                      "{quote}"
+                    </p>
+                    <div className="text-xs text-muted-foreground mb-4 font-medium">{lang}</div>
+                    <div className="flex items-center gap-3 pt-4 border-t border-border/60">
+                      <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center text-white text-sm font-bold shadow-sm`}>
+                        {initial}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-foreground text-sm">{name}</div>
+                        <div className="text-xs text-muted-foreground">{role}</div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
         </section>
         )}
 
-        <div className="container">
-          <div className="flex items-center justify-between mb-6">
+        <div className="container pb-8">
+          <div className="flex items-center justify-between mb-8">
             <div>
-              <div className="text-sm font-semibold text-muted-foreground">Documents</div>
-              <div className="text-2xl font-semibold text-foreground">Recent docs</div>
+              <div className="inline-flex items-center gap-2 rounded-full bg-secondary border border-border/60 px-4 py-1.5 text-sm font-medium text-muted-foreground mb-2">
+                <FileText className="w-3.5 h-3.5" /> Your workspace
+              </div>
+              <div className="text-2xl md:text-3xl font-bold text-foreground">Recent documents</div>
             </div>
           </div>
           {filtered.length === 0 ? (
@@ -2056,11 +1950,11 @@ const Index = () => {
                     .filter((doc) => doc.section === section)
                     .map((doc) => (
                       <div key={doc.id} className="flex justify-end">
-                        <Card className="hover:shadow-card transition-shadow w-full">
+                        <Card className="hover:shadow-lg hover:border-primary/20 transition-all duration-300 w-full border border-border/60">
                           <CardContent className="p-5 min-h-[150px]">
                             <div className="flex items-start gap-4">
-                              <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center">
-                                <FileText className="w-5 h-5 text-primary" />
+                              <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                                <FileText className="w-5 h-5 text-blue-600" />
                               </div>
                               <div className="flex-1">
                                 <button
@@ -2085,24 +1979,42 @@ const Index = () => {
           )}
 
           <div className="mt-12">
-            <Card className="border border-border bg-secondary/40">
+            <Card className="border border-border/60 bg-gradient-to-br from-primary/[0.03] to-transparent shadow-sm">
               <CardContent className="p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <div>
-                  <div className="text-base font-semibold text-foreground">
+                  <div className="text-base font-bold text-foreground">
                     Help us improve CorrectNow
                   </div>
-                  <div className="text-sm text-muted-foreground">
+                  <div className="text-sm text-muted-foreground mt-1">
                     Share an idea or request a feature — we read every suggestion.
                   </div>
                 </div>
                 <Button
-                  variant="accent"
+                  variant="outline"
+                  className="border-primary/20 text-primary hover:bg-primary/5"
                   onClick={() => setIsSuggestionOpen(true)}
                 >
                   Suggest an improvement
                 </Button>
               </CardContent>
             </Card>
+          </div>
+
+          {/* Final CTA */}
+          <div className="mt-20 mb-4 rounded-2xl bg-gradient-to-br from-primary to-blue-700 p-8 md:p-12 text-center text-white relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-3xl" />
+            <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full blur-3xl" />
+            <div className="relative">
+              <h3 className="text-2xl md:text-3xl font-extrabold mb-3">Start writing flawlessly today</h3>
+              <p className="text-white/80 mb-6 max-w-lg mx-auto">Join thousands of writers, students, and professionals who trust CorrectNow for perfect grammar in any language.</p>
+              <Button
+                size="lg"
+                className="rounded-full bg-white text-primary px-8 py-5 text-base font-bold shadow-lg hover:shadow-xl hover:bg-white/95 transition-all"
+                onClick={() => navigate("/editor")}
+              >
+                Get Started — Free
+              </Button>
+            </div>
           </div>
         </div>
       </main>

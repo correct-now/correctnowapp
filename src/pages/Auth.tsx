@@ -617,8 +617,8 @@ const Auth = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <div className="min-h-screen bg-white">
+      <header className="w-full border-b border-gray-100 bg-white">
         <div className="container max-w-none px-3 sm:px-4 md:px-0">
           <div className="flex flex-col md:grid md:grid-cols-[1fr_auto_1fr] md:items-center gap-2 sm:gap-3 py-2 sm:py-4">
             <div className="flex w-full md:w-auto items-center justify-center md:justify-start md:pl-6">
@@ -703,41 +703,52 @@ const Auth = () => {
         </div>
       </header>
 
-      <div className="min-h-[calc(100vh-72px)] bg-background flex">
+      <div className="min-h-[calc(100vh-72px)] bg-white flex">
       {/* Left Panel - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-accent via-accent/90 to-primary/20 p-8 xl:p-12 flex-col justify-between">
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-blue-600 to-indigo-700 p-8 xl:p-12 flex-col justify-between">
+        {/* Decorative orbs */}
+        <div className="pointer-events-none absolute top-0 right-0 w-[400px] h-[400px] rounded-full bg-white/10 blur-3xl translate-x-1/3 -translate-y-1/4" />
+        <div className="pointer-events-none absolute bottom-0 left-0 w-[300px] h-[300px] rounded-full bg-indigo-300/20 blur-3xl" />
         <div />
         
-        <div className="space-y-4 lg:space-y-6">
-          <h1 className="text-2xl lg:text-3xl xl:text-4xl font-bold text-accent-foreground">
-            Perfect your writing with AI-powered proofreading
+        <div className="relative space-y-4 lg:space-y-6">
+          <div className="inline-flex items-center gap-2 rounded-full bg-white/15 border border-white/20 px-4 py-1.5 text-sm font-semibold text-white/90 mb-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            AI-powered proofreading
+          </div>
+          <h1 className="text-2xl lg:text-3xl xl:text-4xl font-extrabold text-white leading-[1.15]">
+            Perfect your writing in any language
           </h1>
-          <p className="text-accent-foreground/80 text-base lg:text-lg">
-            Join thousands of writers who trust CorrectNow for fast, accurate spelling and grammar corrections.
+          <p className="text-white/75 text-base lg:text-lg">
+            Join thousands of writers who trust CorrectNow for fast, accurate grammar corrections.
           </p>
-          <div className="space-y-4">
-            <div className="flex items-center gap-3 text-accent-foreground/90">
-              <CheckCircle className="w-5 h-5" />
-              <span>Instant corrections in global languages</span>
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center gap-3 text-white/90">
+              <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />
+              <span>Instant corrections in 50+ languages</span>
             </div>
-            <div className="flex items-center gap-3 text-accent-foreground/90">
-              <CheckCircle className="w-5 h-5" />
+            <div className="flex items-center gap-3 text-white/90">
+              <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />
               <span>Preserves your original tone and style</span>
             </div>
-            <div className="flex items-center gap-3 text-accent-foreground/90">
-              <CheckCircle className="w-5 h-5" />
+            <div className="flex items-center gap-3 text-white/90">
+              <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />
               <span>Detailed explanations for every change</span>
+            </div>
+            <div className="flex items-center gap-3 text-white/90">
+              <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />
+              <span>100% private — we never store your text</span>
             </div>
           </div>
         </div>
 
-        <p className="text-accent-foreground/60 text-sm">
-          Â© 2024 CorrectNow. All rights reserved.
+        <p className="relative text-white/40 text-sm">
+          &copy; {new Date().getFullYear()} CorrectNow. All rights reserved.
         </p>
       </div>
 
       {/* Right Panel - Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-6 md:p-8">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-6 md:p-8 bg-gray-50/50">
         <div className="w-full max-w-md space-y-6 sm:space-y-8">
           {returnToAppPending && (
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-center">
@@ -757,10 +768,10 @@ const Auth = () => {
           </div>
 
           <div className="text-center lg:text-left">
-            <h2 className="text-2xl sm:text-3xl font-bold text-foreground">
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-gray-900">
               {isLogin ? "Welcome back" : "Create an account"}
             </h2>
-            <p className="mt-2 text-sm sm:text-base text-muted-foreground">
+            <p className="mt-2 text-sm sm:text-base text-gray-500">
               {isLogin
                 ? "Enter your credentials to access your account"
                 : "Start your journey to perfect writing"}
@@ -848,8 +859,7 @@ const Auth = () => {
 
             <Button
               type="submit"
-              variant="accent"
-              className="w-full"
+              className="w-full rounded-lg bg-gray-900 text-white hover:bg-gray-800 shadow-md"
               disabled={isLoading}
             >
               {isLoading ? (
@@ -865,17 +875,17 @@ const Auth = () => {
 
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border"></div>
+              <div className="w-full border-t border-gray-200"></div>
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">
+              <span className="bg-gray-50/50 px-3 text-gray-400">
                 Or continue with
               </span>
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4">
-            <Button variant="outline" type="button" className="w-full" onClick={() => handleGoogleSignIn()} disabled={isLoading}>
+            <Button variant="outline" type="button" className="w-full rounded-lg border-gray-200 text-gray-700 hover:bg-gray-100 hover:text-gray-900 hover:border-gray-300" onClick={() => handleGoogleSignIn()} disabled={isLoading}>
               <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24">
                 <path
                   fill="currentColor"
@@ -898,12 +908,12 @@ const Auth = () => {
             </Button>
           </div>
 
-          <p className="text-center text-sm text-muted-foreground">
+          <p className="text-center text-sm text-gray-500">
             {isLogin ? "Don't have an account?" : "Already have an account?"}{" "}
             <button
               type="button"
               onClick={() => setIsLogin(!isLogin)}
-              className="text-accent hover:text-accent/80 font-medium"
+              className="text-primary hover:text-primary/80 font-semibold"
             >
               {isLogin ? "Sign up" : "Sign in"}
             </button>
