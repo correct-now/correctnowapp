@@ -702,8 +702,30 @@ const Index = () => {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-white">
+      {/* Upgrade to Premium Card — placed at top for visibility */}
+      {userProfile?.plan === "free" && (
+        <div className="px-3 pt-5 pb-2">
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-3 border border-blue-100">
+            <div className="flex items-center gap-2 mb-1.5">
+              <Crown className="w-4 h-4 text-amber-500" />
+              <span className="text-sm font-semibold text-gray-900">Upgrade to Premium</span>
+            </div>
+            <p className="text-xs text-gray-600 mb-2">
+              Unlock more words, advanced suggestions and premium features.
+            </p>
+            <Button
+              size="sm"
+              className="w-full bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg"
+              onClick={() => navigate("/pricing")}
+            >
+              Upgrade Now
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar Navigation */}
-      <div className="py-6 flex-1">
+      <div className="py-4 flex-1">
         <nav className="space-y-1 px-3">
           <button
             onClick={() => {
@@ -775,28 +797,6 @@ const Index = () => {
           </button>
         </nav>
       </div>
-
-      {/* Upgrade to Premium Card */}
-      {userProfile?.plan === "free" && (
-        <div className="px-4 pb-4">
-          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-100">
-            <div className="flex items-center gap-2 mb-2">
-              <Crown className="w-4 h-4 text-amber-500" />
-              <span className="text-sm font-semibold text-gray-900">Upgrade to Premium</span>
-            </div>
-            <p className="text-xs text-gray-600 mb-3">
-              Unlock more words, advanced suggestions and premium features.
-            </p>
-            <Button
-              size="sm"
-              className="w-full bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg"
-              onClick={() => navigate("/pricing")}
-            >
-              Upgrade Now
-            </Button>
-          </div>
-        </div>
-      )}
 
       {/* Footer */}
       <div className="px-4 pb-4">

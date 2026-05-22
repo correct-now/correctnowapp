@@ -120,9 +120,10 @@ let tooltipHideTimeout = null; // Tooltip hide timeout
 let currentErrors = []; // Store errors for correction
 let lastCheckedText = ''; // Store last checked text to align offsets
 let lastCorrectedText = ''; // Store last corrected text to prevent re-checking
+let lastApiCorrectedText = ''; // Authoritative full corrected text returned by API (used by Apply All)
 let buttonIdleHideTimer = null;
 
-const BUTTON_IDLE_HIDE_MS = 2500;
+const BUTTON_IDLE_HIDE_MS = 15000;
 
 /**
  * Escape HTML special characters
@@ -166,12 +167,11 @@ function scheduleIdleHide() {
     if (isCheckingInProgress) return;
     const active = document.activeElement;
     const stillEditing = !!(active && isEditableField(active));
+    // Only hide on idle if the user has moved focus AWAY from any editable field.
+    // While still focused in editor, keep the button visible so it's always clickable.
     if (!stillEditing) {
       hideFloatingButton();
-      return;
     }
-    // If still focused in an editable field but no typing activity, hide until next typing/focus.
-    hideFloatingButton();
   }, BUTTON_IDLE_HIDE_MS);
 }
 
@@ -239,6 +239,10 @@ function createFloatingButton() {
     button.style.boxShadow = '0 3px 12px rgba(15, 23, 42, 0.22)';
     button.style.borderColor = 'rgba(37, 99, 235, 0.35)';
   });
+
+  // Prevent the underlying input from losing focus when clicking the button
+  button.addEventListener('mousedown', (e) => { e.preventDefault(); });
+  button.addEventListener('pointerdown', (e) => { e.preventDefault(); });
 
   // Click handler with immediate logging
   button.addEventListener('click', (e) => {
@@ -309,8 +313,12 @@ function handleFocus(event) {
       return;
     }
 
-    // Clear previous highlights
-    clearHighlights();
+    // Clear previous highlights only when focusing a DIFFERENT field.
+    // Re-focusing the same field (e.g. user clicked away and back) must
+    // preserve underlines and the Apply button so the workflow isn't lost.
+    if (currentFocusedElement && currentFocusedElement !== element) {
+      clearHighlights();
+    }
 
     // For Gmail and similar editors, find the main compose container
     let targetElement = element;
@@ -349,14 +357,22 @@ function handleFocus(event) {
  * Hide floating button on blur
  */
 function handleBlur(event) {
-  // Don't hide if user is clicking the button
-  if (event && event.relatedTarget && floatingButton && floatingButton.contains(event.relatedTarget)) {
-    console.log('🔷 Button blur - button clicked, keeping state');
+  // Don't hide / clear state if user is clicking any CorrectNow UI element
+  // (floating check button, Apply All button, or correction tooltip).
+  const rt = event && event.relatedTarget;
+  if (rt && (
+    (floatingButton && floatingButton.contains(rt)) ||
+    (applyAllButton && applyAllButton.contains(rt)) ||
+    (hoverTooltip && hoverTooltip.contains(rt))
+  )) {
+    console.log('🔷 Button blur - clicked extension UI, keeping state');
     return;
   }
 
   hideFloatingButton();
-  currentFocusedElement = null;
+  // Note: do NOT null currentFocusedElement here — keep it so post-check
+  // operations (Apply All click, tooltip Apply click) can still target the
+  // correct field. It will be reassigned on the next focus / click.
   console.log('🔷 Button blur - hiding button');
 }
 
@@ -365,7 +381,10 @@ function handleBlur(event) {
  */
 function isEditableField(element) {
   if (element.tagName === 'TEXTAREA') return true;
-  if (element.tagName === 'INPUT' && element.type === 'text') return true;
+  if (element.tagName === 'INPUT') {
+    const t = (element.type || 'text').toLowerCase();
+    return ['text', 'email', 'search', 'url', 'tel', 'number'].includes(t);
+  }
   if (element.isContentEditable) return true;
   return false;
 }
@@ -494,17 +513,19 @@ function handleCheckClick() {
         userId: userId, // User ID (for usage tracking)
       },
       (response) => {
-        clearTimeout(checkTimeout);
-        console.log('📥 Response received:', response);
-
-        resetButton();
-
+        // MUST check lastError first — reading it clears the pending error flag
         if (chrome.runtime.lastError) {
           const error = chrome.runtime.lastError;
           console.error('❌ Runtime error:', error);
-          showMessage('Error: ' + error.message, 'error');
+          clearTimeout(checkTimeout);
+          resetButton();
+          showMessage('Extension error: ' + error.message + ' — try reloading the page.', 'error');
           return;
         }
+
+        clearTimeout(checkTimeout);
+        console.log('📥 Response received:', response);
+        resetButton();
 
       if (!response) {
         console.log('❌ No response');
@@ -514,9 +535,19 @@ function handleCheckClick() {
 
       if (response.error) {
         console.error('❌ API error:', response.error);
-        showMessage(`Error: ${response.error}`, 'error');
+        // Show actionable message for auth/upgrade errors
+        if (response.requiresAuth) {
+          showMessage('Sign in to CorrectNow to check grammar. Click the extension icon → Sign In.', 'warning');
+        } else if (response.requiresUpgrade) {
+          showMessage('Daily free limit reached. Upgrade to Pro for unlimited checks.', 'warning');
+        } else {
+          showMessage(`Error: ${response.error}`, 'error');
+        }
         return;
       }
+
+      // Store authoritative corrected text for Apply All (matches website behavior)
+      lastApiCorrectedText = typeof response.correctedText === 'string' ? response.correctedText : '';
 
       if (response.errors && response.errors.length > 0) {
         console.log('📨 Raw API response errors:', response.errors);
@@ -578,12 +609,12 @@ function handleCheckClick() {
             } else {
               // For word errors, try word boundary expansion (only for languages using Latin alphabet)
               let wordStart = clampedStart;
-              while (wordStart > 0 && /[a-zA-Z]/.test(fullText[wordStart - 1])) {
+              while (wordStart > 0 && /\p{L}/u.test(fullText[wordStart - 1])) {
                 wordStart--;
               }
 
               let wordEnd = clampedEnd;
-              while (wordEnd < fullText.length && /[a-zA-Z]/.test(fullText[wordEnd])) {
+              while (wordEnd < fullText.length && /\p{L}/u.test(fullText[wordEnd])) {
                 wordEnd++;
               }
 
@@ -686,9 +717,12 @@ function handleCheckClick() {
         if (fixedErrors.length > 0) {
           highlightErrors(currentFocusedElement, fixedErrors);
           showMessage(`Found ${fixedErrors.length} issue(s)`, 'info');
-          
-          // Show Apply All button if multiple errors
-          if (fixedErrors.length >= 2) {
+
+          // Show Apply button: always for <input>/<textarea> (can't click inline),
+          // or when 2+ errors on contentEditable.
+          const tag = currentFocusedElement.tagName;
+          const isInput = tag === 'INPUT' || tag === 'TEXTAREA';
+          if (isInput || fixedErrors.length >= 2) {
             showApplyAllButton();
           }
         } else {
@@ -825,7 +859,7 @@ function highlightErrors(element, errors) {
             padding: ${paddingSize};
             border-radius: 2px;
             pointer-events: auto;
-            user-select: none;
+            user-select: text;
           `;
           span.title = err.message || 'Spelling error';
           span.dataset.suggestion = err.suggestion || '';
@@ -898,14 +932,17 @@ function highlightErrors(element, errors) {
 function clearHighlights() {
   highlightedRanges.forEach((element) => {
     if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
-      // Clear input styles
       element.style.borderColor = '';
       element.style.borderWidth = '';
       element.style.outline = '';
       element.style.boxShadow = '';
-    } else if (element.isContentEditable && originalContent) {
-      // Restore original content (without spans)
-      element.innerHTML = originalContent;
+    } else if (element.isContentEditable) {
+      // Remove error spans without restoring old innerHTML — preserves any
+      // user edits made after the check was run (old approach caused data loss).
+      element.querySelectorAll('.correctnow-error-span').forEach(span => {
+        span.parentNode.replaceChild(document.createTextNode(span.textContent), span);
+      });
+      element.normalize();
       originalContent = null;
     }
   });
@@ -913,8 +950,6 @@ function clearHighlights() {
   currentErrors = [];
   hideCorrectionTooltip();
   hideApplyAllButton();
-
-  // Clear the last corrected text when highlights are cleared
   lastCorrectedText = '';
 }
 
@@ -953,6 +988,10 @@ function showApplyAllButton() {
       applyAllButton.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.4)';
     });
     
+    // Prevent underlying input from losing focus when clicking Apply All
+    applyAllButton.addEventListener('mousedown', (e) => { e.preventDefault(); });
+    applyAllButton.addEventListener('pointerdown', (e) => { e.preventDefault(); });
+
     applyAllButton.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -1032,6 +1071,45 @@ function hideApplyAllButton() {
 }
 
 /**
+ * Apply a text correction to a contentEditable element using the Range API.
+ * This preserves surrounding HTML formatting (bold, italic, links, etc.)
+ * unlike setting textContent which strips all markup.
+ */
+function applyRangeCorrection(element, start, end, replacement) {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
+  let charIndex = 0;
+  let startNode = null, startOffset = 0;
+  let endNode = null, endOffset = 0;
+  let node;
+  while ((node = walker.nextNode())) {
+    const len = node.nodeValue.length;
+    if (startNode === null && charIndex + len > start) {
+      startNode = node;
+      startOffset = start - charIndex;
+    }
+    if (endNode === null && charIndex + len >= end) {
+      endNode = node;
+      endOffset = end - charIndex;
+    }
+    if (startNode && endNode) break;
+    charIndex += len;
+  }
+  if (!startNode || !endNode) return false;
+  try {
+    const range = document.createRange();
+    range.setStart(startNode, Math.min(startOffset, startNode.nodeValue.length));
+    range.setEnd(endNode, Math.min(endOffset, endNode.nodeValue.length));
+    range.deleteContents();
+    if (replacement) range.insertNode(document.createTextNode(replacement));
+    element.normalize();
+    return true;
+  } catch (e) {
+    console.error('[CorrectNow] Range correction failed:', e);
+    return false;
+  }
+}
+
+/**
  * Apply all corrections at once
  */
 function applyAllCorrections() {
@@ -1053,6 +1131,35 @@ function applyAllCorrections() {
 
   if (!sourceText) {
     console.log('❌ No source text available for Apply All');
+    return;
+  }
+
+  // FAST PATH: If we have the API's authoritative corrected text AND the
+  // current source still matches what we checked, just use it directly.
+  // This guarantees parity with the website's Accept All button and
+  // captures any LLM-added punctuation that wasn't enumerated as a change.
+  if (lastApiCorrectedText && sourceText === lastCheckedText && lastApiCorrectedText !== sourceText) {
+    const result = lastApiCorrectedText;
+    if (currentFocusedElement.value !== undefined) {
+      currentFocusedElement.value = result;
+      currentFocusedElement.dispatchEvent(new Event('input', { bubbles: true }));
+      currentFocusedElement.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      // contentEditable: remove existing spans first, then replace full text
+      currentFocusedElement.querySelectorAll('.correctnow-error-span').forEach(s => {
+        s.parentNode.replaceChild(document.createTextNode(s.textContent), s);
+      });
+      currentFocusedElement.normalize();
+      // Replace whole text node content while preserving block structure
+      currentFocusedElement.textContent = result;
+    }
+    lastCorrectedText = result;
+    const appliedN = currentErrors.length;
+    currentErrors = [];
+    highlightedRanges = [];
+    hideCorrectionTooltip();
+    hideApplyAllButton();
+    showMessage(`Applied ${appliedN} correction(s)!`, 'success');
     return;
   }
 
@@ -1107,15 +1214,29 @@ function applyAllCorrections() {
   
   if (currentFocusedElement) {
     if (currentFocusedElement.value !== undefined) {
+      // textarea / input
       currentFocusedElement.value = result;
+      // Dispatch events so React / Vue / Angular controlled inputs update their state
+      currentFocusedElement.dispatchEvent(new Event('input', { bubbles: true }));
+      currentFocusedElement.dispatchEvent(new Event('change', { bubbles: true }));
     } else {
-      currentFocusedElement.textContent = result;
+      // contentEditable: remove spans first, then apply each correction
+      // right-to-left using Range API to preserve HTML formatting.
+      currentFocusedElement.querySelectorAll('.correctnow-error-span').forEach(s => {
+        s.parentNode.replaceChild(document.createTextNode(s.textContent), s);
+      });
+      currentFocusedElement.normalize();
+      const reversedMerged = [...merged].reverse();
+      let ceApplied = 0;
+      reversedMerged.forEach(err => {
+        const s = Math.max(0, Math.min(err.start, sourceText.length));
+        const e = Math.max(s, Math.min(err.end, sourceText.length));
+        if (applyRangeCorrection(currentFocusedElement, s, e, (err.suggestion || '').toString())) ceApplied++;
+      });
+      appliedCount = ceApplied;
       originalContent = currentFocusedElement.innerHTML;
     }
-
-    // Store the corrected text to prevent re-checking
     lastCorrectedText = result;
-    console.log('📝 Updated originalContent and stored corrected text');
   }
 
   // Clear state
@@ -1123,7 +1244,7 @@ function applyAllCorrections() {
   highlightedRanges = [];
   hideCorrectionTooltip();
   hideApplyAllButton();
-  
+
   if (appliedCount > 0) {
     showMessage(`Applied ${appliedCount} correction(s)!`, 'success');
   } else {
@@ -1188,11 +1309,14 @@ function showCorrectionTooltip(event, error) {
 
   // Position tooltip with better centering
   const tooltipRect = tooltip.getBoundingClientRect();
-  let left = rect.left + window.scrollX + (rect.width / 2) - (tooltipRect.width / 2);
-  
+  // Tooltip uses position:fixed so coordinates are viewport-relative.
+  // getBoundingClientRect() already returns viewport-relative values —
+  // do NOT add window.scrollX/scrollY or the tooltip drifts on scrolled pages.
+  let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+
   // Default to showing ABOVE the error (prevents overlap with next line errors)
   // Small gap (2px) for easy mouse movement from error to tooltip
-  let top = rect.top + window.scrollY - tooltipRect.height - 2;
+  let top = rect.top - tooltipRect.height - 2;
 
   // Keep within viewport horizontally
   if (left + tooltipRect.width > window.innerWidth - 10) {
@@ -1201,8 +1325,8 @@ function showCorrectionTooltip(event, error) {
   if (left < 10) left = 10;
 
   // If not enough space above, show below instead
-  if (top < window.scrollY + 10) {
-    top = rect.bottom + window.scrollY + 2;
+  if (top < 10) {
+    top = rect.bottom + 2;
   }
 
   tooltip.style.left = left + 'px';
@@ -1233,6 +1357,10 @@ function showCorrectionTooltip(event, error) {
 
   // Click entire tooltip to apply correction
   if (hasSuggestion) {
+    // Prevent underlying input from losing focus on click
+    tooltip.addEventListener('mousedown', (e) => { e.preventDefault(); });
+    tooltip.addEventListener('pointerdown', (e) => { e.preventDefault(); });
+
     tooltip.addEventListener('click', (e) => {
       e.stopPropagation();
       if (tooltipHideTimeout) {
@@ -1313,9 +1441,19 @@ function applyCorrection(span, error) {
     
     // Set the corrected text
     if (currentFocusedElement.value !== undefined) {
+      // textarea / input
       currentFocusedElement.value = correctedText;
+      // Dispatch events so React / Vue / Angular controlled inputs update their state
+      currentFocusedElement.dispatchEvent(new Event('input', { bubbles: true }));
+      currentFocusedElement.dispatchEvent(new Event('change', { bubbles: true }));
     } else {
-      currentFocusedElement.textContent = correctedText;
+      // contentEditable: remove spans first, then apply correction via Range API
+      // to preserve surrounding HTML formatting (bold, italic, links, etc.).
+      currentFocusedElement.querySelectorAll('.correctnow-error-span').forEach(s => {
+        s.parentNode.replaceChild(document.createTextNode(s.textContent), s);
+      });
+      currentFocusedElement.normalize();
+      applyRangeCorrection(currentFocusedElement, start, end, suggestion);
       originalContent = currentFocusedElement.innerHTML;
     }
     
@@ -1381,8 +1519,8 @@ function showMessage(text, type = 'info', isDetailed = false) {
     border-radius: 4px;
     font-size: 13px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    max-width: 350px;
-    white-space: ${isDetailed ? 'pre-wrap' : 'nowrap'};
+    max-width: ${(type === 'error' || type === 'warning') ? '500px' : '350px'};
+    white-space: ${(isDetailed || type === 'error' || type === 'warning') ? 'pre-wrap' : 'nowrap'};
     word-wrap: break-word;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     visibility: hidden;
@@ -1434,12 +1572,13 @@ function showMessage(text, type = 'info', isDetailed = false) {
   message.style.left = left + 'px';
   message.style.top = top + 'px';
 
-  // Auto-remove after 4 seconds
+  // Auto-remove: longer for warning/error so users can read actionable messages
+  const displayMs = (type === 'warning' || type === 'error') ? 7000 : 4000;
   setTimeout(() => {
     message.style.opacity = '0';
     message.style.transition = 'opacity 0.3s ease';
     setTimeout(() => message.remove(), 300);
-  }, 4000);
+  }, displayMs);
 }
 
 /**

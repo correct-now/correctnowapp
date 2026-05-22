@@ -330,13 +330,19 @@ async function detectLanguage(text, apiBase, apiKey, authToken) {
       headers['Authorization'] = `Bearer ${authToken}`;
     } else if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
       headers['X-API-Key'] = apiKey;
+      headers['X-CorrectNow-API-Key'] = apiKey;
     }
+
+    const langController = new AbortController();
+    const langTimeout = setTimeout(() => langController.abort(), 5000);
 
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: headers,
       body: JSON.stringify({ text }),
+      signal: langController.signal,
     });
+    clearTimeout(langTimeout);
 
     if (!response.ok) {
       console.error('❌ Language detection failed:', response.status);
@@ -354,7 +360,72 @@ async function detectLanguage(text, apiBase, apiKey, authToken) {
 }
 
 /**
- * Convert new API response format to old format for extension compatibility
+ * LCS-based diff: returns pure-insertion segments (non-alphanumeric chars in
+ * corrected that don't exist at that position in applied). These are typically
+ * punctuation the LLM added in corrected_text but forgot to enumerate in changes[].
+ *
+ * Returns [{posInApplied, chars}] — each entry is a run of inserted chars
+ * and the position in `applied` where they were inserted.
+ */
+function findPureInsertions(applied, corrected) {
+  const m = applied.length, n = corrected.length;
+  if (!m || !n || m > 3000 || n > 3000) return [];
+
+  const W = n + 1;
+  const dp = new Uint16Array((m + 1) * W);
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i * W + j] = applied[i - 1] === corrected[j - 1]
+        ? dp[(i - 1) * W + (j - 1)] + 1
+        : Math.max(dp[(i - 1) * W + j], dp[i * W + (j - 1)]);
+    }
+  }
+
+  // Backtrack to collect edit ops
+  const ops = [];
+  let i = m, j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && applied[i - 1] === corrected[j - 1]) {
+      ops.push({ t: 'e', posA: i - 1 });
+      i--; j--;
+    } else if (j > 0 && (i === 0 || dp[i * W + (j - 1)] >= dp[(i - 1) * W + j])) {
+      ops.push({ t: 'i', posA: i, ch: corrected[j - 1] });
+      j--;
+    } else {
+      ops.push({ t: 'd', posA: i - 1 });
+      i--;
+    }
+  }
+  ops.reverse();
+
+  // Group consecutive inserts; skip if adjacent to a delete (= replacement, not pure insert)
+  const insertions = [];
+  for (let k = 0; k < ops.length; ) {
+    if (ops[k].t !== 'i') { k++; continue; }
+    const posA = ops[k].posA;
+    let chars = '';
+    let kEnd = k;
+    while (kEnd < ops.length && ops[kEnd].t === 'i' && ops[kEnd].posA === posA) {
+      chars += ops[kEnd].ch;
+      kEnd++;
+    }
+    const prevIsDel = k > 0 && ops[k - 1].t === 'd';
+    const nextIsDel = kEnd < ops.length && ops[kEnd].t === 'd';
+    // Only surface if it's purely punctuation/whitespace (ignore whole-word insertions)
+    const isPunct = /^[^\p{L}\p{N}]+$/u.test(chars);
+    if (!prevIsDel && !nextIsDel && isPunct) {
+      insertions.push({ posInApplied: posA, chars });
+    }
+    k = kEnd;
+  }
+  return insertions;
+}
+
+/**
+ * Convert new API response format to old format for extension compatibility.
+ * Each change entry maps to exactly ONE occurrence in the source text (first
+ * unconsumed position). This prevents false-positive underlines when a common
+ * word appears many times but only one specific instance needs correction.
  */
 function convertResponseToErrors(data, originalText) {
   const { corrected_text, changes } = data;
@@ -364,40 +435,154 @@ function convertResponseToErrors(data, originalText) {
   }
 
   const errors = [];
+  // Track consumed [start, end) ranges so two change entries for the same
+  // original text resolve to two different positions in the source.
+  const usedRanges = [];
 
   changes.forEach((change) => {
     const original = change.original || '';
     const corrected = change.corrected || '';
     const explanation = change.explanation || 'Grammar or spelling error';
 
-    // Find all occurrences of the original text
+    if (!original) return;
+
+    // Find the first occurrence of `original` that is not already claimed
+    // by a previous change entry.
     let searchIndex = 0;
     while (searchIndex < originalText.length) {
       const foundIndex = originalText.indexOf(original, searchIndex);
+      if (foundIndex === -1) break;
 
-      if (foundIndex === -1) {
-        break; // No more occurrences
-      }
+      const start = foundIndex;
+      const end = foundIndex + original.length;
 
-      // Check if we already have an error at this position
-      const hasExistingError = errors.some(
-        (e) => e.start === foundIndex && e.end === foundIndex + original.length
-      );
-
-      if (!hasExistingError) {
+      const alreadyUsed = usedRanges.some(r => r.start < end && r.end > start);
+      if (!alreadyUsed) {
+        usedRanges.push({ start, end });
         errors.push({
-          start: foundIndex,
-          end: foundIndex + original.length,
+          start,
+          end,
           type: 'grammar',
           message: explanation,
           suggestion: corrected,
-          original: original,
+          original,
         });
+        break; // Only the FIRST available occurrence per change entry
       }
 
       searchIndex = foundIndex + 1;
     }
   });
+
+  // --- Absorb ALL missing punctuation from corrected_text into existing changes ---
+  // The LLM often adds punctuation (commas, question marks, etc.) anywhere in
+  // corrected_text but omits those positions from the changes[] array. This block
+  // uses a full LCS diff to find every pure-insertion of non-word chars between
+  // `applied` (changes applied to original) and `corrected_text`, then either:
+  //   A) absorbs them into the adjacent change's suggestion (preferred), or
+  //   B) creates a minimal standalone underline entry on the unchanged char.
+  try {
+    if (typeof corrected_text === 'string' && corrected_text.length > 0 && errors.length > 0) {
+      // Build segments: interleaved gap/change blocks with positions in both
+      // originalText and the simulated applied string.
+      const sortedErrors = [...errors].sort((a, b) => a.start - b.start);
+      let applied = '';
+      let cursor = 0;
+      const segments = [];
+
+      for (const err of sortedErrors) {
+        if (err.start < cursor) continue;
+        if (err.start > cursor) {
+          segments.push({
+            type: 'gap',
+            origStart: cursor, origEnd: err.start,
+            appliedStart: applied.length,
+            appliedEnd: applied.length + (err.start - cursor),
+          });
+          applied += originalText.slice(cursor, err.start);
+        }
+        const suggestion = err.suggestion || '';
+        segments.push({
+          type: 'change',
+          origStart: err.start, origEnd: err.end,
+          appliedStart: applied.length,
+          appliedEnd: applied.length + suggestion.length,
+          errorIdx: errors.indexOf(err),
+        });
+        applied += suggestion;
+        cursor = err.end;
+      }
+      if (cursor < originalText.length) {
+        segments.push({
+          type: 'gap',
+          origStart: cursor, origEnd: originalText.length,
+          appliedStart: applied.length,
+          appliedEnd: applied.length + (originalText.length - cursor),
+        });
+        applied += originalText.slice(cursor);
+      }
+
+      if (applied !== corrected_text) {
+        const insertions = findPureInsertions(applied, corrected_text);
+        console.log('🔍 Punctuation insertions found:', JSON.stringify(insertions));
+
+        for (const ins of insertions) {
+          // A) Insertion immediately AFTER a change → append to that change's suggestion
+          const segAfterChange = segments.find(
+            s => s.type === 'change' && s.appliedEnd === ins.posInApplied
+          );
+          if (segAfterChange) {
+            errors[segAfterChange.errorIdx] = {
+              ...errors[segAfterChange.errorIdx],
+              suggestion: errors[segAfterChange.errorIdx].suggestion + ins.chars,
+            };
+            segAfterChange.appliedEnd += ins.chars.length;
+            console.log('✏️ [A] Appended', JSON.stringify(ins.chars), 'to change idx', segAfterChange.errorIdx);
+            continue;
+          }
+
+          // B) Insertion immediately BEFORE a change → prepend to that change's suggestion
+          const segBeforeChange = segments.find(
+            s => s.type === 'change' && s.appliedStart === ins.posInApplied
+          );
+          if (segBeforeChange) {
+            errors[segBeforeChange.errorIdx] = {
+              ...errors[segBeforeChange.errorIdx],
+              suggestion: ins.chars + errors[segBeforeChange.errorIdx].suggestion,
+            };
+            segBeforeChange.appliedStart -= ins.chars.length;
+            console.log('✏️ [B] Prepended', JSON.stringify(ins.chars), 'to change idx', segBeforeChange.errorIdx);
+            continue;
+          }
+
+          // C) Insertion inside/adjacent to a gap → create standalone underline
+          const gapSeg = segments.find(
+            s => s.type === 'gap' &&
+              s.appliedStart <= ins.posInApplied && ins.posInApplied <= s.appliedEnd
+          );
+          if (gapSeg) {
+            const origPos = gapSeg.origStart + (ins.posInApplied - gapSeg.appliedStart);
+            const anchorPos = Math.max(0, Math.min(origPos, originalText.length - 1));
+            const anchorChar = originalText[anchorPos] || '';
+            const alreadyCovered = anchorChar &&
+              errors.some(e => e.start <= anchorPos && e.end > anchorPos);
+            if (anchorChar && !alreadyCovered) {
+              errors.push({
+                start: anchorPos, end: anchorPos + 1,
+                type: 'punctuation',
+                message: `Adds '${ins.chars}' for clarity.`,
+                suggestion: anchorChar + ins.chars,
+                original: anchorChar,
+              });
+              console.log('✏️ [C] Standalone punctuation at orig pos', anchorPos);
+            }
+          }
+        }
+      }
+    }
+  } catch (diffErr) {
+    console.warn('⚠️ Punctuation diff failed:', diffErr);
+  }
 
   console.log('✅ Converted', changes.length, 'changes to', errors.length, 'errors');
   return errors;
@@ -451,8 +636,10 @@ async function handleGrammarCheck(request, sender) {
       console.log('🔐 Using Firebase auth token (logged in user)');
     }
     // Priority 2: Use extension API key for guest users (bypasses rate limits)
+    // Send on both header names the server accepts
     else if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
       headers['X-API-Key'] = apiKey;
+      headers['X-CorrectNow-API-Key'] = apiKey;
       console.log('🔑 Using extension token (guest user)');
     }
 
@@ -495,6 +682,7 @@ async function handleGrammarCheck(request, sender) {
           error: backendMessage || 'Too many requests. Please try again later or sign in.',
           details: errorText,
           requiresAuth: !!errorJson?.requiresAuth,
+          requiresUpgrade: !!errorJson?.requiresUpgrade,
         };
       }
 
@@ -525,15 +713,27 @@ async function handleGrammarCheck(request, sender) {
       };
     }
 
-    // Parse API response
-    const data = await response.json();
+    // Parse API response — read as text first so we can show the raw body if JSON parse fails
+    const rawText = await response.text();
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch (parseErr) {
+      const preview = rawText.substring(0, 200);
+      console.error('❌ Response is not JSON:', preview);
+      return {
+        error: `Server returned non-JSON response (status ${response.status}): ${preview}`,
+        details: rawText,
+      };
+    }
     console.log('📤 Response received:', data);
 
     // Validate response format (new format: corrected_text and changes)
-    if (!data.corrected_text || !Array.isArray(data.changes)) {
-      console.error('❌ Invalid response format');
+    if (typeof data.corrected_text !== 'string' || !Array.isArray(data.changes)) {
+      const dataPreview = JSON.stringify(data).substring(0, 200);
+      console.error('❌ Invalid response format:', dataPreview);
       return {
-        error: 'Invalid API response format',
+        error: `Invalid API response format. Server returned: ${dataPreview}`,
         details: data,
       };
     }

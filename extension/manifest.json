@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "correctnow-naresh",
+  "name": "CorrectNow - Grammar Checker",
   "version": "1.0.0",
   "description": "Check grammar and spelling on any webpage with CorrectNow",
   "permissions": [

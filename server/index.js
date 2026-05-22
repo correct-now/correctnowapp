@@ -2579,6 +2579,228 @@ const addTamilFallbackSuggestions = (text, changes, language) => {
 };
 
 /**
+ * Detect punctuation/text the LLM added in corrected_text but did not enumerate
+ * as a change entry. Without this, accepting suggestions one-by-one produces a
+ * less-corrected result than Accept All (which uses corrected_text directly).
+ *
+ * Strategy: simulate applying every existing change to originalText (greedy
+ * left-to-right, first occurrence per change), then diff vs corrected_text.
+ * If the diff is small (<=10 chars total — likely punctuation), append a new
+ * change entry anchored onto a real word so it has visible context.
+ */
+const addPunctuationDiffSuggestions = (originalText, correctedText, changes) => {
+  if (
+    typeof originalText !== "string" ||
+    typeof correctedText !== "string" ||
+    !Array.isArray(changes) ||
+    !originalText ||
+    !correctedText ||
+    originalText === correctedText
+  ) {
+    return changes;
+  }
+
+  try {
+    // Step 1: simulate applying every change to originalText, greedy first
+    // occurrence, honoring already-consumed ranges so duplicate text resolves
+    // to different positions. We track which change index each replacement
+    // came from so we can later modify it in-place if needed.
+    const usedRanges = []; // { start, end }
+    const orderedReplacements = []; // { start, end, corrected, changeIdx }
+
+    changes.forEach((change, changeIdx) => {
+      if (!change || typeof change.original !== "string" || typeof change.corrected !== "string") return;
+      if (!change.original) return;
+
+      let searchIndex = 0;
+      while (searchIndex < originalText.length) {
+        const found = originalText.indexOf(change.original, searchIndex);
+        if (found === -1) break;
+        const start = found;
+        const end = found + change.original.length;
+        const overlap = usedRanges.some((r) => r.start < end && r.end > start);
+        if (!overlap) {
+          usedRanges.push({ start, end });
+          orderedReplacements.push({ start, end, corrected: change.corrected, changeIdx });
+          break;
+        }
+        searchIndex = found + 1;
+      }
+    });
+
+    orderedReplacements.sort((a, b) => a.start - b.start);
+
+    // Compute each replacement's position IN APPLIED, plus build `applied` text
+    let applied = "";
+    let cursor = 0;
+    const repAppliedRanges = []; // { appliedStart, appliedEnd, changeIdx, corrected }
+    for (const rep of orderedReplacements) {
+      if (rep.start < cursor) continue;
+      applied += originalText.slice(cursor, rep.start);
+      const appliedStart = applied.length;
+      applied += rep.corrected;
+      const appliedEnd = applied.length;
+      repAppliedRanges.push({ appliedStart, appliedEnd, changeIdx: rep.changeIdx, corrected: rep.corrected });
+      cursor = rep.end;
+    }
+    applied += originalText.slice(cursor);
+
+    if (applied === correctedText) return changes;
+
+    // ---- Step 1.5: handle MISSING TRAILING PUNCTUATION first ----
+    // The most common LLM omission is sentence-final punctuation (?, !, .).
+    // Detect this independently of any middle-diff regions so it works even
+    // when there are also other un-enumerated diffs in the middle.
+    {
+      const trailingPunctRe = /[.!?,;:]+$/;
+      const correctedTailMatch = trailingPunctRe.exec(correctedText);
+      const appliedTailMatch = trailingPunctRe.exec(applied);
+      const correctedTail = correctedTailMatch ? correctedTailMatch[0] : "";
+      const appliedTail = appliedTailMatch ? appliedTailMatch[0] : "";
+
+      if (correctedTail && correctedTail !== appliedTail) {
+        // Compute exactly which trailing chars are missing
+        const missing = correctedTail.startsWith(appliedTail)
+          ? correctedTail.substring(appliedTail.length)
+          : correctedTail;
+
+        if (missing) {
+          // Find the change whose corrected text sits at the very end of applied
+          // (ignoring any trailing whitespace).
+          let endIgnoringSpace = applied.length;
+          while (endIgnoringSpace > 0 && /\s/.test(applied[endIgnoringSpace - 1])) {
+            endIgnoringSpace -= 1;
+          }
+          const lastRep = [...repAppliedRanges]
+            .reverse()
+            .find((r) => r.appliedEnd === endIgnoringSpace);
+
+          if (lastRep) {
+            const updatedChanges = changes.map((c) => ({ ...c }));
+            const orig = updatedChanges[lastRep.changeIdx];
+            const punctNote = `Also adds missing '${missing}' for sentence completeness.`;
+            updatedChanges[lastRep.changeIdx] = {
+              ...orig,
+              corrected: orig.corrected + missing,
+              explanation: orig.explanation
+                ? `${orig.explanation} ${punctNote}`
+                : punctNote,
+            };
+            return updatedChanges;
+          }
+
+          // Fallback: anchor on the last word of originalText (only if not
+          // already an `original` of an existing change, to avoid conflicts).
+          let wordEnd = originalText.length;
+          while (wordEnd > 0 && /\s/.test(originalText[wordEnd - 1])) wordEnd -= 1;
+          let wordStart = wordEnd;
+          while (wordStart > 0 && !/\s/.test(originalText[wordStart - 1])) wordStart -= 1;
+          const lastWord = originalText.substring(wordStart, wordEnd);
+          if (lastWord && !changes.some((c) => c && c.original === lastWord)) {
+            return [
+              ...changes,
+              {
+                original: lastWord,
+                corrected: lastWord + missing,
+                explanation: `Adds missing '${missing}' at end of sentence.`,
+              },
+            ];
+          }
+        }
+      }
+    }
+
+    // Step 2: find common prefix and suffix
+    let prefixLen = 0;
+    const minLen = Math.min(applied.length, correctedText.length);
+    while (prefixLen < minLen && applied[prefixLen] === correctedText[prefixLen]) prefixLen += 1;
+
+    let suffixLen = 0;
+    while (
+      suffixLen < applied.length - prefixLen &&
+      suffixLen < correctedText.length - prefixLen &&
+      applied[applied.length - 1 - suffixLen] === correctedText[correctedText.length - 1 - suffixLen]
+    ) suffixLen += 1;
+
+    const appliedDiff = applied.substring(prefixLen, applied.length - suffixLen);
+    const correctedDiff = correctedText.substring(prefixLen, correctedText.length - suffixLen);
+
+    // Skip large diffs (likely full LLM rewrite, not punctuation)
+    if (appliedDiff.length > 10 || correctedDiff.length > 10) return changes;
+    if (!appliedDiff && !correctedDiff) return changes;
+
+    // Only handle PURE INSERTIONS (no appliedDiff to remove). Removals or
+    // substitutions in the middle are risky to auto-rewrite, so leave them.
+    if (appliedDiff.length !== 0) return changes;
+
+    const insertionPos = prefixLen; // position in `applied` where chars are inserted
+    const updatedChanges = changes.map((c) => ({ ...c }));
+
+    // Case A: insertion falls at the END of an existing change's corrected text
+    // → append the inserted chars to that change's corrected value.
+    const repBefore = repAppliedRanges.find(
+      (r) => r.appliedEnd === insertionPos
+    );
+    if (repBefore) {
+      const orig = updatedChanges[repBefore.changeIdx];
+      updatedChanges[repBefore.changeIdx] = {
+        ...orig,
+        corrected: orig.corrected + correctedDiff,
+        explanation:
+          orig.explanation && /punctuation/i.test(orig.explanation)
+            ? orig.explanation
+            : `${orig.explanation || "Spelling correction."} Punctuation also added for clarity.`,
+      };
+      return updatedChanges;
+    }
+
+    // Case B: insertion falls at the START of an existing change's corrected text
+    // → prepend the inserted chars to that change's corrected value.
+    const repAfter = repAppliedRanges.find(
+      (r) => r.appliedStart === insertionPos
+    );
+    if (repAfter) {
+      const orig = updatedChanges[repAfter.changeIdx];
+      updatedChanges[repAfter.changeIdx] = {
+        ...orig,
+        corrected: correctedDiff + orig.corrected,
+        explanation:
+          orig.explanation && /punctuation/i.test(orig.explanation)
+            ? orig.explanation
+            : `${orig.explanation || "Spelling correction."} Punctuation also added for clarity.`,
+      };
+      return updatedChanges;
+    }
+
+    // Case C: insertion is at the very END of the entire text and no change
+    // immediately precedes it (e.g., trailing period after unchanged text).
+    // Anchor on the previous non-whitespace word in originalText.
+    if (insertionPos === applied.length) {
+      // Find last word boundary in originalText
+      let wordEnd = originalText.length;
+      while (wordEnd > 0 && /\s/.test(originalText[wordEnd - 1])) wordEnd -= 1;
+      let wordStart = wordEnd;
+      while (wordStart > 0 && !/\s/.test(originalText[wordStart - 1])) wordStart -= 1;
+      const lastWord = originalText.substring(wordStart, wordEnd);
+      if (lastWord && !changes.some((c) => c && c.original === lastWord)) {
+        updatedChanges.push({
+          original: lastWord,
+          corrected: lastWord + correctedDiff,
+          explanation: "Added missing punctuation for clarity.",
+        });
+        return updatedChanges;
+      }
+    }
+
+    // Otherwise: don't risk an incorrect synthetic suggestion
+    return changes;
+  } catch (err) {
+    console.warn("addPunctuationDiffSuggestions failed:", err?.message || err);
+    return changes;
+  }
+};
+
+/**
  * Extension: Get user statistics
  */
 app.get("/api/user/stats", async (req, res) => {
@@ -2911,7 +3133,7 @@ app.post("/api/proofread", async (req, res) => {
 
     const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    const proofreadCacheVersion = "v1";
+    const proofreadCacheVersion = "v5";
     const normalizedTextForCache = String(text || "").normalize("NFC").trim();
     const proofreadCacheKeyPayload = {
       v: proofreadCacheVersion,
@@ -3029,6 +3251,7 @@ app.post("/api/proofread", async (req, res) => {
 
       changes = addMissingQuoteChecks(text, changes);
       changes = addTamilFallbackSuggestions(text, changes, language);
+      changes = addPunctuationDiffSuggestions(text, correctedText, changes);
 
       result = {
         corrected_text: correctedText,
