@@ -9,17 +9,19 @@ const Terms = () => {
       <Header />
 
       <main className="flex-1">
-        <section className="border-b border-border bg-gradient-to-b from-background to-accent/5 py-16 md:py-24">
-          <div className="container max-w-4xl">
+        <section className="relative overflow-hidden border-b border-border bg-gradient-to-b from-white via-blue-50/30 to-indigo-50/20 py-14 md:py-20">
+          <div className="pointer-events-none absolute -top-24 -right-24 w-[400px] h-[400px] rounded-full bg-gradient-to-br from-blue-200/40 via-indigo-200/30 to-violet-200/20 blur-3xl" />
+          <div className="container max-w-4xl relative">
             <div className="flex flex-col items-center text-center gap-4">
-              <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-accent mb-2">
-                <Scale className="w-8 h-8 text-accent-foreground" />
+              <div className="inline-flex items-center gap-2 rounded-full border border-blue-200/60 bg-blue-50 px-4 py-1.5 text-sm font-semibold text-blue-700">
+                <Scale className="w-3.5 h-3.5" />
+                Legal Document
               </div>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">
+              <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground">
                 Terms of Service
               </h1>
-              <p className="text-xl md:text-2xl text-muted-foreground max-w-2xl">
-                Effective Date: March 28, 2026 • Last Updated: March 28, 2026
+              <p className="text-sm text-muted-foreground">
+                Effective Date: March 28, 2026 &bull; Last Updated: March 28, 2026
               </p>
             </div>
           </div>
@@ -27,7 +29,7 @@ const Terms = () => {
 
         <section className="py-16 md:py-20">
           <div className="container max-w-4xl space-y-6">
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <p className="text-muted-foreground text-lg leading-relaxed">
                   These Terms of Service ("Terms") form a legally binding agreement between CorrectNow Technologies
@@ -44,7 +46,7 @@ const Terms = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-6">
                 <h2 className="text-2xl font-bold text-foreground">1. Acceptance of These Terms</h2>
                 <ul className="space-y-2 text-muted-foreground text-lg">

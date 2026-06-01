@@ -2,7 +2,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CheckCircle, Mail, Lock, User, ArrowLeft, Phone } from "lucide-react";
+import { CheckCircle, Mail, Lock, User, ArrowLeft, Phone, ArrowRight, Loader2 } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -13,6 +13,7 @@ import {
   signInWithRedirect,
   signInWithEmailAndPassword,
   updateProfile,
+  onAuthStateChanged,
 } from "firebase/auth";
 import { getFirebaseAuth, getFirebaseDb } from "@/lib/firebase";
 import { writeSessionId } from "@/lib/session";
@@ -63,7 +64,10 @@ const Auth = () => {
 
   const shouldUseRedirect = () => {
     const ua = navigator.userAgent || "";
-    return /Android|iPhone|iPad|iPod/i.test(ua);
+    // Mobile browsers + small viewports (e.g., devtools emulation) should use redirect to avoid popup blockers
+    const isMobileUA = /Android|iPhone|iPad|iPod/i.test(ua);
+    const isSmallViewport = typeof window !== "undefined" && window.innerWidth < 900;
+    return isMobileUA || isSmallViewport;
   };
 
   const triggerReturnToApp = () => {
@@ -297,12 +301,32 @@ const Auth = () => {
     const runRedirectResult = async () => {
       const auth = getFirebaseAuth();
       if (!auth) return;
-      const result = await getRedirectResult(auth).catch(() => null);
-      if (!result?.user) return;
-      await handleGoogleResult(result);
+      setIsLoading(true);
+      try {
+        const result = await getRedirectResult(auth);
+        if (!result?.user) return;
+        await handleGoogleResult(result);
+      } catch (err: any) {
+        console.error('[Auth] Redirect result error:', err);
+        toast.error(err?.message ?? 'Google sign-in failed');
+      } finally {
+        setIsLoading(false);
+      }
     };
     runRedirectResult();
   }, []);
+
+  // Fallback: if already signed in (e.g., redirect flow completed but getRedirectResult returned null), navigate to dashboard
+  useEffect(() => {
+    const auth = getFirebaseAuth();
+    if (!auth) return;
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        navigate("/");
+      }
+    });
+    return () => unsub();
+  }, [navigate]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -514,8 +538,14 @@ const Auth = () => {
     }
     
     // Normal website login
+    console.log('[Auth] handleGoogleResult: success, navigating to dashboard');
     toast.success("Signed in with Google");
-    navigate("/");
+    if (shouldUseRedirect()) {
+      // On some mobile browsers, React Router navigate can be blocked after redirect; force a full reload.
+      window.location.href = "/";
+      return;
+    }
+    navigate("/", { replace: true });
   };
 
   const handleGoogleSignIn = async (forceRedirect = false) => {
@@ -550,6 +580,7 @@ const Auth = () => {
         return;
       }
       const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
       if (forceRedirect || shouldUseRedirect()) {
         await signInWithRedirect(auth, provider);
         return;
@@ -748,7 +779,9 @@ const Auth = () => {
       </div>
 
       {/* Right Panel - Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-6 md:p-8 bg-gray-50/50">
+      <div className="relative w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-6 md:p-8 bg-white overflow-hidden">
+        <div className="pointer-events-none absolute -top-24 -right-24 w-80 h-80 rounded-full bg-gradient-to-br from-blue-100/50 via-indigo-100/40 to-violet-100/30 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 -left-24 w-80 h-80 rounded-full bg-gradient-to-tr from-emerald-100/40 via-blue-100/30 to-indigo-100/30 blur-3xl" />
         <div className="w-full max-w-md space-y-6 sm:space-y-8">
           {returnToAppPending && (
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-center">
@@ -859,16 +892,19 @@ const Auth = () => {
 
             <Button
               type="submit"
-              className="w-full rounded-lg bg-gray-900 text-white hover:bg-gray-800 shadow-md"
+              className="group w-full rounded-lg bg-gradient-to-r from-gray-900 to-gray-700 text-white hover:from-gray-800 hover:to-gray-600 shadow-md hover:shadow-lg transition-all"
               disabled={isLoading}
             >
               {isLoading ? (
                 <span className="flex items-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                   {isLogin ? "Signing in..." : "Creating account..."}
                 </span>
               ) : (
-                <span>{isLogin ? "Sign in" : "Create account"}</span>
+                <span className="flex items-center gap-2">
+                  {isLogin ? "Sign in" : "Create account"}
+                  <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+                </span>
               )}
             </Button>
           </form>
@@ -878,14 +914,14 @@ const Auth = () => {
               <div className="w-full border-t border-gray-200"></div>
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-gray-50/50 px-3 text-gray-400">
+              <span className="bg-white px-3 text-gray-400 font-medium tracking-wider">
                 Or continue with
               </span>
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4">
-            <Button variant="outline" type="button" className="w-full rounded-lg border-gray-200 text-gray-700 hover:bg-gray-100 hover:text-gray-900 hover:border-gray-300" onClick={() => handleGoogleSignIn()} disabled={isLoading}>
+            <Button variant="outline" type="button" className="w-full rounded-lg border-gray-200 bg-white text-gray-700 hover:bg-gray-50 hover:text-gray-900 hover:border-gray-300 shadow-sm" onClick={() => handleGoogleSignIn()} disabled={isLoading}>
               <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24">
                 <path
                   fill="currentColor"

@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, Zap, Crown, Building2, Mail } from "lucide-react";
+import { Check, Zap, Crown, Building2, Mail, Sparkles, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Link, useNavigate } from "react-router-dom";
@@ -204,17 +210,23 @@ const Pricing = () => {
 
       <main className="flex-1">
         {/* Hero Section */}
-        <section className="py-12 sm:py-16 md:py-20 px-3 sm:px-4">
-          <div className="container max-w-6xl mx-auto text-center">
-            <Badge variant="secondary" className="mb-3 sm:mb-4 text-xs sm:text-sm">
-              Simple, transparent pricing
-            </Badge>
-            <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-foreground mb-3 sm:mb-4">
-              Choose your plan
+        <section className="relative overflow-hidden py-16 sm:py-20 md:py-24 px-3 sm:px-4">
+          <div className="pointer-events-none absolute right-0 top-0 w-[500px] h-[500px] rounded-full bg-gradient-to-br from-blue-100/60 via-indigo-200/40 to-violet-200/50 blur-3xl translate-x-1/3 -translate-y-1/4" />
+          <div className="relative container max-w-6xl mx-auto text-center">
+            <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 border border-blue-100 px-4 py-1.5 text-sm font-semibold text-blue-600 mb-5">
+              <Sparkles className="w-3.5 h-3.5" /> Simple, transparent pricing
+            </div>
+            <h1 className="text-4xl sm:text-5xl md:text-[3.25rem] font-extrabold text-gray-900 leading-[1.1] tracking-tight mb-5">
+              Pricing built for <span className="text-primary">every writer</span>
             </h1>
-            <p className="text-base sm:text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto px-4">
-              Start free and upgrade as you grow. No hidden fees, cancel anytime.
+            <p className="text-base sm:text-lg text-gray-500 max-w-2xl mx-auto leading-relaxed">
+              Start free and upgrade as you grow. No hidden fees. Cancel anytime.
             </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-5 text-sm text-gray-500">
+              <span className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4 text-emerald-500" /> Secure payments</span>
+              <span className="flex items-center gap-1.5"><Check className="w-4 h-4 text-emerald-500" /> Cancel anytime</span>
+              <span className="flex items-center gap-1.5"><Check className="w-4 h-4 text-emerald-500" /> 30-day money-back</span>
+            </div>
           </div>
         </section>
 
@@ -238,12 +250,12 @@ const Pricing = () => {
                 return (
                 <div
                   key={plan.name}
-                  className={`relative rounded-xl sm:rounded-2xl border ${
+                  className={`relative rounded-2xl border transition-all ${
                     isCurrent
-                      ? "border-accent bg-accent/10 shadow-lg shadow-accent/20"
+                      ? "border-accent bg-accent/10 shadow-xl shadow-accent/20"
                       : plan.popular
-                        ? "border-accent bg-accent/5 shadow-lg shadow-accent/10"
-                        : "border-border bg-card"
+                        ? "border-accent bg-gradient-to-b from-accent/10 to-white shadow-xl shadow-accent/10 md:scale-[1.02]"
+                        : "border-gray-200 bg-white hover:border-gray-300 hover:shadow-md"
                   } p-5 sm:p-6 md:p-8 flex flex-col`}
                 >
                   {isCurrent ? (
@@ -379,36 +391,64 @@ const Pricing = () => {
         </section>
 
         {/* FAQ Section */}
-        <section className="py-20 px-4 bg-muted/30">
-          <div className="container max-w-4xl mx-auto">
-            <h2 className="text-3xl font-bold text-foreground text-center mb-12">
-              Frequently Asked Questions
-            </h2>
-            <div className="space-y-6">
+        <section className="py-20 px-4 bg-gradient-to-b from-gray-50 to-white">
+          <div className="container max-w-3xl mx-auto">
+            <div className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 border border-blue-100 px-4 py-1.5 text-sm font-semibold text-blue-600 mb-5">
+                <Sparkles className="w-3.5 h-3.5" /> Questions, answered
+              </div>
+              <h2 className="text-3xl md:text-4xl font-extrabold text-gray-900 tracking-tight mb-3">
+                Frequently Asked Questions
+              </h2>
+              <p className="text-gray-500">Everything you need to know about plans and billing.</p>
+            </div>
+            <Accordion type="single" collapsible className="space-y-3">
               {[
                 {
                   q: "Can I cancel my subscription anytime?",
-                  a: "Yes, you can cancel your subscription at any time. Your access will continue until the end of your billing period.",
+                  a: "Yes — you can cancel at any time from your Account page. Your Pro access continues until the end of the current billing period, after which you'll be moved to the Free plan automatically.",
                 },
                 {
                   q: "What payment methods do you accept?",
-                  a: "We accept all major credit cards, debit cards, and UPI payments through our secure payment gateway.",
+                  a: "We accept all major credit and debit cards (Visa, Mastercard, Amex, RuPay), UPI, and net banking through our secure payment partners Stripe and Razorpay. All payments are PCI-DSS compliant.",
                 },
                 {
                   q: "How do I downgrade to the Free plan?",
-                  a: "You can downgrade to the Free plan anytime from the pricing page. This will cancel your subscription and stop all future payments immediately.",
+                  a: "From this page, click 'Downgrade to Free' on the Free plan card while logged in as a Pro user. Your subscription will be cancelled immediately and no further charges will be made.",
                 },
-              ].map((faq) => (
-                <div
+                {
+                  q: "Do you offer refunds?",
+                  a: "Yes — we offer a 30-day money-back guarantee on the Pro plan. If you're not satisfied, contact info@correctnow.app within 30 days of purchase for a full refund.",
+                },
+                {
+                  q: "Is my text private?",
+                  a: "Absolutely. Your text is processed in real-time and never stored on our servers. We don't use your content to train models, and we don't share it with any third party.",
+                },
+                {
+                  q: "What happens if I run out of credits?",
+                  a: "You can buy add-on credit packs that stay valid for 30 days, or upgrade to a higher Pro tier. Free users can continue checking the next day with their daily allowance refreshed.",
+                },
+              ].map((faq, i) => (
+                <AccordionItem
                   key={faq.q}
-                  className="bg-card rounded-lg border border-border p-6"
+                  value={`item-${i}`}
+                  className="bg-white rounded-xl border border-gray-200 px-5 data-[state=open]:border-primary/30 data-[state=open]:shadow-sm transition-all"
                 >
-                  <h3 className="text-lg font-medium text-foreground mb-2">
+                  <AccordionTrigger className="text-left text-base font-semibold text-gray-900 hover:no-underline py-4">
                     {faq.q}
-                  </h3>
-                  <p className="text-muted-foreground">{faq.a}</p>
-                </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="text-sm text-gray-600 leading-relaxed pb-5">
+                    {faq.a}
+                  </AccordionContent>
+                </AccordionItem>
               ))}
+            </Accordion>
+            <div className="mt-10 text-center text-sm text-gray-500">
+              Still have questions?{" "}
+              <a href="mailto:info@correctnow.app" className="text-primary font-semibold hover:underline">
+                Email us
+              </a>{" "}
+              — we usually reply within a few hours.
             </div>
           </div>
         </section>

@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { getAllBlogPosts } from "@/lib/blog";
 import { fetchBlogPosts, type FirestoreBlogPost } from "@/lib/blogFirestore";
+import { Loader2, Rss, BookOpen } from "lucide-react";
 
 const Blog = () => {
   const markdownPosts = useMemo(() => getAllBlogPosts(), []);
@@ -39,14 +40,20 @@ const Blog = () => {
       <Header />
 
       <main className="flex-1">
-        <section className="border-b border-border bg-gradient-to-b from-background to-accent/5 py-10 md:py-14">
-          <div className="container max-w-7xl">
-            <div className="flex flex-col items-center text-center gap-3">
-              <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground">
-                Blog
+        <section className="relative overflow-hidden border-b border-border bg-gradient-to-b from-white via-blue-50/30 to-indigo-50/20 py-12 md:py-18">
+          <div className="pointer-events-none absolute -top-24 -right-24 w-[400px] h-[400px] rounded-full bg-gradient-to-br from-blue-200/40 via-indigo-200/30 to-violet-200/20 blur-3xl" />
+          <div className="container max-w-7xl relative">
+            <div className="flex flex-col items-center text-center gap-4">
+              <div className="inline-flex items-center gap-2 rounded-full border border-blue-200/60 bg-blue-50 px-4 py-1.5 text-sm font-semibold text-blue-700">
+                <Rss className="w-3.5 h-3.5" />
+                CorrectNow Blog
+              </div>
+              <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight text-foreground">
+                Writing tips, product updates &{" "}
+                <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">more</span>
               </h1>
               <p className="text-base md:text-lg text-muted-foreground max-w-2xl">
-                Updates, writing tips, and product news from CorrectNow
+                Stay up to date with the latest from CorrectNow — grammar guides, feature releases, and language insights.
               </p>
             </div>
           </div>
@@ -56,12 +63,14 @@ const Blog = () => {
           <div className="container max-w-7xl">
             <div className="grid gap-6">
               {loading ? (
-                <div className="rounded-xl border border-border p-6 text-muted-foreground">
-                  Loading posts...
+                <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
+                  <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                  <span className="text-sm">Loading posts...</span>
                 </div>
               ) : posts.length === 0 && markdownPosts.length === 0 ? (
-                <div className="rounded-xl border border-border p-6 text-muted-foreground">
-                  No posts yet.
+                <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
+                  <BookOpen className="w-10 h-10 text-muted-foreground/40" />
+                  <p className="text-sm">No posts yet. Check back soon.</p>
                 </div>
               ) : (
                 <>
@@ -71,7 +80,7 @@ const Blog = () => {
                         <Link
                           key={p.id}
                           to={`/blog/${p.slug || p.id}`}
-                          className="group rounded-xl border border-border bg-background hover:bg-accent/10 transition overflow-hidden"
+                          className="group rounded-xl border border-border/60 bg-background shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden"
                         >
                           <div className="w-full aspect-[3/4] bg-muted/20 overflow-hidden flex items-center justify-center">
                             {p.coverImageUrl ? (

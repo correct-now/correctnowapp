@@ -123,43 +123,33 @@ const Header = () => {
             </Link>
           </div>
 
-          <nav className="hidden md:flex items-center justify-center gap-4 lg:gap-6">
-            <Link
-              to="/about"
-              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              About Us
-            </Link>
-            <Link
-              to="/features"
-              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Features
-            </Link>
-            <Link
-              to="/blog"
-              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Blog
-            </Link>
-            <Link
-              to="/pricing"
-              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Pricing
-            </Link>
-            <Link
-              to="/languages"
-              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Languages
-            </Link>
-            <Link
-              to="/contact"
-              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Contact
-            </Link>
+          <nav className="hidden md:flex items-center justify-center gap-1 lg:gap-2">
+            {[
+              { to: "/about", label: "About" },
+              { to: "/features", label: "Features" },
+              { to: "/blog", label: "Blog" },
+              { to: "/pricing", label: "Pricing" },
+              { to: "/languages", label: "Languages" },
+              { to: "/contact", label: "Contact" },
+            ].map(({ to, label }) => {
+              const active = location.pathname === to || (to !== "/" && location.pathname.startsWith(to));
+              return (
+                <Link
+                  key={to}
+                  to={to}
+                  className={`relative px-3 py-2 text-sm font-medium transition-colors rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                    active
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-gray-50"
+                  }`}
+                >
+                  {label}
+                  {active && (
+                    <span className="absolute left-3 right-3 -bottom-0.5 h-0.5 rounded-full bg-primary" />
+                  )}
+                </Link>
+              );
+            })}
           </nav>
 
           <div className="flex w-full md:w-auto items-center justify-center md:justify-end gap-2">

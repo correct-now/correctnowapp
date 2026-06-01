@@ -1,7 +1,8 @@
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { Link } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
-import { CheckCircle, Users, Shield, Target, Heart, TrendingUp, Lightbulb, Award, Globe } from "lucide-react";
+import { CheckCircle, Users, Shield, Target, Heart, TrendingUp, Lightbulb, Award, Globe, ArrowRight, Sparkles } from "lucide-react";
 
 const AboutUs = () => {
   return (
@@ -10,18 +11,36 @@ const AboutUs = () => {
       
       <main className="flex-1">
         {/* Hero Section */}
-        <section className="border-b border-border bg-gradient-to-b from-background to-accent/5 py-16 md:py-24">
-          <div className="container max-w-4xl">
-            <div className="flex flex-col items-center text-center gap-4">
-              <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-accent mb-2">
-                <CheckCircle className="w-8 h-8 text-accent-foreground" />
+        <section className="relative overflow-hidden border-b border-border bg-gradient-to-b from-white via-blue-50/30 to-indigo-50/20 py-16 md:py-24">
+          <div className="pointer-events-none absolute -top-32 -left-32 w-[520px] h-[520px] rounded-full bg-gradient-to-br from-blue-200/40 via-indigo-200/30 to-violet-200/20 blur-3xl" />
+          <div className="container max-w-4xl relative">
+            <div className="flex flex-col items-center text-center gap-5">
+              <div className="inline-flex items-center gap-2 rounded-full border border-blue-200/60 bg-blue-50 px-4 py-1.5 text-sm font-semibold text-blue-700">
+                <Sparkles className="w-3.5 h-3.5" />
+                Our Story
               </div>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">
-                About CorrectNow
+              <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground">
+                Improving lives by{" "}
+                <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">improving communication</span>
               </h1>
-              <p className="text-xl md:text-2xl text-muted-foreground max-w-2xl">
-                Improving lives by improving communication
+              <p className="text-lg md:text-xl text-muted-foreground max-w-2xl">
+                At CorrectNow, we believe that when people express themselves better, opportunities grow, ideas travel farther, and outcomes improve.
               </p>
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+                <Link
+                  to="/auth"
+                  className="group inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md hover:shadow-lg hover:from-blue-700 hover:to-indigo-700 transition-all"
+                >
+                  Get started free
+                  <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+                </Link>
+                <Link
+                  to="/contact"
+                  className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-6 py-2.5 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
+                >
+                  Contact us
+                </Link>
+              </div>
             </div>
           </div>
         </section>
@@ -29,7 +48,7 @@ const AboutUs = () => {
         {/* Mission Section */}
         <section className="py-16 md:py-20">
           <div className="container max-w-4xl">
-            <Card className="border-2">
+            <Card className="border border-border/60 shadow-md">
               <CardContent className="p-8 md:p-12">
                 <div className="flex items-start gap-4 mb-6">
                   <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-accent shrink-0">
@@ -164,34 +183,59 @@ const AboutUs = () => {
               At CorrectNow, our values shape our product, our culture, and our decisions:
             </p>
             <div className="grid gap-6 md:grid-cols-2">
-              <Card>
-                <CardContent className="p-6">
-                  <h3 className="text-xl font-semibold text-foreground mb-2">Clarity</h3>
-                  <p className="text-muted-foreground">Communication should be simple and meaningful</p>
+              <Card className="border border-border/50 shadow-sm">
+                <CardContent className="p-6 flex items-start gap-3">
+                  <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-blue-50 shrink-0">
+                    <CheckCircle className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-foreground mb-1">Clarity</h3>
+                    <p className="text-sm text-muted-foreground">Communication should be simple and meaningful</p>
+                  </div>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent className="p-6">
-                  <h3 className="text-xl font-semibold text-foreground mb-2">Integrity</h3>
-                  <p className="text-muted-foreground">Ethical, transparent technology comes first</p>
+              <Card className="border border-border/50 shadow-sm">
+                <CardContent className="p-6 flex items-start gap-3">
+                  <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-50 shrink-0">
+                    <Shield className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-foreground mb-1">Integrity</h3>
+                    <p className="text-sm text-muted-foreground">Ethical, transparent technology comes first</p>
+                  </div>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent className="p-6">
-                  <h3 className="text-xl font-semibold text-foreground mb-2">Empathy</h3>
-                  <p className="text-muted-foreground">Writing is human, not mechanical</p>
+              <Card className="border border-border/50 shadow-sm">
+                <CardContent className="p-6 flex items-start gap-3">
+                  <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-violet-50 shrink-0">
+                    <Heart className="w-5 h-5 text-violet-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-foreground mb-1">Empathy</h3>
+                    <p className="text-sm text-muted-foreground">Writing is human, not mechanical</p>
+                  </div>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent className="p-6">
-                  <h3 className="text-xl font-semibold text-foreground mb-2">Excellence</h3>
-                  <p className="text-muted-foreground">Quality matters, down to the smallest detail</p>
+              <Card className="border border-border/50 shadow-sm">
+                <CardContent className="p-6 flex items-start gap-3">
+                  <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-amber-50 shrink-0">
+                    <Award className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-foreground mb-1">Excellence</h3>
+                    <p className="text-sm text-muted-foreground">Quality matters, down to the smallest detail</p>
+                  </div>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent className="p-6">
-                  <h3 className="text-xl font-semibold text-foreground mb-2">Progress</h3>
-                  <p className="text-muted-foreground">Continuous improvement, for users and for ourselves</p>
+              <Card className="border border-border/50 shadow-sm">
+                <CardContent className="p-6 flex items-start gap-3">
+                  <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-cyan-50 shrink-0">
+                    <TrendingUp className="w-5 h-5 text-cyan-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-foreground mb-1">Progress</h3>
+                    <p className="text-sm text-muted-foreground">Continuous improvement, for users and for ourselves</p>
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -265,23 +309,23 @@ const AboutUs = () => {
         </section>
 
         {/* Call to Action */}
-        <section className="py-16 md:py-24 border-t border-border">
-          <div className="container max-w-3xl text-center">
-            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
+        <section className="relative overflow-hidden py-16 md:py-24">
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-600 to-indigo-700" />
+          <div className="pointer-events-none absolute -top-20 -right-20 w-96 h-96 rounded-full bg-white/10 blur-3xl" />
+          <div className="relative container max-w-3xl text-center">
+            <h2 className="text-2xl md:text-3xl font-extrabold text-white mb-3">
               Join us in shaping the future of communication
             </h2>
-            <p className="text-lg md:text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
-              We imagine a future where clarity leads every conversation and writing feels effortless, not intimidating. Join us as we build tools that help people express their ideas with confidence and impact.
+            <p className="text-white/75 text-lg mb-8 max-w-2xl mx-auto">
+              We imagine a future where clarity leads every conversation and writing feels effortless. Join thousands already writing with confidence.
             </p>
-            <div className="flex items-center justify-center gap-2 text-2xl md:text-3xl font-bold text-foreground">
-              <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-accent">
-                <CheckCircle className="w-6 h-6 text-accent-foreground" />
-              </div>
-              <span>CorrectNow</span>
-            </div>
-            <p className="text-lg text-muted-foreground mt-4">
-              Write clearly. Communicate confidently.
-            </p>
+            <Link
+              to="/auth"
+              className="group inline-flex items-center gap-2 rounded-full bg-white px-7 py-3 text-sm font-semibold text-blue-700 shadow-lg hover:bg-blue-50 transition-colors"
+            >
+              Get started free
+              <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+            </Link>
           </div>
         </section>
       </main>

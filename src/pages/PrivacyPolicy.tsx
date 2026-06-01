@@ -1,7 +1,7 @@
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Card, CardContent } from "@/components/ui/card";
-import { Shield, CheckCircle, Mail } from "lucide-react";
+import { Shield, CheckCircle, Mail, FileText } from "lucide-react";
 
 const PrivacyPolicy = () => {
   return (
@@ -9,17 +9,19 @@ const PrivacyPolicy = () => {
       <Header />
 
       <main className="flex-1">
-        <section className="border-b border-border bg-gradient-to-b from-background to-accent/5 py-16 md:py-24">
-          <div className="container max-w-4xl">
+        <section className="relative overflow-hidden border-b border-border bg-gradient-to-b from-white via-blue-50/30 to-indigo-50/20 py-14 md:py-20">
+          <div className="pointer-events-none absolute -top-24 -right-24 w-[400px] h-[400px] rounded-full bg-gradient-to-br from-blue-200/40 via-indigo-200/30 to-violet-200/20 blur-3xl" />
+          <div className="container max-w-4xl relative">
             <div className="flex flex-col items-center text-center gap-4">
-              <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-accent mb-2">
-                <Shield className="w-8 h-8 text-accent-foreground" />
+              <div className="inline-flex items-center gap-2 rounded-full border border-blue-200/60 bg-blue-50 px-4 py-1.5 text-sm font-semibold text-blue-700">
+                <Shield className="w-3.5 h-3.5" />
+                Legal Document
               </div>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">
+              <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground">
                 Privacy Policy
               </h1>
-              <p className="text-xl md:text-2xl text-muted-foreground max-w-2xl">
-                Welcome to CorrectNow.
+              <p className="text-base md:text-lg text-muted-foreground max-w-2xl">
+                How CorrectNow collects, uses, and protects your personal information.
               </p>
             </div>
           </div>
@@ -27,7 +29,7 @@ const PrivacyPolicy = () => {
 
         <section className="py-16 md:py-20">
           <div className="container max-w-4xl space-y-6">
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <p className="text-muted-foreground text-lg">
                   CorrectNow is an AI-powered proofreading and writing assistance platform designed to help people communicate more clearly and confidently. When you use CorrectNow, you trust us with your personal data and your writing. We take that trust seriously.
@@ -41,7 +43,7 @@ const PrivacyPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">When This Privacy Policy Applies</h2>
                 <p className="text-muted-foreground text-lg">This Privacy Policy applies when:</p>
@@ -69,7 +71,7 @@ const PrivacyPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">When This Privacy Policy Does Not Apply</h2>
                 <p className="text-muted-foreground text-lg">
@@ -96,7 +98,7 @@ const PrivacyPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">How We Make Money</h2>
                 <p className="text-muted-foreground text-lg">CorrectNow offers both free and paid plans.</p>
@@ -118,7 +120,7 @@ const PrivacyPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">Information We Collect</h2>
                 <p className="text-muted-foreground text-lg">
@@ -202,7 +204,7 @@ const PrivacyPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">How We Use Information</h2>
                 <p className="text-muted-foreground text-lg">We use information to:</p>
@@ -220,7 +222,7 @@ const PrivacyPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">AI Training and User Control</h2>
                 <p className="text-muted-foreground text-lg">
@@ -237,7 +239,7 @@ const PrivacyPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">When We Share Information</h2>
                 <p className="text-muted-foreground text-lg">We may share information only in the following situations:</p>
@@ -270,7 +272,7 @@ const PrivacyPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">Data Security and Retention</h2>
                 <p className="text-muted-foreground text-lg">We use industry-standard safeguards, including:</p>
@@ -294,7 +296,7 @@ const PrivacyPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">Your Rights and Choices</h2>
                 <p className="text-muted-foreground text-lg">Depending on your location, you may have the right to:</p>
@@ -312,7 +314,7 @@ const PrivacyPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">International Data Transfers</h2>
                 <p className="text-muted-foreground text-lg">
@@ -324,7 +326,7 @@ const PrivacyPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">Children’s Privacy</h2>
                 <p className="text-muted-foreground text-lg">
@@ -333,7 +335,7 @@ const PrivacyPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">Changes to This Policy</h2>
                 <p className="text-muted-foreground text-lg">We may update this Privacy Policy from time to time.</p>
@@ -343,7 +345,7 @@ const PrivacyPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">Contact Information</h2>
                 <p className="text-muted-foreground text-lg">If you have questions about this Privacy Policy or your data, contact us at:</p>

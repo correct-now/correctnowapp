@@ -17,8 +17,8 @@ import {
   SheetContent,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { FileText, Search, Star, LogOut, User, Menu, Archive, MoreVertical, Trash2, RotateCcw, Settings, Pencil, Crown, Upload, ChevronDown, Sparkles, BookOpen, Type, CheckCircle2, Eye, MessageSquare, Lightbulb, Shield, Globe, Zap, Monitor } from "lucide-react";
-import { archiveDocById, deleteArchivedDocPermanently, deleteArchivedDocsPermanently, formatUpdated, getDocs, getDocById, restoreDocById, sectionForDate } from "@/lib/docs";
+import { FileText, Search, Star, LogOut, User, Menu, Archive, MoreVertical, Trash2, RotateCcw, Settings, Pencil, Crown, Upload, ChevronDown, Sparkles, BookOpen, Type, CheckCircle2, Eye, MessageSquare, Lightbulb, Shield, Globe, Zap, Monitor, ArrowRight, PlayCircle } from "lucide-react";
+import { archiveDocById, deleteArchivedDocPermanently, deleteArchivedDocsPermanently, formatUpdated, getDocs, getDocById, renameDoc, restoreDocById, sectionForDate } from "@/lib/docs";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { getEffectivePlan } from "@/lib/entitlements";
@@ -79,8 +79,11 @@ const Index = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
   const [selectedArchivedIds, setSelectedArchivedIds] = useState<Set<string>>(new Set());
+  const [docFilter, setDocFilter] = useState<"all" | "today" | "week" | "month">("all");
   const [miniEditorText, setMiniEditorText] = useState("");
   const [miniEditorTitle, setMiniEditorTitle] = useState("Untitled Document");
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editingTitleValue, setEditingTitleValue] = useState("");
   const [miniEditorLanguage, setMiniEditorLanguage] = useState("auto");
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [miniIsLoading, setMiniIsLoading] = useState(false);
@@ -280,10 +283,19 @@ const Index = () => {
 
   const filtered = useMemo(() => {
     const source = sidebarView === "archived" ? archivedDocs : activeDocs;
-    return source.filter((doc) =>
-      `${doc.title} ${doc.preview}`.toLowerCase().includes(query.toLowerCase())
-    );
-  }, [activeDocs, archivedDocs, query, sidebarView]);
+    const now = new Date();
+    return source.filter((doc) => {
+      if (!`${doc.title} ${doc.preview}`.toLowerCase().includes(query.toLowerCase())) return false;
+      if (sidebarView !== "archived" && docFilter !== "all") {
+        const updated = new Date(doc.updatedAt);
+        const diffDays = (now.getTime() - updated.getTime()) / (1000 * 60 * 60 * 24);
+        if (docFilter === "today" && diffDays >= 1) return false;
+        if (docFilter === "week" && diffDays >= 7) return false;
+        if (docFilter === "month" && diffDays >= 30) return false;
+      }
+      return true;
+    });
+  }, [activeDocs, archivedDocs, query, sidebarView, docFilter]);
 
   useEffect(() => {
     if (sidebarView !== "archived") {
@@ -806,7 +818,11 @@ const Index = () => {
   );
 
   return (
-    <div className="min-h-screen flex flex-col bg-background overflow-x-hidden">
+    <div
+      className={`flex flex-col bg-background overflow-x-hidden ${
+        isAuthenticated ? "h-screen overflow-hidden" : "min-h-screen"
+      }`}
+    >
       {!isAuthenticated && <Header />}
       
       {isAuthLoading ? (
@@ -956,9 +972,28 @@ const Index = () => {
                           >
                             Archive
                           </button>
-                          <span className="px-2.5 py-1 text-xs font-medium text-gray-500 bg-white border border-gray-200 rounded-md">
-                            All Documents <ChevronDown className="w-3 h-3 inline ml-1" />
-                          </span>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-md hover:bg-gray-50 transition-colors">
+                                {docFilter === "all" ? "All Documents" : docFilter === "today" ? "Today" : docFilter === "week" ? "This Week" : "This Month"}
+                                <ChevronDown className="w-3 h-3" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start">
+                              <DropdownMenuItem onClick={() => setDocFilter("all")}>
+                                All Documents {docFilter === "all" && "✓"}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => setDocFilter("today")}>
+                                Today {docFilter === "today" && "✓"}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => setDocFilter("week")}>
+                                This Week {docFilter === "week" && "✓"}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => setDocFilter("month")}>
+                                This Month {docFilter === "month" && "✓"}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                           <div className="ml-auto text-xs text-gray-400">
                             {selectedDocIds.size > 0 && `${selectedDocIds.size} selected`}
                           </div>
@@ -1392,11 +1427,45 @@ const Index = () => {
                   <div className="px-5 py-3 border-b border-gray-100">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <h2 className="text-lg font-semibold text-gray-900">{miniEditorTitle}</h2>
-                        <button onClick={() => {
-                          const name = prompt("Document title:", miniEditorTitle);
-                          if (name) setMiniEditorTitle(name);
-                        }} className="p-1 hover:bg-gray-100 rounded">
+                        {isEditingTitle ? (
+                          <input
+                            autoFocus
+                            className="text-lg font-semibold text-gray-900 border-b border-blue-400 bg-transparent outline-none w-64 max-w-full"
+                            value={editingTitleValue}
+                            onChange={(e) => setEditingTitleValue(e.target.value)}
+                            onKeyDown={async (e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                const trimmed = editingTitleValue.trim();
+                                if (trimmed) {
+                                  setMiniEditorTitle(trimmed);
+                                  if (selectedDocId) await renameDoc(selectedDocId, trimmed);
+                                }
+                                setIsEditingTitle(false);
+                              } else if (e.key === "Escape") {
+                                setIsEditingTitle(false);
+                              }
+                            }}
+                            onBlur={async () => {
+                              const trimmed = editingTitleValue.trim();
+                              if (trimmed) {
+                                setMiniEditorTitle(trimmed);
+                                if (selectedDocId) await renameDoc(selectedDocId, trimmed);
+                              }
+                              setIsEditingTitle(false);
+                            }}
+                          />
+                        ) : (
+                          <h2 className="text-lg font-semibold text-gray-900 truncate max-w-xs">{miniEditorTitle}</h2>
+                        )}
+                        <button
+                          onClick={() => {
+                            setEditingTitleValue(miniEditorTitle);
+                            setIsEditingTitle(true);
+                          }}
+                          className="p-1 hover:bg-gray-100 rounded flex-shrink-0"
+                          title="Rename document"
+                        >
                           <Pencil className="w-3.5 h-3.5 text-gray-400" />
                         </button>
                       </div>
@@ -1700,17 +1769,19 @@ const Index = () => {
                 {/* CTAs */}
                 <div className="flex flex-col sm:flex-row gap-3 mt-8">
                   <Button
-                    className="rounded-full bg-gray-900 text-white px-7 py-5 text-base font-semibold hover:bg-gray-800 shadow-lg hover:shadow-xl transition-all w-full sm:w-auto"
+                    className="group rounded-full bg-gradient-to-r from-gray-900 to-gray-700 text-white px-7 py-5 text-base font-semibold hover:from-gray-800 hover:to-gray-600 shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all w-full sm:w-auto"
                     onClick={() => navigate("/editor")}
                   >
-                    Check My Text Now — Free →
+                    Check My Text Now — Free
+                    <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-1" />
                   </Button>
                   <Button
                     variant="outline"
                     className="rounded-full border-gray-300 text-gray-700 px-7 py-5 text-base font-semibold hover:bg-gray-100 hover:text-gray-800 hover:border-gray-400 transition-all w-full sm:w-auto"
                     onClick={() => navigate("/features")}
                   >
-                    See How It Works ▷
+                    <PlayCircle className="w-4 h-4 mr-2" />
+                    See How It Works
                   </Button>
                 </div>
 
@@ -1777,20 +1848,28 @@ const Index = () => {
               </div>
             </div>
 
-            {/* ── Trusted by logos bar ── */}
-            <div className="mt-16 text-center">
-              <p className="text-sm font-semibold text-primary mb-7">Trusted by students, professionals, and teams worldwide</p>
-              <div className="flex flex-wrap items-center justify-center gap-8 md:gap-14">
-                <span className="text-xl font-bold tracking-tight" style={{ color: "#4285F4" }}>Google</span>
-                <span className="text-xl font-bold tracking-tight" style={{ color: "#00A4EF" }}>Microsoft</span>
-                <span className="text-xl font-semibold text-gray-800">GitHub</span>
-                <span className="text-xl font-semibold" style={{ color: "#FF7900" }}>Capterra</span>
-              </div>
-              <div className="mt-4 flex items-center justify-center gap-1">
-                {[0,1,2,3,4].map((i) => (
-                  <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                ))}
-                <span className="text-sm text-gray-500 ml-2">4.9/5 from 1,000+ users</span>
+            {/* ── Social proof stats bar ── */}
+            <div className="mt-16">
+              <div className="flex flex-col items-center gap-4">
+                <div className="flex items-center gap-1">
+                  {[0,1,2,3,4].map((i) => (
+                    <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
+                  ))}
+                  <span className="text-sm text-gray-500 ml-2 font-medium">4.9/5 · Trusted by 1,000+ writers worldwide</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-px rounded-2xl overflow-hidden border border-gray-100 w-full max-w-2xl shadow-sm">
+                  {[
+                    { value: "50+",    label: "Languages" },
+                    { value: "1,000+", label: "Active users" },
+                    { value: "4.9/5",  label: "User rating" },
+                    { value: "<2 sec", label: "Avg. response" },
+                  ].map(({ value, label }) => (
+                    <div key={label} className="flex flex-col items-center justify-center bg-gray-50/80 py-4 px-3">
+                      <span className="text-xl font-extrabold text-gray-900">{value}</span>
+                      <span className="text-xs text-gray-500 mt-0.5">{label}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -1811,6 +1890,43 @@ const Index = () => {
                     <p className="text-xs text-gray-500 leading-relaxed">{desc}</p>
                   </CardContent>
                 </Card>
+              ))}
+            </div>
+          </div>
+        </section>
+        )}
+
+        {/* How It Works Section */}
+        {!isAuthenticated && (
+        <section className="py-20 md:py-28 bg-gradient-to-b from-white to-blue-50/30">
+          <div className="container">
+            <div className="text-center mb-14">
+              <div className="inline-flex items-center gap-2 rounded-full bg-indigo-50 border border-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-600 mb-5">
+                <Zap className="w-3.5 h-3.5" /> How It Works
+              </div>
+              <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-foreground tracking-tight">
+                Three steps to flawless writing
+              </h2>
+              <p className="text-lg text-muted-foreground max-w-xl mx-auto mt-4">
+                No setup, no downloads. Just paste, check, and write with confidence.
+              </p>
+            </div>
+            <div className="grid gap-8 md:grid-cols-3 max-w-4xl mx-auto">
+              {[
+                { step: "01", icon: FileText, title: "Paste your text", desc: "Copy any text — email, essay, report, message — and paste it into CorrectNow.", color: "text-blue-600", bg: "bg-blue-50" },
+                { step: "02", icon: Sparkles, title: "AI checks instantly", desc: "Our AI engine scans for grammar, spelling, punctuation, and clarity issues in seconds.", color: "text-indigo-600", bg: "bg-indigo-50" },
+                { step: "03", icon: CheckCircle2, title: "Apply corrections", desc: "Review each suggestion with a clear explanation, then apply all fixes with one click.", color: "text-emerald-600", bg: "bg-emerald-50" },
+              ].map(({ step, icon: Icon, title, desc, color, bg }) => (
+                <div key={step} className="relative flex flex-col items-center text-center gap-4">
+                  <div className="relative">
+                    <div className={`w-16 h-16 rounded-2xl ${bg} flex items-center justify-center shadow-sm`}>
+                      <Icon className={`w-7 h-7 ${color}`} />
+                    </div>
+                    <span className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-white border border-gray-200 text-[10px] font-extrabold text-gray-500 flex items-center justify-center shadow-sm">{step}</span>
+                  </div>
+                  <h3 className="text-lg font-bold text-foreground">{title}</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
+                </div>
               ))}
             </div>
           </div>

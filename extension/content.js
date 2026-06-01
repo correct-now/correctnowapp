@@ -290,7 +290,9 @@ function positionButton(element, container) {
  * Show floating button on input/textarea focus
  */
 function handleFocus(event) {
-  const element = event.target;
+  // composedPath() lets us see inside shadow DOM (Notion, Slack, etc.)
+  const path = (event.composedPath && event.composedPath()) || [];
+  const element = path[0] || event.target;
 
   // Only attach to textarea and text inputs
   if (!isEditableField(element)) return;
@@ -380,12 +382,20 @@ function handleBlur(event) {
  * Check if element is an editable field
  */
 function isEditableField(element) {
+  if (!element || !element.tagName) return false;
   if (element.tagName === 'TEXTAREA') return true;
   if (element.tagName === 'INPUT') {
     const t = (element.type || 'text').toLowerCase();
-    return ['text', 'email', 'search', 'url', 'tel', 'number'].includes(t);
+    return ['text', 'email', 'search', 'url', 'tel', 'number', 'password'].includes(t);
   }
   if (element.isContentEditable) return true;
+  // Attribute-level check (catches elements where property hasn't propagated)
+  const ce = element.getAttribute && element.getAttribute('contenteditable');
+  if (ce === 'true' || ce === '') return true;
+  // ARIA roles used by rich-text editors (Notion, Slack, Docs, etc.)
+  const role = element.getAttribute && element.getAttribute('role');
+  if (role === 'textbox' || role === 'combobox') return true;
+  if (element.getAttribute && element.getAttribute('aria-multiline') === 'true') return true;
   return false;
 }
 
@@ -718,13 +728,9 @@ function handleCheckClick() {
           highlightErrors(currentFocusedElement, fixedErrors);
           showMessage(`Found ${fixedErrors.length} issue(s)`, 'info');
 
-          // Show Apply button: always for <input>/<textarea> (can't click inline),
-          // or when 2+ errors on contentEditable.
-          const tag = currentFocusedElement.tagName;
-          const isInput = tag === 'INPUT' || tag === 'TEXTAREA';
-          if (isInput || fixedErrors.length >= 2) {
-            showApplyAllButton();
-          }
+          // Show Apply All whenever there are errors — works for all field types
+          // since the overlay approach supports individual accepts on every type.
+          showApplyAllButton();
         } else {
           clearHighlights();
           showMessage('No issues found', 'success');
@@ -740,205 +746,43 @@ function handleCheckClick() {
 }
 
 /**
- * Highlight grammar errors in the input/textarea
- * For contentEditable: underline errors in red
- * For input/textarea: show yellow border + message
+ * Highlight grammar errors using the universal overlay system.
+ * Never modifies the editor's DOM — works on all websites.
+ *   • textarea / input  → transparent mirror overlay with underlined spans
+ *   • contentEditable   → Range-pixel overlay (underline + highlight divs)
  */
 function highlightErrors(element, errors) {
-  // Clear previous highlights
   clearHighlights();
-  
-  // Store errors for correction
   currentErrors = errors;
 
   const isTextInput = element.tagName === 'TEXTAREA' || element.tagName === 'INPUT';
-  
-  console.log('📍 Highlighting', errors.length, 'errors');
-  console.log('Errors to highlight:', errors.map(e => `${e.start}-${e.end}`).join(', '));
+  console.log('📍 Highlighting', errors.length, 'errors via overlay on', element.tagName);
 
-  // For contentEditable elements (like Gmail compose), wrap error text in red underlines
-  if (!isTextInput && element.isContentEditable) {
-    // Store original HTML for restoration
-    originalContent = element.innerHTML;
-
-    // Get the full text content
-    const fullText = element.textContent || element.innerText || '';
-    console.log('📄 Full text length:', fullText.length);
-
-    if (errors.length > 0) {
-      // Get the full text to verify positions match
-      const fullText = element.textContent || element.innerText || '';
-      console.log('📄 Full text:', `"${fullText}"`);
-      
-      // Verify error positions
-      errors.forEach(err => {
-        const errorText = fullText.substring(err.start, err.end);
-        console.log(`  Error [${err.start}-${err.end}]: "${errorText}" (should be corrected to "${err.suggestion}")`);
-      });
-      
-      // Walk through DOM and apply spans to text nodes
-      let charIndex = 0;
-      const walker = document.createTreeWalker(
-        element,
-        NodeFilter.SHOW_TEXT,
-        null,
-        false
-      );
-
-      const nodesToProcess = [];
-      let node;
-      while ((node = walker.nextNode())) {
-        if (node.textContent.trim().length === 0) {
-          charIndex += node.textContent.length;
-          continue;
-        }
-        
-        const nodeStart = charIndex;
-        const nodeEnd = charIndex + node.textContent.length;
-        
-        console.log(`📦 Text node [${nodeStart}-${nodeEnd}]: "${node.textContent.substring(0, 30)}"`);
-        
-        // Find errors that overlap this node
-        const overlappingErrors = errors.filter(err => 
-          err.start < nodeEnd && err.end > nodeStart
-        );
-
-        if (overlappingErrors.length > 0) {
-          nodesToProcess.push({ node, nodeStart, errors: overlappingErrors });
-        }
-
-        charIndex = nodeEnd;
-      }
-
-      // Apply highlighting to text nodes (in reverse to maintain indices)
-      nodesToProcess.reverse().forEach(({ node, nodeStart, errors: nodeErrors }) => {
-        const fragment = document.createDocumentFragment();
-        const text = node.textContent;
-        let lastEnd = 0;
-
-        // Sort errors by start position
-        const sortedErrors = nodeErrors.sort((a, b) => a.start - b.start);
-
-        sortedErrors.forEach(err => {
-          const errStartInNode = Math.max(0, err.start - nodeStart);
-          const errEndInNode = Math.min(text.length, err.end - nodeStart);
-
-          console.log(`🎯 Span [${errStartInNode}-${errEndInNode}] in node for error at [${err.start}-${err.end}]`);
-
-          // Add text before error
-          if (errStartInNode > lastEnd) {
-            fragment.appendChild(
-              document.createTextNode(text.substring(lastEnd, errStartInNode))
-            );
-          }
-
-          // Add error span
-          const span = document.createElement('span');
-          span.className = 'correctnow-error-span';
-          const spanText = text.substring(errStartInNode, errEndInNode);
-          span.textContent = spanText;
-          console.log(`🎨 Creating span for text: "${spanText}" (length: ${spanText.length})`);
-          
-          // Check if this is punctuation to adjust styling
-          const isPunctuation = /^[^\w\s]+$/.test(spanText);
-          const paddingSize = isPunctuation ? '2px 4px' : '1px 2px';
-          const minWidth = isPunctuation ? '8px' : '1px';
-          
-          span.style.cssText = `
-            display: inline;
-            text-decoration: underline #ef4444;
-            text-decoration-thickness: 2px;
-            text-underline-offset: 4px;
-            cursor: pointer;
-            background-color: rgba(239, 68, 68, 0.15);
-            box-decoration-break: clone;
-            -webkit-box-decoration-break: clone;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            min-width: ${minWidth};
-            padding: ${paddingSize};
-            border-radius: 2px;
-            pointer-events: auto;
-            user-select: text;
-          `;
-          span.title = err.message || 'Spelling error';
-          span.dataset.suggestion = err.suggestion || '';
-          span.dataset.errorStart = err.start;
-          span.dataset.errorEnd = err.end;
-
-          // Add hover tooltip with proper cleanup
-          span.addEventListener('mouseenter', (e) => {
-            showCorrectionTooltip(e, err);
-          });
-
-          span.addEventListener('mouseleave', () => {
-            // Delay hiding to allow moving to tooltip
-            if (tooltipHideTimeout) {
-              clearTimeout(tooltipHideTimeout);
-            }
-            tooltipHideTimeout = setTimeout(hideCorrectionTooltip, 300);
-          });
-
-          fragment.appendChild(span);
-          lastEnd = errEndInNode;
-        });
-
-        // Add remaining text
-        if (lastEnd < text.length) {
-          fragment.appendChild(
-            document.createTextNode(text.substring(lastEnd))
-          );
-        }
-
-        node.parentNode.replaceChild(fragment, node);
-      });
-    }
-
-    highlightedRanges.push(element);
-  } else if (isTextInput) {
-    // For regular inputs/textareas, show yellow border (can't directly highlight text)
-    element.style.borderColor = '#fbbf24';
-    element.style.borderWidth = '2px';
-    element.style.outline = '2px solid rgba(251, 191, 36, 0.8)';
-    element.style.boxShadow = '0 0 0 3px rgba(251, 191, 36, 0.1)';
-    highlightedRanges.push(element);
+  if (isTextInput) {
+    _createInputOverlay(element, errors);
+  } else {
+    // contentEditable (any framework — Gmail, Notion, Tiptap, ProseMirror, …)
+    _createCEOverlay(element, errors);
   }
 
-  // Build detailed message with line breaks preserved
-  const errorMessages = errors
-    .map((err, idx) => {
-      const start = err.start || 0;
-      const end = err.end || start + 1;
-      const elementText = isTextInput ? element.value : (element.textContent || '');
-      const context = elementText.substring(
-        Math.max(0, start - 10),
-        Math.min(elementText.length, end + 10)
-      );
-      return `${idx + 1}. ${err.message || 'Grammar error'}\n   Context: "...${context}..."`;
-    })
-    .join('\n');
-
-  // Hide detailed issues list - user prefers individual hover tooltips only
-  // showMessage(
-  //   errors.length ? `Issues found:\n${errorMessages}` : 'No issues found',
-  //   errors.length ? 'info' : 'success',
-  //   true
-  // );
+  highlightedRanges.push(element);
 }
 
 /**
- * Clear all highlights
+ * Clear all highlights — removes overlays, never touches editor DOM.
  */
 function clearHighlights() {
   highlightedRanges.forEach((element) => {
     if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
+      _removeInputOverlay(element);
+      // Remove legacy yellow-border styling if any
       element.style.borderColor = '';
       element.style.borderWidth = '';
-      element.style.outline = '';
-      element.style.boxShadow = '';
-    } else if (element.isContentEditable) {
-      // Remove error spans without restoring old innerHTML — preserves any
-      // user edits made after the check was run (old approach caused data loss).
+      element.style.outline    = '';
+      element.style.boxShadow  = '';
+    } else {
+      _removeCEOverlay(element);
+      // Remove any old injected spans left from a previous session
       element.querySelectorAll('.correctnow-error-span').forEach(span => {
         span.parentNode.replaceChild(document.createTextNode(span.textContent), span);
       });
@@ -1141,16 +985,17 @@ function applyAllCorrections() {
   if (lastApiCorrectedText && sourceText === lastCheckedText && lastApiCorrectedText !== sourceText) {
     const result = lastApiCorrectedText;
     if (currentFocusedElement.value !== undefined) {
+      _removeInputOverlay(currentFocusedElement);
       currentFocusedElement.value = result;
       currentFocusedElement.dispatchEvent(new Event('input', { bubbles: true }));
       currentFocusedElement.dispatchEvent(new Event('change', { bubbles: true }));
     } else {
-      // contentEditable: remove existing spans first, then replace full text
+      // contentEditable: remove overlay then replace full text
+      _removeCEOverlay(currentFocusedElement);
       currentFocusedElement.querySelectorAll('.correctnow-error-span').forEach(s => {
         s.parentNode.replaceChild(document.createTextNode(s.textContent), s);
       });
       currentFocusedElement.normalize();
-      // Replace whole text node content while preserving block structure
       currentFocusedElement.textContent = result;
     }
     lastCorrectedText = result;
@@ -1214,17 +1059,14 @@ function applyAllCorrections() {
   
   if (currentFocusedElement) {
     if (currentFocusedElement.value !== undefined) {
-      // textarea / input
+      // textarea / input — remove overlay then apply value
+      _removeInputOverlay(currentFocusedElement);
       currentFocusedElement.value = result;
-      // Dispatch events so React / Vue / Angular controlled inputs update their state
       currentFocusedElement.dispatchEvent(new Event('input', { bubbles: true }));
       currentFocusedElement.dispatchEvent(new Event('change', { bubbles: true }));
     } else {
-      // contentEditable: remove spans first, then apply each correction
-      // right-to-left using Range API to preserve HTML formatting.
-      currentFocusedElement.querySelectorAll('.correctnow-error-span').forEach(s => {
-        s.parentNode.replaceChild(document.createTextNode(s.textContent), s);
-      });
+      // contentEditable: remove overlay, then apply corrections via Range API.
+      _removeCEOverlay(currentFocusedElement);
       currentFocusedElement.normalize();
       const reversedMerged = [...merged].reverse();
       let ceApplied = 0;
@@ -1401,7 +1243,7 @@ function applyCorrection(span, error) {
     return;
   }
   
-  console.log('✏️ Applying correction from:', span.textContent, 'to:', error.suggestion);
+  console.log('✏️ Applying correction from:', span ? span.textContent : error.original, 'to:', error.suggestion);
   
   try {
     // Get the original source text
@@ -1442,16 +1284,13 @@ function applyCorrection(span, error) {
     // Set the corrected text
     if (currentFocusedElement.value !== undefined) {
       // textarea / input
+      _removeInputOverlay(currentFocusedElement);
       currentFocusedElement.value = correctedText;
-      // Dispatch events so React / Vue / Angular controlled inputs update their state
       currentFocusedElement.dispatchEvent(new Event('input', { bubbles: true }));
       currentFocusedElement.dispatchEvent(new Event('change', { bubbles: true }));
     } else {
-      // contentEditable: remove spans first, then apply correction via Range API
-      // to preserve surrounding HTML formatting (bold, italic, links, etc.).
-      currentFocusedElement.querySelectorAll('.correctnow-error-span').forEach(s => {
-        s.parentNode.replaceChild(document.createTextNode(s.textContent), s);
-      });
+      // contentEditable: remove Range overlay, apply correction, rebuild overlay
+      _removeCEOverlay(currentFocusedElement);
       currentFocusedElement.normalize();
       applyRangeCorrection(currentFocusedElement, start, end, suggestion);
       originalContent = currentFocusedElement.innerHTML;
@@ -1460,10 +1299,10 @@ function applyCorrection(span, error) {
     // Update lastCheckedText to the new corrected text
     lastCheckedText = correctedText;
     
-    // Clear existing highlights
+    // Clear stale highlightedRanges pointer (overlays already removed above)
     highlightedRanges = [];
     
-    // If errors remain, re-highlight them
+    // Rebuild overlay for remaining errors, or finish
     if (currentErrors.length > 0) {
       console.log('🔄 Re-highlighting remaining errors');
       highlightErrors(currentFocusedElement, currentErrors);
@@ -1600,8 +1439,11 @@ function isClickInsideExtension(target) {
     return true;
   }
 
-  // Check if clicking on an error span (underlined text)
-  if (target.closest && target.closest('span[data-suggestion][style*="text-decoration"]')) {
+  // Check if clicking on an error span (underlined text) or any overlay element
+  if (target.closest && (
+    target.closest('span[data-suggestion][style*="text-decoration"]') ||
+    target.closest('[data-correctnow-ui]')
+  )) {
     return true;
   }
 
@@ -1661,6 +1503,256 @@ function handleInput(event) {
   scheduleIdleHide();
 }
 
+// =============================================================================
+// UNIVERSAL OVERLAY SYSTEM
+// Works on every website like Grammarly — never modifies the editor's DOM.
+//
+//  ① Input Mirror Overlay  (textarea / input type=text …)
+//     Creates a transparent pixel-exact clone on top; error spans show
+//     red underlines through the transparent text.
+//
+//  ② CE Range Overlay  (contentEditable – Gmail, Notion, Tiptap, ProseMirror …)
+//     Uses Range.getClientRects() to place <2 px> underline strips and
+//     transparent clickable highlight divs at the exact positions of each
+//     error — completely outside the editor's DOM.
+// =============================================================================
+
+const _inputOverlayMap = new Map();  // HTMLElement → {overlay, inner}
+const _ceOverlayMap    = new Map();  // HTMLElement → {overlay, items[{range,els[],err}]}
+
+const _overlayResizeObs = typeof ResizeObserver !== 'undefined'
+  ? new ResizeObserver(entries => entries.forEach(e => {
+      if (_inputOverlayMap.has(e.target)) _syncInputOverlay(e.target);
+    }))
+  : null;
+
+let _overlaySyncRAF = null;
+function _onOverlayGlobalSync() {
+  if (_overlaySyncRAF) return;
+  _overlaySyncRAF = requestAnimationFrame(() => {
+    _overlaySyncRAF = null;
+    _inputOverlayMap.forEach((_, el) => { if (document.contains(el)) _syncInputOverlay(el); });
+    _ceOverlayMap.forEach((_, el)    => { if (document.contains(el)) _syncCEOverlay(el); });
+  });
+}
+
+/** Escape value for use inside a quoted HTML attribute */
+function escapeAttr(str) {
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ---- ① Input Mirror Overlay ------------------------------------------------
+
+function _syncInputOverlay(el) {
+  const data = _inputOverlayMap.get(el);
+  if (!data) return;
+  const { overlay, inner } = data;
+  const rect = el.getBoundingClientRect();
+  if (!rect.width || !rect.height || !document.contains(el)) {
+    overlay.style.visibility = 'hidden'; return;
+  }
+  overlay.style.visibility = 'visible';
+  const cs = window.getComputedStyle(el);
+  const bT = parseFloat(cs.borderTopWidth)    || 0;
+  const bR = parseFloat(cs.borderRightWidth)  || 0;
+  const bB = parseFloat(cs.borderBottomWidth) || 0;
+  const bL = parseFloat(cs.borderLeftWidth)   || 0;
+  Object.assign(overlay.style, {
+    top: rect.top + 'px', left: rect.left + 'px',
+    width: rect.width + 'px', height: rect.height + 'px',
+  });
+  Object.assign(inner.style, {
+    paddingTop:    (bT + (parseFloat(cs.paddingTop)    || 0)) + 'px',
+    paddingRight:  (bR + (parseFloat(cs.paddingRight)  || 0)) + 'px',
+    paddingBottom: (bB + (parseFloat(cs.paddingBottom) || 0)) + 'px',
+    paddingLeft:   (bL + (parseFloat(cs.paddingLeft)   || 0)) + 'px',
+    fontFamily: cs.fontFamily, fontSize: cs.fontSize,
+    fontWeight: cs.fontWeight, fontStyle: cs.fontStyle,
+    lineHeight: cs.lineHeight, letterSpacing: cs.letterSpacing,
+    wordSpacing: cs.wordSpacing, textAlign: cs.textAlign,
+    direction: cs.direction,
+    whiteSpace:    el.tagName === 'TEXTAREA' ? 'pre-wrap' : 'pre',
+    wordWrap: 'break-word', overflowWrap: 'break-word',
+    tabSize: cs.tabSize || '8',
+    transform: `translateY(-${el.scrollTop}px) translateX(-${el.scrollLeft}px)`,
+  });
+}
+
+function _buildMirrorHTML(text, errors) {
+  const sorted = [...errors]
+    .filter(e => typeof e.start === 'number' && e.end > e.start && e.start >= 0 && e.end <= text.length)
+    .sort((a, b) => a.start - b.start);
+  let html = '', cursor = 0;
+  sorted.forEach(err => {
+    const s = Math.max(cursor, err.start);
+    const e = Math.min(text.length, err.end);
+    if (e <= s) return;
+    if (s > cursor) html += escapeHtml(text.slice(cursor, s));
+    html += `<span class="correctnow-error-span" data-err-start="${s}" data-err-end="${e}" ` +
+      `data-suggestion="${escapeAttr(err.suggestion || '')}" ` +
+      `style="color:transparent;text-decoration:underline #ef4444;text-decoration-thickness:2px;` +
+      `text-underline-offset:3px;background-color:rgba(239,68,68,0.12);border-radius:2px;` +
+      `pointer-events:auto;cursor:pointer;white-space:inherit;"` +
+      `>${escapeHtml(text.slice(s, e))}</span>`;
+    cursor = e;
+  });
+  if (cursor < text.length) html += escapeHtml(text.slice(cursor));
+  return html;
+}
+
+function _attachInputOverlaySpanEvents(inner, errors) {
+  inner.querySelectorAll('.correctnow-error-span').forEach(span => {
+    const start = parseInt(span.dataset.errStart);
+    const end   = parseInt(span.dataset.errEnd);
+    const err   = errors.find(e => e.start === start && e.end === end);
+    if (!err) return;
+    span.addEventListener('mouseenter', ev => showCorrectionTooltip(ev, err));
+    span.addEventListener('mouseleave', () => {
+      if (tooltipHideTimeout) clearTimeout(tooltipHideTimeout);
+      tooltipHideTimeout = setTimeout(hideCorrectionTooltip, 300);
+    });
+    span.addEventListener('mousedown',   ev => ev.preventDefault());
+    span.addEventListener('pointerdown', ev => ev.preventDefault());
+    span.addEventListener('click', ev => {
+      ev.stopPropagation();
+      if (tooltipHideTimeout) { clearTimeout(tooltipHideTimeout); tooltipHideTimeout = null; }
+      applyCorrection(span, err);
+      hideCorrectionTooltip();
+    });
+  });
+}
+
+function _createInputOverlay(el, errors) {
+  let data = _inputOverlayMap.get(el);
+  if (!data) {
+    const overlay = document.createElement('div');
+    overlay.setAttribute('data-correctnow-ui', 'true');
+    overlay.style.cssText =
+      'position:fixed;z-index:2147483645;overflow:hidden;pointer-events:none;' +
+      'box-sizing:border-box;background:transparent;';
+    const inner = document.createElement('div');
+    inner.style.cssText =
+      'position:relative;top:0;left:0;color:transparent;background:transparent;' +
+      'pointer-events:none;box-sizing:border-box;margin:0;';
+    overlay.appendChild(inner);
+    document.body.appendChild(overlay);
+    data = { overlay, inner };
+    _inputOverlayMap.set(el, data);
+    if (_overlayResizeObs) _overlayResizeObs.observe(el);
+    el.addEventListener('scroll', () => _syncInputOverlay(el), { passive: true });
+  }
+  data.inner.innerHTML = _buildMirrorHTML(el.value || '', errors);
+  _attachInputOverlaySpanEvents(data.inner, errors);
+  _syncInputOverlay(el);
+}
+
+function _removeInputOverlay(el) {
+  const data = _inputOverlayMap.get(el);
+  if (data) {
+    data.overlay.remove();
+    _inputOverlayMap.delete(el);
+    if (_overlayResizeObs) try { _overlayResizeObs.unobserve(el); } catch (_) {}
+  }
+}
+
+// ---- ② ContentEditable Range Overlay ---------------------------------------
+
+function _getErrorRange(el, start, end) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+  let ci = 0, sNode = null, sOff = 0, eNode = null, eOff = 0, node;
+  while ((node = walker.nextNode())) {
+    const len = node.nodeValue.length;
+    if (!sNode && ci + len > start)  { sNode = node; sOff = start - ci; }
+    if (!eNode && ci + len >= end)   { eNode = node; eOff = end   - ci; }
+    if (sNode && eNode) break;
+    ci += len;
+  }
+  if (!sNode || !eNode) return null;
+  try {
+    const r = document.createRange();
+    r.setStart(sNode, Math.min(sOff, sNode.nodeValue.length));
+    r.setEnd  (eNode, Math.min(eOff, eNode.nodeValue.length));
+    return r;
+  } catch (_) { return null; }
+}
+
+function _makeRectElements(rect, err, overlay) {
+  const ul = document.createElement('div');
+  ul.style.cssText =
+    `position:fixed;pointer-events:none;border-radius:1px;background:#ef4444;` +
+    `top:${rect.bottom - 2}px;left:${rect.left}px;width:${rect.width}px;height:2px;`;
+  const hl = document.createElement('div');
+  hl.style.cssText =
+    `position:fixed;pointer-events:auto;cursor:pointer;border-radius:2px;` +
+    `background:rgba(239,68,68,0.08);` +
+    `top:${rect.top}px;left:${rect.left}px;width:${rect.width}px;height:${rect.height}px;`;
+  hl.addEventListener('mouseenter', ev => showCorrectionTooltip(ev, err));
+  hl.addEventListener('mouseleave', () => {
+    if (tooltipHideTimeout) clearTimeout(tooltipHideTimeout);
+    tooltipHideTimeout = setTimeout(hideCorrectionTooltip, 300);
+  });
+  hl.addEventListener('mousedown',   ev => ev.preventDefault());
+  hl.addEventListener('pointerdown', ev => ev.preventDefault());
+  hl.addEventListener('click', ev => {
+    ev.stopPropagation();
+    if (tooltipHideTimeout) { clearTimeout(tooltipHideTimeout); tooltipHideTimeout = null; }
+    applyCorrection(null, err);
+    hideCorrectionTooltip();
+  });
+  overlay.appendChild(ul);
+  overlay.appendChild(hl);
+  return { ul, hl };
+}
+
+function _createCEOverlay(el, errors) {
+  _removeCEOverlay(el);
+  const overlay = document.createElement('div');
+  overlay.setAttribute('data-correctnow-ui', 'true');
+  overlay.style.cssText =
+    'position:fixed;z-index:2147483645;pointer-events:none;top:0;left:0;width:0;height:0;overflow:visible;';
+  const items = [];
+  errors.forEach(err => {
+    const range = _getErrorRange(el, err.start, err.end);
+    if (!range) return;
+    const rects = [...range.getClientRects()].filter(r => r.width > 1);
+    if (!rects.length) return;
+    const els = rects.map(rect => _makeRectElements(rect, err, overlay));
+    items.push({ range, els, err });
+  });
+  document.body.appendChild(overlay);
+  _ceOverlayMap.set(el, { overlay, items });
+  el.addEventListener('scroll', () => _syncCEOverlay(el), { passive: true });
+}
+
+function _syncCEOverlay(el) {
+  const data = _ceOverlayMap.get(el);
+  if (!data) return;
+  requestAnimationFrame(() => {
+    data.items.forEach(({ range, els }) => {
+      const rects = [...range.getClientRects()].filter(r => r.width > 1);
+      els.forEach(({ ul, hl }, i) => {
+        const rect = rects[i];
+        if (!rect) { ul.style.display = 'none'; hl.style.display = 'none'; return; }
+        ul.style.display = hl.style.display = '';
+        ul.style.top = (rect.bottom - 2) + 'px'; ul.style.left = rect.left + 'px'; ul.style.width = rect.width + 'px';
+        hl.style.top = rect.top + 'px'; hl.style.left = rect.left + 'px';
+        hl.style.width = rect.width + 'px'; hl.style.height = rect.height + 'px';
+      });
+    });
+  });
+}
+
+function _removeCEOverlay(el) {
+  const data = _ceOverlayMap.get(el);
+  if (data) { data.overlay.remove(); _ceOverlayMap.delete(el); }
+}
+
+// =============================================================================
+// END OVERLAY SYSTEM
+// =============================================================================
+
 /**
  * Initialize content script
  * Attach event listeners to all input/textarea elements
@@ -1676,13 +1768,16 @@ function initializeContentScript() {
 
   // Also listen for click events (helps with some websites)
   document.addEventListener('click', function(e) {
-    if (isEditableField(e.target)) {
-      setTimeout(() => handleFocus({target: e.target}), 100);
+    const path = (e.composedPath && e.composedPath()) || [];
+    const target = path[0] || e.target;
+    if (isEditableField(target)) {
+      setTimeout(() => handleFocus({ target, composedPath: () => path }), 100);
     }
   }, true);
 
-  // NOTE: Auto-recheck on input disabled to prevent race conditions
-  // Users should click the button to check, or wait for next major typing event
+  // Keep overlays aligned when window scrolls or resizes
+  window.addEventListener('scroll', _onOverlayGlobalSync, { capture: true, passive: true });
+  window.addEventListener('resize', _onOverlayGlobalSync, { passive: true });
 
   console.log('CorrectNow extension loaded - Ready to check grammar');
 }

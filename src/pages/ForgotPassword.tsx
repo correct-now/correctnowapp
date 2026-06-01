@@ -45,44 +45,51 @@ const ForgotPassword = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-md space-y-8">
-        <div className="text-center">
-          <Link to="/" className="inline-flex items-center gap-2 mb-8">
-            <img 
-              src="/Icon/correctnow logo final2.png" 
+    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/40 flex items-center justify-center p-4">
+      {/* Decorative orbs */}
+      <div className="pointer-events-none absolute -top-32 -left-32 w-[480px] h-[480px] rounded-full bg-gradient-to-br from-blue-200/40 via-indigo-200/30 to-violet-200/30 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-32 -right-32 w-[520px] h-[520px] rounded-full bg-gradient-to-tr from-emerald-100/40 via-blue-100/30 to-indigo-200/30 blur-3xl" />
+
+      <div className="relative w-full max-w-md">
+        <div className="text-center mb-6">
+          <Link to="/" className="inline-flex items-center justify-center mb-6">
+            <img
+              src="/Icon/correctnow logo final2.png"
               alt="CorrectNow"
-              className="h-24 w-auto object-contain"
+              className="h-16 w-auto object-contain"
             />
           </Link>
-
-          {!isSubmitted ? (
-            <>
-              <h2 className="text-2xl font-bold text-foreground">
-                Forgot your password?
-              </h2>
-              <p className="mt-2 text-muted-foreground">
-                No worries, we'll send you reset instructions.
-              </p>
-            </>
-          ) : (
-            <>
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-green-500/10 flex items-center justify-center">
-                <CheckCircle className="w-8 h-8 text-green-500" />
-              </div>
-              <h2 className="text-2xl font-bold text-foreground">
-                Check your email
-              </h2>
-              <p className="mt-2 text-muted-foreground">
-                We sent a password reset link to{" "}
-                <span className="text-foreground font-medium">{email}</span>
-              </p>
-            </>
-          )}
         </div>
 
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-xl shadow-blue-500/5 p-7 sm:p-8">
+          <div className="text-center mb-6">
+            {!isSubmitted ? (
+              <>
+                <h2 className="text-2xl font-extrabold text-gray-900 tracking-tight">
+                  Forgot your password?
+                </h2>
+                <p className="mt-2 text-sm text-gray-500 leading-relaxed">
+                  No worries — enter your email and we'll send reset instructions.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-emerald-50 flex items-center justify-center">
+                  <CheckCircle className="w-7 h-7 text-emerald-500" />
+                </div>
+                <h2 className="text-2xl font-extrabold text-gray-900 tracking-tight">
+                  Check your email
+                </h2>
+                <p className="mt-2 text-sm text-gray-500 leading-relaxed">
+                  We sent a password reset link to{" "}
+                  <span className="text-gray-900 font-semibold">{email}</span>
+                </p>
+              </>
+            )}
+          </div>
+
         {!isSubmitted ? (
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <div className="relative">
@@ -152,7 +159,8 @@ const ForgotPassword = () => {
             </Link>
           </div>
         )}
-      </div>
+        </div>{/* close card */}
+      </div>{/* close max-w-md */}
     </div>
   );
 };

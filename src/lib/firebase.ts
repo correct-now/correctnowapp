@@ -3,9 +3,13 @@ import { getAuth, Auth, setPersistence, browserLocalPersistence } from "firebase
 import { getFirestore, Firestore } from "firebase/firestore";
 import { getStorage, FirebaseStorage } from "firebase/storage";
 
+// Normalize authDomain to avoid trailing slashes that cause redirect URLs like
+// https://project.firebaseapp.com//firebase/init.json (404 on mobile redirect flow).
+const normalizeDomain = (value?: string) => value?.replace(/\/+$/, "");
+
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string | undefined,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined,
+  authDomain: normalizeDomain(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined),
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID as string | undefined,
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET as string | undefined,
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string | undefined,

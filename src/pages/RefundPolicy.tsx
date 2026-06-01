@@ -9,17 +9,19 @@ const RefundPolicy = () => {
       <Header />
 
       <main className="flex-1">
-        <section className="border-b border-border bg-gradient-to-b from-background to-accent/5 py-16 md:py-24">
-          <div className="container max-w-4xl">
+        <section className="relative overflow-hidden border-b border-border bg-gradient-to-b from-white via-blue-50/30 to-indigo-50/20 py-14 md:py-20">
+          <div className="pointer-events-none absolute -top-24 -right-24 w-[400px] h-[400px] rounded-full bg-gradient-to-br from-blue-200/40 via-indigo-200/30 to-violet-200/20 blur-3xl" />
+          <div className="container max-w-4xl relative">
             <div className="flex flex-col items-center text-center gap-4">
-              <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-accent mb-2">
-                <CreditCard className="w-8 h-8 text-accent-foreground" />
+              <div className="inline-flex items-center gap-2 rounded-full border border-blue-200/60 bg-blue-50 px-4 py-1.5 text-sm font-semibold text-blue-700">
+                <CreditCard className="w-3.5 h-3.5" />
+                Legal Document
               </div>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">
+              <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground">
                 Refund Policy
               </h1>
-              <p className="text-xl md:text-2xl text-muted-foreground max-w-2xl">
-                Thank you for choosing CorrectNow.
+              <p className="text-base md:text-lg text-muted-foreground max-w-2xl">
+                Our commitment to fair and transparent billing practices.
               </p>
             </div>
           </div>
@@ -27,7 +29,7 @@ const RefundPolicy = () => {
 
         <section className="py-16 md:py-20">
           <div className="container max-w-4xl space-y-6">
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <p className="text-muted-foreground text-lg">
                   This Refund Policy explains how refunds, cancellations, and billing issues are handled for CorrectNow’s products and subscriptions. Please read it carefully before making a purchase.
@@ -35,7 +37,7 @@ const RefundPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">1. General Policy Overview</h2>
                 <p className="text-muted-foreground text-lg">CorrectNow offers digital subscription-based services.</p>
@@ -49,7 +51,7 @@ const RefundPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">2. Free Plan Availability</h2>
                 <p className="text-muted-foreground text-lg">
@@ -61,7 +63,7 @@ const RefundPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">3. Subscription Charges &amp; Billing</h2>
                 <ul className="space-y-2 text-muted-foreground text-lg">
@@ -84,7 +86,7 @@ const RefundPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">4. Cancellation Policy</h2>
                 <p className="text-muted-foreground text-lg">
@@ -111,7 +113,7 @@ const RefundPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">5. Refund Eligibility (Limited Exceptions)</h2>
                 <p className="text-muted-foreground text-lg">Refunds may be considered only in the following situations:</p>
@@ -142,7 +144,7 @@ const RefundPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">6. Non-Refundable Situations</h2>
                 <p className="text-muted-foreground text-lg">Refunds will not be issued for:</p>
@@ -160,7 +162,7 @@ const RefundPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">7. Third-Party Purchases</h2>
                 <p className="text-muted-foreground text-lg">If you purchased CorrectNow through:</p>
@@ -175,7 +177,7 @@ const RefundPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">8. Payment Processors</h2>
                 <p className="text-muted-foreground text-lg">
@@ -193,7 +195,7 @@ const RefundPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">9. Abuse &amp; Fraud Prevention</h2>
                 <p className="text-muted-foreground text-lg">CorrectNow reserves the right to:</p>
@@ -204,7 +206,7 @@ const RefundPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">10. Changes to This Refund Policy</h2>
                 <p className="text-muted-foreground text-lg">We may update this Refund Policy from time to time.</p>
@@ -217,7 +219,7 @@ const RefundPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">11. Contact Us</h2>
                 <p className="text-muted-foreground text-lg">If you believe you qualify for a refund under this policy, contact us at:</p>
@@ -240,7 +242,7 @@ const RefundPolicy = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">FINAL FOUNDER NOTE (Important)</h2>
                 <p className="text-muted-foreground text-lg">This Refund Policy is designed to:</p>

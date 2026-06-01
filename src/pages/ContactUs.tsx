@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Mail, CreditCard, Clock, Shield, Globe, HelpCircle, CheckCircle, Send } from "lucide-react";
+import { Mail, CreditCard, Clock, Shield, Globe, HelpCircle, CheckCircle, Send, Loader2, ArrowRight, MessageSquare } from "lucide-react";
 
 const ContactUs = () => {
   const { toast } = useToast();
@@ -88,35 +88,35 @@ const ContactUs = () => {
       
       <main className="flex-1">
         {/* Hero Section */}
-        <section className="border-b border-border bg-gradient-to-b from-background to-accent/5 py-16 md:py-24">
-          <div className="container max-w-4xl">
-            <div className="flex flex-col items-center text-center gap-4">
-              <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-accent mb-2">
-                <Mail className="w-8 h-8 text-accent-foreground" />
+        <section className="relative overflow-hidden border-b border-border bg-gradient-to-b from-white via-blue-50/30 to-indigo-50/20 py-16 md:py-24">
+          <div className="pointer-events-none absolute -top-32 -right-32 w-[520px] h-[520px] rounded-full bg-gradient-to-br from-blue-200/40 via-indigo-200/30 to-violet-200/20 blur-3xl" />
+          <div className="container max-w-4xl relative">
+            <div className="flex flex-col items-center text-center gap-5">
+              <div className="inline-flex items-center gap-2 rounded-full border border-blue-200/60 bg-blue-50 px-4 py-1.5 text-sm font-semibold text-blue-700">
+                <MessageSquare className="w-3.5 h-3.5" />
+                Get in Touch
               </div>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">
-                Contact Us
+              <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground">
+                We're here to{" "}
+                <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">help you</span>
               </h1>
-              <p className="text-xl md:text-2xl text-muted-foreground max-w-2xl">
-                We're here to help.
+              <p className="text-lg md:text-xl text-muted-foreground max-w-2xl">
+                Have a question about CorrectNow, need help with your account, or a billing inquiry? Reach out using the options below — we respond within 24–48 hours.
               </p>
+              <div className="flex flex-wrap items-center justify-center gap-4 pt-1">
+                <a href="mailto:info@correctnow.app" className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white px-5 py-2 text-sm font-medium text-blue-700 shadow-sm hover:bg-blue-50 hover:border-blue-300 transition-colors">
+                  <Mail className="w-4 h-4" />
+                  info@correctnow.app
+                </a>
+              </div>
             </div>
           </div>
         </section>
 
-        {/* Intro Text */}
-        <section className="py-12 md:py-16">
-          <div className="container max-w-4xl">
-            <p className="text-lg text-muted-foreground text-center">
-              Whether you have a question about CorrectNow, need assistance with your account, or have a billing-related inquiry, please reach out to us using the appropriate contact option below.
-            </p>
-          </div>
-        </section>
-
         {/* Contact Form */}
-        <section className="pb-16 md:pb-20">
+        <section className="py-16 md:py-20">
           <div className="container max-w-3xl">
-            <Card className="border-2">
+            <Card className="border border-border/60 shadow-md">
               <CardHeader>
                 <div className="flex items-center gap-3 mb-2">
                   <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-accent">
@@ -191,12 +191,12 @@ const ContactUs = () => {
                   <Button 
                     type="submit" 
                     size="lg" 
-                    className="w-full"
+                    className="group w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-md hover:shadow-lg transition-all"
                     disabled={isSubmitting}
                   >
                     {isSubmitting ? (
                       <>
-                        <span className="animate-spin mr-2">⏳</span>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                         Sending...
                       </>
                     ) : (
@@ -217,11 +217,11 @@ const ContactUs = () => {
           <div className="container max-w-5xl">
             <div className="grid gap-8 md:grid-cols-2">
               {/* General Inquiries */}
-              <Card className="border-2 hover:border-accent transition-colors">
+              <Card className="border border-border/60 shadow-sm hover:shadow-md transition-shadow">
                 <CardHeader>
                   <div className="flex items-center gap-3 mb-2">
-                    <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-accent">
-                      <HelpCircle className="w-6 h-6 text-accent-foreground" />
+                    <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-blue-50">
+                      <HelpCircle className="w-6 h-6 text-blue-600" />
                     </div>
                     <CardTitle className="text-2xl">General Inquiries</CardTitle>
                   </div>
@@ -266,11 +266,11 @@ const ContactUs = () => {
               </Card>
 
               {/* Billing & Subscriptions */}
-              <Card className="border-2 hover:border-accent transition-colors">
+              <Card className="border border-border/60 shadow-sm hover:shadow-md transition-shadow">
                 <CardHeader>
                   <div className="flex items-center gap-3 mb-2">
-                    <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-accent">
-                      <CreditCard className="w-6 h-6 text-accent-foreground" />
+                    <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-indigo-50">
+                      <CreditCard className="w-6 h-6 text-indigo-600" />
                     </div>
                     <CardTitle className="text-2xl">Billing & Subscriptions</CardTitle>
                   </div>
@@ -415,17 +415,24 @@ const ContactUs = () => {
         </section>
 
         {/* Footer CTA */}
-        <section className="py-16 md:py-24 border-t border-border">
-          <div className="container max-w-3xl text-center">
-            <div className="flex items-center justify-center gap-2 text-2xl md:text-3xl font-bold text-foreground mb-4">
-              <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-accent">
-                <CheckCircle className="w-6 h-6 text-accent-foreground" />
-              </div>
-              <span>CorrectNow</span>
-            </div>
-            <p className="text-lg text-muted-foreground">
-              Write clearly. Communicate confidently.
+        <section className="relative overflow-hidden py-16 md:py-24">
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-600 to-indigo-700" />
+          <div className="pointer-events-none absolute -top-20 -right-20 w-96 h-96 rounded-full bg-white/10 blur-3xl" />
+          <div className="relative container max-w-3xl text-center">
+            <h2 className="text-2xl md:text-3xl font-extrabold text-white mb-3">
+              Still have questions?
+            </h2>
+            <p className="text-white/75 text-lg mb-8">
+              Our team is ready to help you get the most out of CorrectNow.
             </p>
+            <a
+              href="mailto:info@correctnow.app"
+              className="group inline-flex items-center gap-2 rounded-full bg-white px-7 py-3 text-sm font-semibold text-blue-700 shadow-lg hover:bg-blue-50 transition-colors"
+            >
+              <Mail className="w-4 h-4" />
+              Email us directly
+              <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+            </a>
           </div>
         </section>
       </main>

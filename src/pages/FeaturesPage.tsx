@@ -64,10 +64,11 @@ const FeaturesPage = () => {
               Three simple steps to flawless writing — in any language, on any device.
             </p>
             <Button
-              className="rounded-full bg-gray-900 text-white px-8 py-5 text-base font-semibold hover:bg-gray-800 shadow-lg hover:shadow-xl transition-all"
+              className="group rounded-full bg-gradient-to-r from-gray-900 to-gray-700 text-white px-8 py-5 text-base font-semibold hover:from-gray-800 hover:to-gray-600 shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all"
               onClick={() => navigate("/editor")}
             >
-              Try It Free — No Sign-up →
+              Try It Free — No Sign-up
+              <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-1" />
             </Button>
           </div>
         </section>
@@ -130,10 +131,11 @@ const FeaturesPage = () => {
                 <p className="text-white/80 mb-7 max-w-lg mx-auto">Join thousands of writers, students, and professionals who trust CorrectNow.</p>
                 <Button
                   size="lg"
-                  className="rounded-full bg-white text-primary px-8 py-5 text-base font-bold shadow-lg hover:shadow-xl hover:bg-white/95 transition-all"
+                  className="group rounded-full bg-white text-primary px-8 py-5 text-base font-bold shadow-lg hover:shadow-xl hover:bg-white/95 hover:-translate-y-0.5 transition-all"
                   onClick={() => navigate("/editor")}
                 >
-                  Get Started — Free <ArrowRight className="w-4 h-4 ml-1" />
+                  Get Started — Free
+                  <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-1" />
                 </Button>
               </div>
             </div>

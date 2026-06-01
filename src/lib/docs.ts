@@ -99,6 +99,24 @@ export const upsertDoc = (text: string, id?: string): DocItem => {
   return doc;
 };
 
+export const renameDoc = async (id: string, newTitle: string): Promise<void> => {
+  const auth = getFirebaseAuth();
+  const updatedAt = new Date().toISOString();
+
+  const docs = getDocs();
+  const next = docs.map((d) => (d.id === id ? { ...d, title: newTitle.trim(), updatedAt } : d));
+  saveDocs(next);
+  window.dispatchEvent(new Event("correctnow:docs-updated"));
+
+  const db = getFirebaseDb();
+  if (auth?.currentUser && db) {
+    const ref = firestoreDoc(db, `users/${auth.currentUser.uid}/docs/${id}`);
+    await updateDoc(ref, { title: newTitle.trim(), updatedAt }).catch(() => {
+      // ignore – local already updated
+    });
+  }
+};
+
 export const archiveDocById = async (id: string) => {
   const auth = getFirebaseAuth();
   const archivedAt = new Date().toISOString();

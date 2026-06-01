@@ -9,17 +9,19 @@ const Disclaimer = () => {
       <Header />
 
       <main className="flex-1">
-        <section className="border-b border-border bg-gradient-to-b from-background to-accent/5 py-16 md:py-24">
-          <div className="container max-w-4xl">
+        <section className="relative overflow-hidden border-b border-border bg-gradient-to-b from-white via-blue-50/30 to-indigo-50/20 py-14 md:py-20">
+          <div className="pointer-events-none absolute -top-24 -right-24 w-[400px] h-[400px] rounded-full bg-gradient-to-br from-blue-200/40 via-indigo-200/30 to-violet-200/20 blur-3xl" />
+          <div className="container max-w-4xl relative">
             <div className="flex flex-col items-center text-center gap-4">
-              <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-accent mb-2">
-                <AlertTriangle className="w-8 h-8 text-accent-foreground" />
+              <div className="inline-flex items-center gap-2 rounded-full border border-blue-200/60 bg-blue-50 px-4 py-1.5 text-sm font-semibold text-blue-700">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                Legal Document
               </div>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">
+              <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground">
                 Disclaimer
               </h1>
-              <p className="text-xl md:text-2xl text-muted-foreground max-w-2xl">
-                The information, services, and tools provided by CorrectNow are offered for general informational and productivity purposes only. By using CorrectNow, you acknowledge and agree to the terms of this Disclaimer.
+              <p className="text-base md:text-lg text-muted-foreground max-w-2xl">
+                Important information about the scope and limitations of CorrectNow's services.
               </p>
             </div>
           </div>
@@ -27,7 +29,7 @@ const Disclaimer = () => {
 
         <section className="py-16 md:py-20">
           <div className="container max-w-4xl space-y-6">
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">1. No Professional Advice</h2>
                 <p className="text-muted-foreground text-lg">CorrectNow is an AI-powered proofreading and writing assistance tool.</p>
@@ -56,7 +58,7 @@ const Disclaimer = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">2. AI-Generated Content Disclaimer</h2>
                 <p className="text-muted-foreground text-lg">
@@ -87,7 +89,7 @@ const Disclaimer = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">3. No Guarantee of Accuracy or Results</h2>
                 <p className="text-muted-foreground text-lg">CorrectNow does not guarantee:</p>
@@ -115,7 +117,7 @@ const Disclaimer = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">4. User Responsibility</h2>
                 <p className="text-muted-foreground text-lg">By using CorrectNow, you agree that:</p>
@@ -137,7 +139,7 @@ const Disclaimer = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">5. No Liability for Damages</h2>
                 <p className="text-muted-foreground text-lg">
@@ -165,7 +167,7 @@ const Disclaimer = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">6. External Links &amp; Third-Party Content</h2>
                 <p className="text-muted-foreground text-lg">
@@ -188,7 +190,7 @@ const Disclaimer = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">7. Availability &amp; Technical Limitations</h2>
                 <p className="text-muted-foreground text-lg">
@@ -215,7 +217,7 @@ const Disclaimer = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">8. Jurisdictional Limitations</h2>
                 <p className="text-muted-foreground text-lg">
@@ -224,7 +226,7 @@ const Disclaimer = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">9. Changes to This Disclaimer</h2>
                 <p className="text-muted-foreground text-lg">We may update this Disclaimer from time to time.</p>
@@ -234,7 +236,7 @@ const Disclaimer = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border border-border/60 shadow-sm">
               <CardContent className="p-8 md:p-10 space-y-4">
                 <h2 className="text-2xl font-bold text-foreground">10. Contact Information</h2>
                 <p className="text-muted-foreground text-lg">If you have questions about this Disclaimer, contact us at:</p>
