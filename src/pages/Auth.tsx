@@ -63,11 +63,8 @@ const Auth = () => {
   };
 
   const shouldUseRedirect = () => {
-    const ua = navigator.userAgent || "";
-    // Mobile browsers + small viewports (e.g., devtools emulation) should use redirect to avoid popup blockers
-    const isMobileUA = /Android|iPhone|iPad|iPod/i.test(ua);
-    const isSmallViewport = typeof window !== "undefined" && window.innerWidth < 900;
-    return isMobileUA || isSmallViewport;
+    // Disable default redirect to avoid firebaseapp.com/__/firebase/init.json dependency on mobile.
+    return false;
   };
 
   const triggerReturnToApp = () => {
@@ -541,10 +538,12 @@ const Auth = () => {
     console.log('[Auth] handleGoogleResult: success, navigating to dashboard');
     toast.success("Signed in with Google");
     if (shouldUseRedirect()) {
+      console.log('[Auth] handleGoogleResult: forcing reload to dashboard');
       // On some mobile browsers, React Router navigate can be blocked after redirect; force a full reload.
       window.location.href = "/";
       return;
     }
+    console.log('[Auth] handleGoogleResult: navigate with React Router');
     navigate("/", { replace: true });
   };
 
@@ -581,12 +580,16 @@ const Auth = () => {
       }
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
-      if (forceRedirect || shouldUseRedirect()) {
+      try {
+        console.log('[Auth] Trying Google popup flow');
+        const result = await signInWithPopup(auth, provider);
+        await handleGoogleResult(result);
+        return;
+      } catch (popupErr: any) {
+        console.warn('[Auth] Popup flow failed, falling back to redirect:', popupErr?.message || popupErr);
         await signInWithRedirect(auth, provider);
         return;
       }
-      const result = await signInWithPopup(auth, provider);
-      await handleGoogleResult(result);
     } catch (error: any) {
       toast.error(error?.message ?? "Google sign-in failed");
     } finally {
