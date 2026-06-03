@@ -29,6 +29,7 @@ import { getFirebaseAuth, getFirebaseDb } from "@/lib/firebase";
 import { deleteUser, onAuthStateChanged, signOut } from "firebase/auth";
 import { collection, deleteDoc, doc, getDoc, getDocs as getFirestoreDocs, onSnapshot, setDoc } from "firebase/firestore";
 import { clearSessionId } from "@/lib/session";
+import { detectCountryCode, formatPrice, resolvePricing, type RegionalPricing } from "@/lib/pricing";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -80,6 +81,7 @@ const Index = () => {
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
   const [selectedArchivedIds, setSelectedArchivedIds] = useState<Set<string>>(new Set());
   const [docFilter, setDocFilter] = useState<"all" | "today" | "week" | "month">("all");
+  const [regionalPricing, setRegionalPricing] = useState<RegionalPricing>(() => resolvePricing(""));
   const [miniEditorText, setMiniEditorText] = useState("");
   const [miniEditorTitle, setMiniEditorTitle] = useState("Untitled Document");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -272,6 +274,10 @@ const Index = () => {
       window.removeEventListener("correctnow:docs-updated", handleDocsUpdated);
     };
   }, [location.key]);
+
+  useEffect(() => {
+    detectCountryCode().then((code) => setRegionalPricing(resolvePricing(code)));
+  }, []);
 
   const { activeDocs, archivedDocs } = useMemo(() => {
     const active = docs.filter((d) => !d.archivedAt);
@@ -1730,410 +1736,621 @@ const Index = () => {
             )}
             </div>
           ) : (
-            // Non-authenticated Layout (Hero + Recent Docs)
+            // Non-authenticated Layout — World-class landing page
             <>
-              <main className="flex-1 pt-0 pb-0">
-            {!isAuthenticated && (
-        <section className="mb-0 relative overflow-hidden bg-white">
-          {/* Decorative gradient orb — top right */}
-          <div className="pointer-events-none absolute right-0 top-0 w-[680px] h-[680px] rounded-full bg-gradient-to-br from-blue-200/60 via-indigo-300/40 to-violet-300/50 blur-[2px] translate-x-1/3 -translate-y-1/4" />
-          <div className="pointer-events-none absolute right-16 top-16 w-[420px] h-[420px] rounded-full bg-gradient-to-br from-blue-100/50 via-indigo-200/30 to-violet-200/40 blur-sm" />
+              <main className="flex-1">
 
-          <div className="container relative py-14 sm:py-20 md:py-28 px-4 sm:px-6">
-            <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] items-center">
-
-              {/* ── Left copy ── */}
-              <div className="max-w-xl">
-                {/* Badge pills */}
-                <div className="flex flex-wrap gap-3 mb-7">
-                  <span className="inline-flex items-center gap-1.5 text-sm text-gray-600 border border-gray-200 rounded-full px-3.5 py-1 bg-gray-50/80">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Global languages grammar check
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 text-sm text-gray-600 border border-gray-200 rounded-full px-3.5 py-1 bg-gray-50/80">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Grammarly alternative
-                  </span>
-                </div>
-
-                {/* Headline */}
-                <h1 className="text-4xl sm:text-5xl md:text-[3.5rem] font-extrabold text-gray-900 leading-[1.1] tracking-tight">
-                  AI Proofreader and<br />
-                  Grammar Checker<br />
-                  for <span className="text-primary">Every Language</span>
-                </h1>
-
-                {/* Description */}
-                <p className="text-gray-500 text-base sm:text-lg mt-5 leading-relaxed">
-                  Correct grammar, spelling, and punctuation errors instantly with CorrectNow. Your AI-powered writing assistant for clear, confident, and mistake-free content in 50+ languages.
-                </p>
-
-                {/* CTAs */}
-                <div className="flex flex-col sm:flex-row gap-3 mt-8">
-                  <Button
-                    className="group rounded-full bg-gradient-to-r from-gray-900 to-gray-700 text-white px-7 py-5 text-base font-semibold hover:from-gray-800 hover:to-gray-600 shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all w-full sm:w-auto"
-                    onClick={() => navigate("/editor")}
-                  >
-                    Check My Text Now — Free
-                    <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-1" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="rounded-full border-gray-300 text-gray-700 px-7 py-5 text-base font-semibold hover:bg-gray-100 hover:text-gray-800 hover:border-gray-400 transition-all w-full sm:w-auto"
-                    onClick={() => navigate("/features")}
-                  >
-                    <PlayCircle className="w-4 h-4 mr-2" />
-                    See How It Works
-                  </Button>
-                </div>
-
-                {/* Trust bullets */}
-                <div className="flex flex-wrap gap-5 mt-6 text-sm text-gray-500">
-                  <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-gray-400" /> Free forever</span>
-                  <span className="flex items-center gap-1.5"><Zap className="w-4 h-4 text-gray-400" /> Instant results</span>
-                  <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-gray-400" /> No sign-up required</span>
-                </div>
-
-                {/* Privacy note */}
-                <div className="mt-4 flex items-center gap-1.5 text-xs text-gray-400 italic">
-                  <Shield className="w-3.5 h-3.5 shrink-0" />
-                  <span>Your privacy matters. We don't store or share your text</span>
-                </div>
-              </div>
-
-              {/* ── Right: Preview card ── */}
-              <div className="relative">
-                <Card className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-                  <CardContent className="p-5 sm:p-6">
-                    <div className="flex items-center justify-between text-xs mb-4">
-                      <span className="font-semibold text-gray-700">Live preview</span>
-                      <span className="text-gray-400">Professional proofreading</span>
-                    </div>
-
-                    {/* Original */}
-                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 mb-3">
-                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Original</div>
-                      <div className="text-sm text-gray-700 leading-relaxed">
-                        Please <span className="text-red-500 underline decoration-red-400">recieve</span> the document and reply when <span className="text-red-500 underline decoration-red-400">your</span> done.
-                      </div>
-                    </div>
-
-                    {/* Corrected */}
-                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 mb-3">
-                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Corrected</div>
-                      <div className="text-sm text-gray-700 leading-relaxed">
-                        Please <span className="text-emerald-600 font-semibold">receive</span> the document and reply when <span className="text-emerald-600 font-semibold">you're</span> done.
-                      </div>
-                    </div>
-
-                    {/* Change log */}
-                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2.5">Change log</div>
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-3 text-sm text-gray-600">
-                          <span className="flex-1">recieve</span>
-                          <span className="text-gray-300">→</span>
-                          <span className="flex-1 font-semibold text-gray-900">receive</span>
-                        </div>
-                        <div className="flex items-center gap-3 text-sm text-gray-600">
-                          <span className="flex-1">your</span>
-                          <span className="text-gray-300">→</span>
-                          <span className="flex-1 font-semibold text-gray-900">you're</span>
-                        </div>
-                      </div>
-                      <div className="text-[10px] text-gray-400 mt-3 pt-2.5 border-t border-gray-100">
-                        Explanations included for every fix
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-
-            {/* ── Social proof stats bar ── */}
-            <div className="mt-16">
-              <div className="flex flex-col items-center gap-4">
-                <div className="flex items-center gap-1">
-                  {[0,1,2,3,4].map((i) => (
-                    <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                  ))}
-                  <span className="text-sm text-gray-500 ml-2 font-medium">4.9/5 · Trusted by 1,000+ writers worldwide</span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-px rounded-2xl overflow-hidden border border-gray-100 w-full max-w-2xl shadow-sm">
-                  {[
-                    { value: "50+",    label: "Languages" },
-                    { value: "1,000+", label: "Active users" },
-                    { value: "4.9/5",  label: "User rating" },
-                    { value: "<2 sec", label: "Avg. response" },
-                  ].map(({ value, label }) => (
-                    <div key={label} className="flex flex-col items-center justify-center bg-gray-50/80 py-4 px-3">
-                      <span className="text-xl font-extrabold text-gray-900">{value}</span>
-                      <span className="text-xs text-gray-500 mt-0.5">{label}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* ── 4 feature mini-cards ── */}
-            <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {[
-                { icon: Globe,     title: "50+ Languages",        desc: "Check grammar and spelling in over 50 languages with native-level accuracy.",                             bg: "bg-blue-500" },
-                { icon: Zap,       title: "Instant Results",       desc: "Get real-time corrections and suggestions as you type or paste your text.",                              bg: "bg-emerald-500" },
-                { icon: Shield,    title: "Privacy First",         desc: "Your text is safe with us. We don't store or share your content with anyone.",                          bg: "bg-violet-500" },
-                { icon: Sparkles,  title: "AI-Powered Accuracy",   desc: "Advanced AI technology ensures context-aware corrections and better clarity.",                           bg: "bg-orange-500" },
-              ].map(({ icon: Icon, title, desc, bg }) => (
-                <Card key={title} className="border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
-                  <CardContent className="p-5">
-                    <div className={`w-10 h-10 rounded-full ${bg} flex items-center justify-center mb-3`}>
-                      <Icon className="w-5 h-5 text-white" />
-                    </div>
-                    <h3 className="font-bold text-gray-900 mb-1.5 text-sm">{title}</h3>
-                    <p className="text-xs text-gray-500 leading-relaxed">{desc}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        </section>
-        )}
-
-        {/* How It Works Section */}
-        {!isAuthenticated && (
-        <section className="py-20 md:py-28 bg-gradient-to-b from-white to-blue-50/30">
-          <div className="container">
-            <div className="text-center mb-14">
-              <div className="inline-flex items-center gap-2 rounded-full bg-indigo-50 border border-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-600 mb-5">
-                <Zap className="w-3.5 h-3.5" /> How It Works
-              </div>
-              <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-foreground tracking-tight">
-                Three steps to flawless writing
-              </h2>
-              <p className="text-lg text-muted-foreground max-w-xl mx-auto mt-4">
-                No setup, no downloads. Just paste, check, and write with confidence.
-              </p>
-            </div>
-            <div className="grid gap-8 md:grid-cols-3 max-w-4xl mx-auto">
-              {[
-                { step: "01", icon: FileText, title: "Paste your text", desc: "Copy any text — email, essay, report, message — and paste it into CorrectNow.", color: "text-blue-600", bg: "bg-blue-50" },
-                { step: "02", icon: Sparkles, title: "AI checks instantly", desc: "Our AI engine scans for grammar, spelling, punctuation, and clarity issues in seconds.", color: "text-indigo-600", bg: "bg-indigo-50" },
-                { step: "03", icon: CheckCircle2, title: "Apply corrections", desc: "Review each suggestion with a clear explanation, then apply all fixes with one click.", color: "text-emerald-600", bg: "bg-emerald-50" },
-              ].map(({ step, icon: Icon, title, desc, color, bg }) => (
-                <div key={step} className="relative flex flex-col items-center text-center gap-4">
-                  <div className="relative">
-                    <div className={`w-16 h-16 rounded-2xl ${bg} flex items-center justify-center shadow-sm`}>
-                      <Icon className={`w-7 h-7 ${color}`} />
-                    </div>
-                    <span className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-white border border-gray-200 text-[10px] font-extrabold text-gray-500 flex items-center justify-center shadow-sm">{step}</span>
+                {/* ═══════════════════════════════════════════
+                    HERO SECTION — Light, premium, conversion-focused
+                ═══════════════════════════════════════════ */}
+                <section className="relative flex flex-col justify-center overflow-hidden bg-gradient-to-b from-blue-50/70 via-white to-white">
+                  {/* Soft gradient orbs (light) */}
+                  <div className="pointer-events-none absolute inset-0">
+                    <div className="absolute top-0 -left-32 w-[500px] h-[500px] rounded-full bg-blue-200/40 blur-[120px]" />
+                    <div className="absolute top-10 -right-32 w-[480px] h-[480px] rounded-full bg-indigo-200/40 blur-[120px]" />
                   </div>
-                  <h3 className="text-lg font-bold text-foreground">{title}</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-        )}
+                  {/* Subtle grid */}
+                  <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,#1f2a4410_1px,transparent_1px),linear-gradient(to_bottom,#1f2a4410_1px,transparent_1px)] bg-[size:64px_64px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]" />
 
-        {/* Features Section */}
-        {!isAuthenticated && (
-        <section className="container pt-20 pb-12 md:pt-28 md:pb-20">
-          <div className="text-center mb-16">
-            <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 border border-blue-100 px-4 py-1.5 text-sm font-semibold text-blue-600 mb-5">
-              <Sparkles className="w-3.5 h-3.5" /> Why Choose CorrectNow
-            </div>
-            <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-foreground tracking-tight">
-              Everything you need to write flawlessly
-            </h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto mt-4">
-              The best free alternative to Grammarly — instant, accurate, and built for every language.
-            </p>
-          </div>
+                  <div className="relative z-10 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-16 md:py-24 lg:py-28">
+                    <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
 
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {[
-              { icon: CheckCircle2, title: "Instant Grammar Check", desc: "Real-time grammar, spelling, and punctuation corrections powered by AI. Results in seconds.", color: "text-emerald-600", bg: "bg-emerald-50", border: "group-hover:border-emerald-200" },
-              { icon: Globe, title: "50+ Languages", desc: "English, Spanish, French, German, Tamil, Hindi, Arabic, and 45+ more languages supported natively.", color: "text-blue-600", bg: "bg-blue-50", border: "group-hover:border-blue-200" },
-              { icon: Shield, title: "100% Private & Secure", desc: "Your text is never stored or shared. End-to-end privacy with no data logging whatsoever.", color: "text-violet-600", bg: "bg-violet-50", border: "group-hover:border-violet-200" },
-              { icon: Zap, title: "Free Forever", desc: "No credit card, no limits on basic checks. Upgrade anytime for power features and higher limits.", color: "text-amber-600", bg: "bg-amber-50", border: "group-hover:border-amber-200" },
-              { icon: Sparkles, title: "Smart AI Engine", desc: "Catches complex grammar mistakes, improves sentence structure, and enhances overall clarity.", color: "text-rose-600", bg: "bg-rose-50", border: "group-hover:border-rose-200" },
-              { icon: Monitor, title: "Works Everywhere", desc: "Desktop, mobile, or tablet. Check emails, essays, social posts, and documents from any device.", color: "text-cyan-600", bg: "bg-cyan-50", border: "group-hover:border-cyan-200" },
-            ].map(({ icon: Icon, title, desc, color, bg, border }) => (
-              <Card key={title} className={`group border border-border/60 shadow-sm hover:shadow-xl ${border} transition-all duration-300 hover:-translate-y-1`}>
-                <CardContent className="p-6">
-                  <div className={`w-11 h-11 rounded-xl ${bg} flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300`}>
-                    <Icon className={`w-5 h-5 ${color}`} />
-                  </div>
-                  <h3 className="text-lg font-bold text-foreground mb-2">{title}</h3>
-                  <p className="text-muted-foreground text-sm leading-relaxed">{desc}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          <div className="mt-16 rounded-2xl bg-gradient-to-br from-blue-50 via-white to-indigo-50 border border-blue-100 p-8 md:p-10 text-center">
-            <h3 className="text-xl md:text-2xl font-bold text-foreground mb-3">
-              Languages supported for grammar checking
-            </h3>
-            <p className="text-sm md:text-base text-muted-foreground leading-relaxed max-w-3xl mx-auto">
-              English, Mandarin Chinese, Hindi, Spanish, French, Arabic, Bengali, Portuguese, Russian, Indonesian, Urdu, German, Japanese, Marathi, Telugu, Turkish, Tamil, Vietnamese, Korean, Italian, Thai, Gujarati, Kannada, Malayalam, Polish, Dutch, Greek, Ukrainian, Romanian, Swedish, Hungarian, Czech, and more.
-            </p>
-          </div>
-
-          <div className="mt-16 text-center">
-            <h3 className="text-2xl md:text-3xl font-extrabold text-foreground mb-3">Ready to write error-free?</h3>
-            <p className="text-muted-foreground mb-8 text-lg">Join thousands of writers who trust CorrectNow daily.</p>
-            <Button
-              size="lg"
-              className="rounded-full px-8 py-5 text-base font-bold shadow-lg hover:shadow-xl transition-all"
-              onClick={() => navigate("/editor")}
-            >
-              Try Free Grammar Checker
-            </Button>
-          </div>
-        </section>
-        )}
-
-        {/* Testimonials Section */}
-        {!isAuthenticated && (
-        <section className="relative overflow-hidden py-20 md:py-28">
-          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-blue-50/30 to-transparent" />
-          <div className="container relative">
-            <div className="text-center mb-14">
-              <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 border border-amber-100 px-4 py-1.5 text-sm font-semibold text-amber-700 mb-5">
-                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> Trusted Worldwide
-              </div>
-              <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-foreground tracking-tight">
-                Loved by writers everywhere
-              </h2>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto mt-4">
-                See what professionals, students, and creators say about CorrectNow.
-              </p>
-            </div>
-
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {[
-                { quote: "CorrectNow helps me write without fear of mistakes. Very easy to use.", name: "Arjun Kumar", role: "University Student", lang: "English, Hindi", initial: "A", gradient: "from-blue-500 to-indigo-600" },
-                { quote: "Finally, a grammar checker that understands native languages properly.", name: "Meera Nair", role: "Author & Blogger", lang: "Malayalam, Tamil", initial: "M", gradient: "from-violet-500 to-purple-600" },
-                { quote: "We save time and improve clarity across languages. Highly useful.", name: "Rohit Menon", role: "Senior Editor", lang: "English, Marathi", initial: "R", gradient: "from-emerald-500 to-teal-600" },
-                { quote: "My emails and reports sound more professional now. A game changer.", name: "Anita Sharma", role: "Operations Manager", lang: "English, Telugu", initial: "A", gradient: "from-amber-500 to-orange-600" },
-                { quote: "Excellent accuracy for research writing. I would rate it 10 out of 10.", name: "Dr. Lukas Schneider", role: "Research Fellow", lang: "German, English", initial: "D", gradient: "from-cyan-500 to-blue-600" },
-                { quote: "CorrectNow understands grammar and context perfectly. Powerful tool.", name: "Ramesh Naidu", role: "Script Writer", lang: "Tamil, English", initial: "R", gradient: "from-rose-500 to-pink-600" },
-              ].map(({ quote, name, role, lang, initial, gradient }) => (
-                <Card key={name} className="group border border-border/50 bg-card hover:shadow-xl hover:border-primary/15 transition-all duration-300">
-                  <CardContent className="p-6 flex flex-col h-full">
-                    <div className="flex items-center gap-0.5 mb-4">
-                      {[...Array(5)].map((_, i) => (
-                        <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                      ))}
-                    </div>
-                    <p className="text-foreground leading-relaxed flex-1 mb-4">
-                      "{quote}"
-                    </p>
-                    <div className="text-xs text-muted-foreground mb-4 font-medium">{lang}</div>
-                    <div className="flex items-center gap-3 pt-4 border-t border-border/60">
-                      <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center text-white text-sm font-bold shadow-sm`}>
-                        {initial}
-                      </div>
+                      {/* Left: Copy */}
                       <div>
-                        <div className="font-semibold text-foreground text-sm">{name}</div>
-                        <div className="text-xs text-muted-foreground">{role}</div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        </section>
-        )}
+                        {/* Badge */}
+                        <div className="inline-flex items-center gap-2.5 rounded-full bg-blue-50 border border-blue-100 px-4 py-1.5 text-sm font-semibold text-blue-600 mb-7">
+                          <Sparkles className="w-3.5 h-3.5" />
+                          AI-Powered Grammar Checker
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        </div>
 
-        <div className="container pb-8">
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full bg-secondary border border-border/60 px-4 py-1.5 text-sm font-medium text-muted-foreground mb-2">
-                <FileText className="w-3.5 h-3.5" /> Your workspace
-              </div>
-              <div className="text-2xl md:text-3xl font-bold text-foreground">Recent documents</div>
-            </div>
-          </div>
-          {filtered.length === 0 ? (
-            <div className="text-center text-muted-foreground py-12">No documents found.</div>
-          ) : (
-            sections.map((section) => (
-              <div key={section} className="mb-8">
-                <div className="text-sm font-semibold text-muted-foreground mb-3">{section}</div>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  {filtered
-                    .filter((doc) => doc.section === section)
-                    .map((doc) => (
-                      <div key={doc.id} className="flex justify-end">
-                        <Card className="hover:shadow-lg hover:border-primary/20 transition-all duration-300 w-full border border-border/60">
-                          <CardContent className="p-5 min-h-[150px]">
-                            <div className="flex items-start gap-4">
-                              <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-                                <FileText className="w-5 h-5 text-blue-600" />
-                              </div>
-                              <div className="flex-1">
-                                <button
-                                  className="text-left text-base font-semibold text-foreground hover:text-primary transition-colors"
-                                  onClick={() => openDoc(doc.id)}
-                                >
-                                  {doc.title}
-                                </button>
-                                <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                                  {doc.preview}
-                                </p>
-                                <div className="text-xs text-muted-foreground mt-2">{doc.updated}</div>
+                        {/* Headline */}
+                        <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight leading-[1.04] text-gray-900 mb-6">
+                          Write without<br />
+                          <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                            any mistakes.
+                          </span>
+                        </h1>
+
+                        {/* Subheading */}
+                        <p className="text-lg sm:text-xl text-gray-600 leading-relaxed mb-8 max-w-[520px]">
+                          CorrectNow instantly fixes grammar, spelling, and punctuation in <strong className="text-gray-900 font-semibold">50+ languages</strong> — without rewriting your voice or tone.
+                        </p>
+
+                        {/* CTAs */}
+                        <div className="flex flex-col sm:flex-row gap-3 mb-8">
+                          <Button
+                            className="group h-14 px-8 text-base font-bold rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/25 transition-all hover:scale-[1.02] hover:shadow-blue-500/40"
+                            onClick={() => navigate("/editor")}
+                          >
+                            Start Free Check
+                            <ArrowRight className="w-5 h-5 ml-2 transition-transform group-hover:translate-x-1" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="h-14 px-8 text-base rounded-full border-gray-300 text-gray-700 bg-white hover:bg-gray-50 hover:border-gray-400 transition-all"
+                            onClick={() => navigate("/features")}
+                          >
+                            <PlayCircle className="w-5 h-5 mr-2 text-blue-600" />
+                            See How It Works
+                          </Button>
+                        </div>
+
+                        {/* Trust signals */}
+                        <div className="flex flex-wrap gap-5 text-sm text-gray-500 mb-6">
+                          <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-emerald-500" /> Free forever</span>
+                          <span className="flex items-center gap-1.5"><Shield className="w-4 h-4 text-emerald-500" /> No data stored</span>
+                          <span className="flex items-center gap-1.5"><Zap className="w-4 h-4 text-emerald-500" /> Results in &lt;2 sec</span>
+                        </div>
+
+                        {/* Star rating */}
+                        <div className="flex items-center gap-2">
+                          <div className="flex">
+                            {[0,1,2,3,4].map((i) => (
+                              <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
+                            ))}
+                          </div>
+                          <span className="text-sm text-gray-500 font-medium">4.9 · Trusted by 1,000+ writers</span>
+                        </div>
+                      </div>
+
+                      {/* Right: Live demo preview card */}
+                      <div className="relative">
+                        <div className="absolute -inset-4 bg-gradient-to-r from-blue-200/40 to-indigo-200/40 rounded-3xl blur-2xl" />
+                        <div className="relative bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-xl">
+                          {/* Window chrome */}
+                          <div className="flex items-center gap-2 px-5 py-3.5 border-b border-gray-100 bg-gray-50">
+                            <div className="w-3 h-3 rounded-full bg-red-400" />
+                            <div className="w-3 h-3 rounded-full bg-amber-400" />
+                            <div className="w-3 h-3 rounded-full bg-emerald-400" />
+                            <span className="ml-3 text-xs text-gray-500 font-medium">CorrectNow · Live Preview</span>
+                            <div className="ml-auto flex items-center gap-1.5 text-xs text-emerald-600">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                              AI Active
+                            </div>
+                          </div>
+
+                          <div className="p-5 space-y-3">
+                            {/* Before */}
+                            <div className="rounded-xl bg-gray-50 border border-gray-100 p-4">
+                              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Before</div>
+                              <p className="text-sm text-gray-700 leading-relaxed">
+                                Please{" "}
+                                <span className="text-red-500 border-b border-red-400 border-dashed cursor-pointer hover:bg-red-50 rounded px-0.5">recieve</span>
+                                {" "}the document and reply when{" "}
+                                <span className="text-red-500 border-b border-red-400 border-dashed cursor-pointer hover:bg-red-50 rounded px-0.5">your</span>
+                                {" "}done.
+                              </p>
+                            </div>
+
+                            {/* Arrow */}
+                            <div className="flex justify-center py-1">
+                              <div className="w-8 h-8 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center">
+                                <ArrowRight className="w-4 h-4 text-emerald-600 rotate-90" />
                               </div>
                             </div>
-                          </CardContent>
-                        </Card>
+
+                            {/* After */}
+                            <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4">
+                              <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-2">After ✓</div>
+                              <p className="text-sm text-gray-800 leading-relaxed">
+                                Please{" "}
+                                <span className="text-emerald-600 font-semibold bg-emerald-100 rounded px-0.5">receive</span>
+                                {" "}the document and reply when{" "}
+                                <span className="text-emerald-600 font-semibold bg-emerald-100 rounded px-0.5">you're</span>
+                                {" "}done.
+                              </p>
+                            </div>
+
+                            {/* Change log */}
+                            <div className="rounded-xl bg-gray-50 border border-gray-100 p-4">
+                              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Changes Detected</div>
+                              <div className="space-y-2.5 text-sm">
+                                <div className="flex items-center gap-2 text-xs">
+                                  <span className="text-red-500 line-through">recieve</span>
+                                  <ArrowRight className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                                  <span className="text-emerald-600 font-semibold">receive</span>
+                                  <span className="ml-auto text-gray-500 bg-gray-200/70 rounded px-1.5 py-0.5">Spelling</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs">
+                                  <span className="text-red-500 line-through">your</span>
+                                  <ArrowRight className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                                  <span className="text-emerald-600 font-semibold">you're</span>
+                                  <span className="ml-auto text-gray-500 bg-gray-200/70 rounded px-1.5 py-0.5">Grammar</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Status bar */}
+                          <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex items-center justify-between text-xs text-gray-500">
+                            <span>2 issues fixed · Explanation included</span>
+                            <span className="text-gray-600">50+ languages supported</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Stats strip */}
+                    <div className="mt-16 grid grid-cols-2 sm:grid-cols-4 gap-px rounded-2xl overflow-hidden border border-gray-200 bg-gray-200 shadow-sm">
+                      {[
+                        { value: "50+",    label: "Languages supported" },
+                        { value: "1K+",    label: "Active writers" },
+                        { value: "4.9 ★",  label: "Average rating" },
+                        { value: "<2 sec", label: "Response time" },
+                      ].map(({ value, label }) => (
+                        <div key={label} className="flex flex-col items-center py-6 px-4 bg-white hover:bg-blue-50/50 transition-colors cursor-default">
+                          <span className="text-2xl sm:text-3xl font-extrabold text-gray-900">{value}</span>
+                          <span className="text-xs text-gray-500 mt-1 text-center">{label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+
+                {/* ═══════════════════════════════════════════
+                    LOGO / TRUST BAR
+                ═══════════════════════════════════════════ */}
+                <section className="py-10 bg-gray-50 border-y border-gray-100">
+                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <p className="text-center text-sm text-gray-400 font-medium mb-6 uppercase tracking-widest">Trusted by writers, students, and professionals worldwide</p>
+                    <div className="flex flex-wrap justify-center items-center gap-x-8 gap-y-3 text-sm font-semibold text-gray-400">
+                      {["Content Writers", "Students", "Journalists", "Researchers", "Bloggers", "Email Marketers", "ESL Learners"].map((t) => (
+                        <span key={t} className="flex items-center gap-2">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+
+                {/* ═══════════════════════════════════════════
+                    HOW IT WORKS — 3 steps
+                ═══════════════════════════════════════════ */}
+                <section className="py-20 md:py-28 bg-white">
+                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div className="text-center mb-16">
+                      <div className="inline-flex items-center gap-2 rounded-full bg-indigo-50 border border-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-600 mb-5">
+                        <Zap className="w-3.5 h-3.5" /> How It Works
+                      </div>
+                      <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-gray-900 tracking-tight">
+                        Three steps to flawless writing
+                      </h2>
+                      <p className="text-lg text-gray-500 max-w-xl mx-auto mt-4">
+                        No setup. No downloads. Just paste, check, and write with total confidence.
+                      </p>
+                    </div>
+
+                    <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto relative">
+                      {/* Connector lines (desktop only) */}
+                      <div className="hidden md:block absolute top-14 left-1/3 right-1/3 h-px bg-gradient-to-r from-blue-200 via-indigo-200 to-emerald-200" />
+
+                      {[
+                        { step: "1", icon: FileText, title: "Paste your text", desc: "Copy any text — email, essay, report, or message — and paste it into CorrectNow.", accent: "bg-blue-600", light: "bg-blue-50", text: "text-blue-600" },
+                        { step: "2", icon: Sparkles, title: "AI checks instantly", desc: "Our AI engine scans for grammar, spelling, punctuation, and clarity issues in under 2 seconds.", accent: "bg-indigo-600", light: "bg-indigo-50", text: "text-indigo-600" },
+                        { step: "3", icon: CheckCircle2, title: "Apply with one click", desc: "Review each suggestion with a clear explanation, then apply all fixes instantly.", accent: "bg-emerald-600", light: "bg-emerald-50", text: "text-emerald-600" },
+                      ].map(({ step, icon: Icon, title, desc, accent, light, text }) => (
+                        <div key={step} className="flex flex-col items-center text-center group">
+                          <div className="relative mb-6">
+                            <div className={`w-28 h-28 ${light} rounded-3xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-300 group-hover:-translate-y-1`}>
+                              <Icon className={`w-12 h-12 ${text}`} />
+                            </div>
+                            <div className={`absolute -top-3 -right-3 w-8 h-8 ${accent} rounded-full flex items-center justify-center text-white text-sm font-extrabold shadow-lg`}>
+                              {step}
+                            </div>
+                          </div>
+                          <h3 className="text-xl font-bold text-gray-900 mb-3">{title}</h3>
+                          <p className="text-gray-500 text-sm leading-relaxed max-w-xs">{desc}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="text-center mt-14">
+                      <Button
+                        size="lg"
+                        className="h-14 px-10 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-base font-bold shadow-lg shadow-blue-500/25 hover:shadow-xl transition-all hover:scale-[1.02]"
+                        onClick={() => navigate("/editor")}
+                      >
+                        Try it Now — Free
+                        <ArrowRight className="w-5 h-5 ml-2" />
+                      </Button>
+                    </div>
+                  </div>
+                </section>
+
+                {/* ═══════════════════════════════════════════
+                    FEATURES GRID — 6 cards
+                ═══════════════════════════════════════════ */}
+                <section className="py-20 md:py-28 bg-gradient-to-b from-slate-50 to-white">
+                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div className="text-center mb-16">
+                      <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 border border-blue-100 px-4 py-1.5 text-sm font-semibold text-blue-600 mb-5">
+                        <Sparkles className="w-3.5 h-3.5" /> Why Choose CorrectNow
+                      </div>
+                      <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-gray-900 tracking-tight">
+                        Everything you need to<br className="hidden sm:block" /> write flawlessly
+                      </h2>
+                      <p className="text-lg text-gray-500 max-w-2xl mx-auto mt-4">
+                        The best free Grammarly alternative — instant, accurate, and built for every language on every device.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+                      {[
+                        { icon: CheckCircle2, title: "Instant Grammar Check", desc: "Real-time corrections for grammar, spelling, and punctuation powered by advanced AI. Results appear in under 2 seconds." },
+                        { icon: Globe, title: "50+ Languages", desc: "English, Spanish, French, Hindi, Tamil, Arabic, Bengali, Marathi, German, and 40+ more — all supported natively." },
+                        { icon: Shield, title: "100% Private & Secure", desc: "Your text is never stored, logged, or shared with third parties. What you write stays completely private." },
+                        { icon: Zap, title: "Free Forever Plan", desc: "Start checking for free — no credit card needed. Upgrade anytime for higher word limits and power features." },
+                        { icon: Sparkles, title: "Smart AI Engine", desc: "Goes beyond spell-check — catches complex grammatical errors, improves clarity, and preserves your unique voice." },
+                        { icon: Monitor, title: "Works on Every Device", desc: "Desktop, mobile, or tablet — CorrectNow is fully responsive. Check emails, essays, and social posts anywhere." },
+                      ].map(({ icon: Icon, title, desc }) => (
+                        <div key={title} className="group relative bg-white rounded-2xl border border-gray-100 p-7 shadow-sm hover:shadow-xl ring-2 ring-transparent group-hover:ring-blue-200 hover:ring-blue-100 transition-all duration-300 hover:-translate-y-1 cursor-default">
+                          <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center mb-5 group-hover:scale-110 group-hover:bg-blue-100 transition-all duration-300">
+                            <Icon className="w-6 h-6 text-blue-600" />
+                          </div>
+                          <h3 className="text-lg font-bold text-gray-900 mb-2.5">{title}</h3>
+                          <p className="text-gray-500 text-sm leading-relaxed">{desc}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Languages cloud */}
+                    <div className="mt-14 rounded-3xl bg-gradient-to-br from-blue-50 via-indigo-50/50 to-violet-50 border border-blue-100 p-8 md:p-10 text-center">
+                      <h3 className="text-xl md:text-2xl font-bold text-gray-900 mb-4">
+                        Grammar checking in every major language
+                      </h3>
+                      <div className="flex flex-wrap justify-center gap-2.5 max-w-3xl mx-auto">
+                        {["English","Hindi","Tamil","Telugu","Bengali","Marathi","Gujarati","Kannada","Malayalam","Spanish","French","German","Arabic","Portuguese","Russian","Japanese","Korean","Indonesian","Turkish","Vietnamese","Italian","Dutch","Polish","Ukrainian","Romanian","Swedish","Thai","Urdu"].map((lang) => (
+                          <span key={lang} className="inline-flex items-center gap-1.5 bg-white border border-blue-100 text-gray-700 text-xs font-semibold rounded-full px-3 py-1.5 shadow-sm hover:border-blue-300 hover:text-blue-700 transition-colors cursor-default">
+                            <Globe className="w-3 h-3 text-blue-400" />
+                            {lang}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* ═══════════════════════════════════════════
+                    TESTIMONIALS — 6 cards in 3-column grid
+                ═══════════════════════════════════════════ */}
+                <section className="py-20 md:py-28 bg-white">
+                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div className="text-center mb-16">
+                      <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 border border-amber-100 px-4 py-1.5 text-sm font-semibold text-amber-700 mb-5">
+                        <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> Real Users, Real Results
+                      </div>
+                      <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-gray-900 tracking-tight">
+                        Loved by writers everywhere
+                      </h2>
+                      <p className="text-lg text-gray-500 max-w-2xl mx-auto mt-4">
+                        Professionals, students, and creators across 50+ countries trust CorrectNow every day.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+                      {[
+                        { quote: "CorrectNow helps me write without fear of mistakes. Very easy to use and incredibly accurate.", name: "Arjun Kumar", role: "University Student", lang: "English & Hindi", initial: "A", gradient: "from-blue-500 to-indigo-600" },
+                        { quote: "Finally, a grammar checker that truly understands native Indian languages. Game-changing tool.", name: "Meera Nair", role: "Author & Blogger", lang: "Malayalam & Tamil", initial: "M", gradient: "from-violet-500 to-purple-600" },
+                        { quote: "We save hours every week and improve content clarity across multiple languages. Highly recommend.", name: "Rohit Menon", role: "Senior Editor", lang: "English & Marathi", initial: "R", gradient: "from-emerald-500 to-teal-600" },
+                        { quote: "My client emails and reports sound so much more professional now. Absolute game changer for me.", name: "Anita Sharma", role: "Operations Manager", lang: "English & Telugu", initial: "A", gradient: "from-amber-500 to-orange-600" },
+                        { quote: "Excellent accuracy for academic writing. I rate it 10 out of 10. Better than anything I've tried.", name: "Dr. Lukas Schneider", role: "Research Fellow", lang: "German & English", initial: "D", gradient: "from-cyan-500 to-blue-600" },
+                        { quote: "CorrectNow understands context and grammar perfectly. A truly powerful and reliable writing tool.", name: "Ramesh Naidu", role: "Script Writer", lang: "Tamil & English", initial: "R", gradient: "from-rose-500 to-pink-600" },
+                      ].map(({ quote, name, role, lang, initial, gradient }) => (
+                        <div key={name} className="group bg-white rounded-2xl border border-gray-100 p-7 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-0.5 flex flex-col">
+                          <div className="flex items-center gap-0.5 mb-5">
+                            {[...Array(5)].map((_, i) => (
+                              <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
+                            ))}
+                          </div>
+                          <p className="text-gray-700 leading-relaxed flex-1 mb-5 text-[15px]">
+                            "{quote}"
+                          </p>
+                          <div className="flex items-center gap-3 pt-5 border-t border-gray-100">
+                            <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center text-white text-sm font-bold shadow-sm flex-shrink-0`}>
+                              {initial}
+                            </div>
+                            <div>
+                              <div className="font-semibold text-gray-900 text-sm">{name}</div>
+                              <div className="text-xs text-gray-500">{role} · {lang}</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+
+                {/* ═══════════════════════════════════════════
+                    PRICING — Free · Pro · Enterprise (3 cards)
+                ═══════════════════════════════════════════ */}
+                <section className="py-20 md:py-28 bg-gradient-to-b from-slate-50 to-white">
+                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div className="text-center mb-14">
+                      <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 border border-blue-100 px-4 py-1.5 text-sm font-semibold text-blue-600 mb-5">
+                        <Crown className="w-3.5 h-3.5" /> Simple, Transparent Pricing
+                      </div>
+                      <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-gray-900 tracking-tight">
+                        Start free, upgrade when ready
+                      </h2>
+                      <p className="text-lg text-gray-500 mt-4">No hidden fees. Cancel anytime.</p>
+                      <div className="mt-4 inline-flex items-center gap-2 text-sm text-gray-500 bg-gray-100 rounded-full px-4 py-1.5">
+                        <Globe className="w-3.5 h-3.5 text-blue-500" />
+                        Regional pricing applied · {regionalPricing.regionLabel}
+                      </div>
+                    </div>
+
+                    {/* 3-column grid — equal-height, no scale tricks */}
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch">
+
+                      {/* ── Free ── */}
+                      <div className="flex flex-col bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                        <div className="p-7 flex-1 flex flex-col">
+                          <div className="flex items-center gap-3 mb-5">
+                            <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
+                              <Zap className="w-5 h-5 text-gray-600" />
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-bold text-gray-900">Free</h3>
+                              <p className="text-xs text-gray-400">Perfect for trying out</p>
+                            </div>
+                          </div>
+                          <div className="mb-6">
+                            <div className="text-4xl font-extrabold text-gray-900">
+                              {formatPrice(regionalPricing.currency, 0)}
+                              <span className="text-base font-medium text-gray-400 ml-1.5">/ forever</span>
+                            </div>
+                          </div>
+                          <ul className="space-y-2.5 flex-1 mb-6">
+                            {[
+                              "200 words per check",
+                              "Limited daily checks",
+                              "Advanced grammar fixes",
+                              "Global languages supported",
+                              "Change log with explanations",
+                            ].map((f) => (
+                              <li key={f} className="flex items-start gap-2.5 text-sm text-gray-600">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />{f}
+                              </li>
+                            ))}
+                            {[
+                              "Standard processing speed",
+                              "Word checks beyond 200 are Pro-only",
+                            ].map((f) => (
+                              <li key={f} className="flex items-start gap-2.5 text-sm text-gray-400">
+                                <CheckCircle2 className="w-4 h-4 text-gray-300 flex-shrink-0 mt-0.5" />{f}
+                              </li>
+                            ))}
+                          </ul>
+                          <Button variant="outline" className="w-full h-11 rounded-xl font-semibold border-gray-300" onClick={() => navigate("/editor")}>
+                            Get Started — Free
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* ── Pro ── */}
+                      <div className="flex flex-col relative bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl shadow-xl shadow-blue-500/20 overflow-hidden">
+                        {/* shine orb */}
+                        <div className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full bg-white/10 blur-2xl" />
+                        {/* badge */}
+                        <div className="absolute top-4 right-4 bg-white text-blue-700 text-xs font-bold px-3 py-1 rounded-full shadow">Most Popular</div>
+                        <div className="p-7 flex-1 flex flex-col relative">
+                          <div className="flex items-center gap-3 mb-5">
+                            <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center">
+                              <Crown className="w-5 h-5 text-white" />
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-bold text-white">Pro</h3>
+                              <p className="text-xs text-blue-200">For professionals who write daily</p>
+                            </div>
+                          </div>
+                          <div className="mb-6">
+                            <div className="text-4xl font-extrabold text-white">
+                              {formatPrice(regionalPricing.currency, regionalPricing.amount)}
+                              <span className="text-base font-medium text-blue-200 ml-1.5">/ month</span>
+                            </div>
+                          </div>
+                          <ul className="space-y-2.5 flex-1 mb-6">
+                            {[
+                              "25,000 words monthly",
+                              "5,000 words per check",
+                              "Advanced grammar fixes",
+                              "All languages supported",
+                              "Detailed explanations",
+                              "Check history (30 days)",
+                              "Priority processing",
+                              "Export to Word / PDF",
+                              "1 word = 1 credit",
+                            ].map((f) => (
+                              <li key={f} className="flex items-start gap-2.5 text-sm text-blue-50">
+                                <CheckCircle2 className="w-4 h-4 text-white flex-shrink-0 mt-0.5" />{f}
+                              </li>
+                            ))}
+                          </ul>
+                          <Button
+                            className="w-full h-11 rounded-xl font-bold bg-white text-blue-700 hover:bg-blue-50 transition-all"
+                            onClick={() => navigate("/pricing")}
+                          >
+                            Go Pro
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* ── Enterprise ── */}
+                      <div className="flex flex-col bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden sm:col-span-2 lg:col-span-1">
+                        <div className="p-7 flex-1 flex flex-col">
+                          <div className="flex items-center gap-3 mb-5">
+                            <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
+                              <Monitor className="w-5 h-5 text-gray-600" />
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-bold text-gray-900">Enterprise</h3>
+                              <p className="text-xs text-gray-400">For teams and organizations</p>
+                            </div>
+                          </div>
+                          <div className="mb-6">
+                            <div className="text-4xl font-extrabold text-gray-900">
+                              Custom
+                              <span className="text-base font-medium text-gray-400 ml-1.5">/ contact us</span>
+                            </div>
+                          </div>
+                          <ul className="space-y-2.5 flex-1 mb-6">
+                            {[
+                              "Everything in Pro",
+                              "Unlimited team members",
+                              "Custom word limits",
+                              "Dedicated account manager",
+                              "API access",
+                              "Custom integrations",
+                              "Advanced analytics & reporting",
+                              "Priority 24/7 support",
+                              "Custom SLA agreements",
+                              "White-label options",
+                            ].map((f) => (
+                              <li key={f} className="flex items-start gap-2.5 text-sm text-gray-600">
+                                <CheckCircle2 className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />{f}
+                              </li>
+                            ))}
+                          </ul>
+                          <a href="mailto:info@correctnow.app?subject=Enterprise%20Plan%20Inquiry" className="block">
+                            <Button variant="outline" className="w-full h-11 rounded-xl font-semibold border-gray-300">
+                              Contact Sales
+                            </Button>
+                          </a>
+                          <p className="text-xs text-gray-400 text-center mt-3">
+                            info@correctnow.app
+                          </p>
+                        </div>
+                      </div>
+
+                    </div>
+
+                    <p className="text-center text-sm text-gray-400 mt-8">
+                      See full comparison on our{" "}
+                      <button className="text-blue-600 hover:underline font-medium" onClick={() => navigate("/pricing")}>
+                        Pricing page
+                      </button>
+                    </p>
+                  </div>
+                </section>
+
+                {/* Recent documents (only when there are docs) */}
+                {filtered.length > 0 && (
+                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+                    <div className="flex items-center justify-between mb-6">
+                      <div>
+                        <div className="inline-flex items-center gap-2 rounded-full bg-gray-100 border border-gray-200 px-4 py-1.5 text-sm font-medium text-gray-500 mb-2">
+                          <FileText className="w-3.5 h-3.5" /> Your workspace
+                        </div>
+                        <div className="text-2xl font-bold text-gray-900">Recent documents</div>
+                      </div>
+                    </div>
+                    {sections.map((section) => (
+                      <div key={section} className="mb-8">
+                        <div className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">{section}</div>
+                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                          {filtered.filter((doc) => doc.section === section).map((doc) => (
+                            <Card key={doc.id} className="hover:shadow-lg hover:border-primary/20 transition-all duration-300 border border-gray-100 cursor-pointer" onClick={() => openDoc(doc.id)}>
+                              <CardContent className="p-5">
+                                <div className="flex items-start gap-3">
+                                  <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
+                                    <FileText className="w-4 h-4 text-blue-600" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold text-gray-900 truncate hover:text-primary transition-colors">{doc.title}</p>
+                                    <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{doc.preview}</p>
+                                    <p className="text-[11px] text-gray-400 mt-1">{doc.updated}</p>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
                       </div>
                     ))}
-                </div>
-              </div>
-            ))
-          )}
-
-          <div className="mt-12">
-            <Card className="border border-border/60 bg-gradient-to-br from-primary/[0.03] to-transparent shadow-sm">
-              <CardContent className="p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                <div>
-                  <div className="text-base font-bold text-foreground">
-                    Help us improve CorrectNow
                   </div>
-                  <div className="text-sm text-muted-foreground mt-1">
-                    Share an idea or request a feature — we read every suggestion.
+                )}
+
+                {/* Feedback suggestion */}
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div>
+                      <div className="text-base font-bold text-gray-900">Help us improve CorrectNow</div>
+                      <div className="text-sm text-gray-500 mt-1">Share an idea or request a feature — we read every single suggestion.</div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="flex-shrink-0 border-blue-200 text-blue-700 hover:bg-blue-100 rounded-xl"
+                      onClick={() => setIsSuggestionOpen(true)}
+                    >
+                      Suggest a feature
+                    </Button>
                   </div>
                 </div>
-                <Button
-                  variant="outline"
-                  className="border-primary/20 text-primary hover:bg-primary/5"
-                  onClick={() => setIsSuggestionOpen(true)}
-                >
-                  Suggest an improvement
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
 
-          {/* Final CTA */}
-          <div className="mt-20 mb-4 rounded-2xl bg-gradient-to-br from-primary to-blue-700 p-8 md:p-12 text-center text-white relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-3xl" />
-            <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full blur-3xl" />
-            <div className="relative">
-              <h3 className="text-2xl md:text-3xl font-extrabold mb-3">Start writing flawlessly today</h3>
-              <p className="text-white/80 mb-6 max-w-lg mx-auto">Join thousands of writers, students, and professionals who trust CorrectNow for perfect grammar in any language.</p>
-              <Button
-                size="lg"
-                className="rounded-full bg-white text-primary px-8 py-5 text-base font-bold shadow-lg hover:shadow-xl hover:bg-white/95 transition-all"
-                onClick={() => navigate("/editor")}
-              >
-                Get Started — Free
-              </Button>
-            </div>
-          </div>
-        </div>
-      </main>
+                {/* ═══════════════════════════════════════════
+                    FINAL CTA — Branded blue conversion section
+                ═══════════════════════════════════════════ */}
+                <section className="py-20 md:py-28 bg-gradient-to-br from-blue-600 to-indigo-600 relative overflow-hidden">
+                  <div className="pointer-events-none absolute inset-0">
+                    <div className="absolute top-0 right-0 w-[500px] h-[500px] rounded-full bg-white/10 blur-[100px] translate-x-1/3 -translate-y-1/3" />
+                    <div className="absolute bottom-0 left-0 w-[420px] h-[420px] rounded-full bg-indigo-300/20 blur-[100px] -translate-x-1/3 translate-y-1/3" />
+                  </div>
+                  <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+                    <div className="inline-flex items-center gap-2 rounded-full bg-white/15 border border-white/20 px-4 py-1.5 text-sm font-semibold text-white mb-8">
+                      <Sparkles className="w-3.5 h-3.5" /> Ready to get started?
+                    </div>
+                    <h2 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white tracking-tight leading-[1.05] mb-6">
+                      Start writing flawlessly<br />
+                      today — <span className="text-blue-100">for free.</span>
+                    </h2>
+                    <p className="text-xl text-blue-100 max-w-2xl mx-auto mb-10">
+                      Join thousands of writers, students, and professionals who trust CorrectNow for perfect grammar in any language.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                      <Button
+                        size="lg"
+                        className="group h-14 px-10 rounded-full bg-white text-blue-700 hover:bg-blue-50 text-base font-bold shadow-xl transition-all hover:scale-[1.02]"
+                        onClick={() => navigate("/editor")}
+                      >
+                        Check My Text — Free
+                        <ArrowRight className="w-5 h-5 ml-2 transition-transform group-hover:translate-x-1" />
+                      </Button>
+                      <Button
+                        size="lg"
+                        variant="outline"
+                        className="h-14 px-10 rounded-full border-white/40 text-white bg-white/10 hover:bg-white/20 text-base font-semibold transition-all"
+                        onClick={() => navigate("/auth?mode=register")}
+                      >
+                        Create Free Account
+                      </Button>
+                    </div>
+                    <p className="text-blue-100/80 text-sm mt-8">No credit card required · Free forever plan available</p>
+                  </div>
+                </section>
+
+              </main>
             </>
           )}
         </>

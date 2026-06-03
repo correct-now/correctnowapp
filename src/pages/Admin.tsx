@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react"; // redesigned
 import {
   CheckCircle,
   Users,
@@ -82,8 +82,7 @@ import {
   orderBy,
   query,
 } from "firebase/firestore";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { useAuthState } from "react-firebase-hooks/auth";
+import { onAuthStateChanged, signInWithEmailAndPassword } from "firebase/auth";
 import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import { toast } from "sonner";
 import {
@@ -158,8 +157,9 @@ type Coupon = {
 };
 
 const Admin = () => {
-  const auth = getFirebaseAuth();
-  const [user, loading] = useAuthState(auth);
+  const auth = useMemo(() => getFirebaseAuth(), []);
+  const [user, setUser] = useState(() => auth?.currentUser ?? null);
+  const [loading, setLoading] = useState<boolean>(!!auth);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -359,6 +359,23 @@ const Admin = () => {
   const [isUploadingBulk, setIsUploadingBulk] = useState(false);
   const [bulkUploadPreview, setBulkUploadPreview] = useState<BulkPreviewRow[]>([]);
   const [bulkUploadStep, setBulkUploadStep] = useState<"select" | "preview" | "uploading" | "done">("select");
+
+  // Keep Firebase auth state in sync, but fail gracefully if Firebase is not configured
+  useEffect(() => {
+    if (!auth) {
+      setUser(null);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [auth]);
 
   // User deletion
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
@@ -1392,6 +1409,11 @@ const Admin = () => {
   };
 
   const handleCreateAdmin = async () => {
+    if (!auth) {
+      toast.error("Firebase is not configured.");
+      return;
+    }
+
     if (!newAdminEmail || !newAdminPassword) {
       toast.error("Email and password are required");
       return;
@@ -1529,6 +1551,9 @@ const Admin = () => {
     setLoginError("");
     setLoggingIn(true);
     try {
+      if (!auth) {
+        throw new Error("Firebase is not configured.");
+      }
       // Clear any existing session data before login
       localStorage.removeItem("correctnow:sessionId");
       
@@ -1547,6 +1572,9 @@ const Admin = () => {
 
   const handleLogout = async () => {
     try {
+      if (!auth) {
+        throw new Error("Firebase is not configured.");
+      }
       // Clear session data
       localStorage.removeItem("correctnow:sessionId");
       
@@ -2340,10 +2368,10 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
   // Show login form if not authenticated
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "#0a0f1e" }}>
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-4 text-muted-foreground">Loading...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-slate-400">Loading...</p>
         </div>
       </div>
     );
@@ -2351,79 +2379,108 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-accent/5">
-        <div className="w-full max-w-md p-8">
-          <div className="bg-card border border-border rounded-2xl p-8 shadow-xl">
-            <div className="flex items-center justify-center mb-8">
-              <div className="flex items-center justify-center w-16 h-16 rounded-xl bg-primary/10">
-                <CheckCircle className="w-8 h-8 text-primary" />
-              </div>
+      <div className="min-h-screen flex items-center justify-center relative overflow-hidden" style={{ background: "#0a0f1e" }}>
+        {/* Background decorative blobs */}
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 right-1/4 w-80 h-80 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="w-full max-w-md px-6 py-8 relative z-10">
+          {/* Logo */}
+          <div className="flex flex-col items-center mb-8">
+            <img
+              src="/Icon/correctnow logo final2.png"
+              alt="CorrectNow"
+              className="h-12 w-auto object-contain mb-4"
+            />
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-blue-500/15 text-blue-400 border border-blue-500/20">
+              <Shield className="w-3 h-3" />
+              Admin Panel
             </div>
-            <h1 className="text-2xl font-bold text-center mb-2">Admin Login</h1>
-            <p className="text-center text-muted-foreground mb-8">
-              Sign in to access the admin panel
+          </div>
+
+          {/* Card */}
+          <div className="rounded-2xl border border-white/10 p-8 shadow-2xl" style={{ background: "rgba(255,255,255,0.04)", backdropFilter: "blur(20px)" }}>
+            <h1 className="text-2xl font-bold text-white text-center mb-1">Welcome back</h1>
+            <p className="text-center text-slate-400 text-sm mb-8">
+              Sign in to access the admin dashboard
             </p>
 
-            <form onSubmit={handleLogin} className="space-y-4">
+            <form onSubmit={handleLogin} className="space-y-5">
               <div>
-                <label htmlFor="email" className="block text-sm font-medium mb-2">
-                  Email
+                <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-2">
+                  Email address
                 </label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="admin@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoComplete="email"
-                />
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="admin@correctnow.app"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    autoComplete="email"
+                    className="pl-10 bg-white/5 border-white/10 text-white placeholder:text-slate-500 focus:border-blue-500 focus:ring-blue-500/20"
+                  />
+                </div>
               </div>
 
               <div>
-                <div className="flex items-center justify-between">
-                  <label htmlFor="password" className="block text-sm font-medium mb-2">
+                <div className="flex items-center justify-between mb-2">
+                  <label htmlFor="password" className="block text-sm font-medium text-slate-300">
                     Password
                   </label>
                   <Link
                     to="/forgot-password"
-                    className="text-xs text-accent hover:text-accent/80"
+                    className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
                   >
                     Forgot password?
                   </Link>
                 </div>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                />
+                <div className="relative">
+                  <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                    className="pl-10 bg-white/5 border-white/10 text-white placeholder:text-slate-500 focus:border-blue-500 focus:ring-blue-500/20"
+                  />
+                </div>
               </div>
 
               {loginError && (
-                <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-lg">
+                <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-3 rounded-lg flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
                   {loginError}
                 </div>
               )}
 
               <Button
                 type="submit"
-                className="w-full"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium h-11 rounded-lg transition-all shadow-lg shadow-blue-600/20"
                 disabled={loggingIn}
               >
-                {loggingIn ? "Signing in..." : "Sign In"}
+                {loggingIn ? (
+                  <span className="flex items-center gap-2">
+                    <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></span>
+                    Signing in...
+                  </span>
+                ) : (
+                  "Sign in to Admin"
+                )}
               </Button>
             </form>
 
             <div className="mt-6 text-center">
               <Link
                 to="/"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                className="text-sm text-slate-500 hover:text-slate-300 transition-colors"
               >
-                ← Back to Home
+                ← Back to CorrectNow
               </Link>
             </div>
           </div>
@@ -2432,80 +2489,121 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
     );
   }
 
-  return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
-        <div className="container flex items-center justify-between py-3">
-          <div className="flex items-center gap-4">
-            <Link to="/" className="flex items-center">
-              <img
-                src="/Icon/correctnow logo final2.png"
-                alt="CorrectNow"
-                className="h-24 w-auto object-contain"
-                loading="eager"
-              />
-            </Link>
-            <Badge variant="secondary">Admin</Badge>
-          </div>
+  // Compute tab display name for breadcrumb
+  const tabLabels: Record<string, string> = {
+    overview: "Dashboard",
+    users: "Users",
+    suggestions: "Suggestions",
+    checks: "User Checks",
+    seo: "SEO Pages",
+    languages: "Languages",
+    blog: "Blog",
+    billing: "Billing & Plans",
+    settings: "Settings",
+  };
 
-          <div className="flex items-center gap-4">
-            <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center">
-              <span className="text-sm font-medium text-accent-foreground">A</span>
+  return (
+    <div className="min-h-screen bg-slate-50 flex">
+      {/* ── Fixed Left Sidebar ── */}
+      <aside className="hidden lg:flex flex-col fixed inset-y-0 left-0 w-64 z-40 bg-gray-900 border-r border-gray-800">
+        {/* Logo area */}
+        <div className="flex flex-col items-center px-5 pt-6 pb-4 border-b border-gray-800">
+          <Link to="/" className="flex items-center justify-center mb-2">
+            <img
+              src="/Icon/correctnow logo final2.png"
+              alt="CorrectNow"
+              className="h-8 w-auto object-contain"
+            />
+          </Link>
+          <span className="text-[10px] font-semibold tracking-widest text-gray-500 uppercase">Admin Panel</span>
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+          {[
+            { id: "overview", icon: BarChart3, label: "Dashboard" },
+            { id: "users", icon: Users, label: "Users" },
+            { id: "suggestions", icon: MessageSquare, label: "Suggestions" },
+            { id: "checks", icon: Activity, label: "User Checks" },
+            { id: "seo", icon: Globe, label: "SEO Pages" },
+            { id: "languages", icon: Globe, label: "Languages" },
+            { id: "blog", icon: FileText, label: "Blog" },
+            { id: "billing", icon: CreditCard, label: "Billing & Plans" },
+            { id: "settings", icon: Settings, label: "Settings" },
+          ].map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id as typeof activeTab)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activeTab === item.id
+                  ? "bg-blue-600 text-white shadow-sm shadow-blue-900/40"
+                  : "text-gray-400 hover:bg-gray-800 hover:text-white"
+              }`}
+            >
+              <item.icon className="w-4.5 h-4.5 shrink-0" style={{ width: "1.125rem", height: "1.125rem" }} />
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        {/* User + Logout at bottom */}
+        <div className="px-3 py-4 border-t border-gray-800 space-y-2">
+          <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-gray-800/60">
+            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
+              <span className="text-xs font-bold text-white">A</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-white truncate">{user?.email?.split("@")[0] || "Admin"}</p>
+              <p className="text-[10px] text-gray-500 truncate">{user?.email}</p>
             </div>
           </div>
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-red-500/10 hover:text-red-400 transition-all"
+          >
+            <LogOut className="w-4 h-4" />
+            Sign Out
+          </button>
         </div>
-      </header>
+      </aside>
 
-      <div className="container py-8">
-        <div className="flex flex-col lg:flex-row gap-8">
-          {/* Sidebar */}
-          <aside className="lg:w-64 shrink-0">
-            <nav className="space-y-1">
-              {[
-                { id: "overview", icon: BarChart3, label: "Dashboard" },
-                { id: "users", icon: Users, label: "Users" },
-                { id: "suggestions", icon: MessageSquare, label: "Suggestions" },
-                { id: "checks", icon: Activity, label: "User Checks" },
-                { id: "seo", icon: Globe, label: "SEO Pages" },
-                { id: "languages", icon: Globe, label: "Languages" },
-                { id: "blog", icon: FileText, label: "Blog" },
-                { id: "billing", icon: CreditCard, label: "Billing & Plans" },
-                { id: "settings", icon: Settings, label: "Settings" },
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id as typeof activeTab)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
-                    activeTab === item.id
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  <item.icon className="w-5 h-5" />
-                  {item.label}
-                </button>
-              ))}
-              <button 
-                onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-              >
-                <LogOut className="w-5 h-5" />
-                Sign Out
-              </button>
-            </nav>
-          </aside>
+      {/* ── Main Area ── */}
+      <div className="flex-1 flex flex-col min-h-screen lg:ml-64">
+        {/* ── Top Header Bar ── */}
+        <header className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between px-6 h-14">
+            {/* Breadcrumb */}
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-gray-400">Admin</span>
+              <ChevronRight className="w-4 h-4 text-gray-300" />
+              <span className="font-semibold text-gray-900">{tabLabels[activeTab] || activeTab}</span>
+            </div>
 
-          {/* Main Content */}
-          <main className="flex-1 min-w-0">
+            {/* Right side: date + avatar */}
+            <div className="flex items-center gap-4">
+              <span className="hidden sm:block text-xs text-gray-400">
+                {new Date().toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
+              </span>
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
+                  <span className="text-xs font-bold text-white">A</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* ── Page Content ── */}
+        <main className="flex-1 px-6 py-8 overflow-y-auto">
             {activeTab === "overview" && (
               <div className="space-y-6">
+                {/* Page header */}
                 <div className="flex items-center justify-between">
                   <div>
-                    <h1 className="text-2xl font-bold text-foreground mb-1">Admin Dashboard</h1>
-                    <p className="text-muted-foreground">Platform overview — real-time metrics</p>
+                    <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+                    <p className="text-gray-500 text-sm mt-0.5">Platform overview — real-time metrics</p>
                   </div>
-                  <div className="text-xs text-muted-foreground bg-muted/60 px-3 py-1.5 rounded-full">
+                  <div className="text-xs text-gray-400 bg-white border border-gray-200 px-3 py-1.5 rounded-full shadow-sm">
                     {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
                   </div>
                 </div>
@@ -2513,18 +2611,18 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                 {/* Primary KPI row */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                   {[
-                    { label: "Total Users", value: totalUsers.toLocaleString(), sub: `+${newUsersToday} today`, icon: <Users className="w-5 h-5" />, color: "text-blue-500", bg: "bg-blue-500/10" },
-                    { label: "Pro Subscribers", value: proUsers.toLocaleString(), sub: `${conversionRate}% conversion`, icon: <Crown className="w-5 h-5" />, color: "text-yellow-500", bg: "bg-yellow-500/10" },
-                    { label: "Free Users", value: freeUsers.toLocaleString(), sub: "Potential upgrades", icon: <Zap className="w-5 h-5" />, color: "text-green-500", bg: "bg-green-500/10" },
-                    { label: "Suspended", value: suspendedUsers.toLocaleString(), sub: "Deactivated accounts", icon: <UserX className="w-5 h-5" />, color: "text-red-500", bg: "bg-red-500/10" },
+                    { label: "Total Users", value: totalUsers.toLocaleString(), sub: `+${newUsersToday} today`, icon: <Users className="w-5 h-5" />, accent: "bg-blue-500", light: "bg-blue-50", color: "text-blue-600", border: "border-l-blue-500" },
+                    { label: "Pro Subscribers", value: proUsers.toLocaleString(), sub: `${conversionRate}% conversion`, icon: <Crown className="w-5 h-5" />, accent: "bg-amber-500", light: "bg-amber-50", color: "text-amber-600", border: "border-l-amber-500" },
+                    { label: "Free Users", value: freeUsers.toLocaleString(), sub: "Potential upgrades", icon: <Zap className="w-5 h-5" />, accent: "bg-emerald-500", light: "bg-emerald-50", color: "text-emerald-600", border: "border-l-emerald-500" },
+                    { label: "Suspended", value: suspendedUsers.toLocaleString(), sub: "Deactivated accounts", icon: <UserX className="w-5 h-5" />, accent: "bg-red-500", light: "bg-red-50", color: "text-red-600", border: "border-l-red-500" },
                   ].map(card => (
-                    <div key={card.label} className="bg-card rounded-xl border border-border p-5">
+                    <div key={card.label} className={`bg-white rounded-xl border border-gray-200 border-l-4 ${card.border} p-5 shadow-sm`}>
                       <div className="flex items-center justify-between mb-3">
-                        <span className="text-sm text-muted-foreground">{card.label}</span>
-                        <div className={`${card.bg} ${card.color} p-2 rounded-lg`}>{card.icon}</div>
+                        <span className="text-sm text-gray-500 font-medium">{card.label}</span>
+                        <div className={`${card.light} ${card.color} p-2 rounded-lg`}>{card.icon}</div>
                       </div>
-                      <p className="text-3xl font-bold text-foreground">{card.value}</p>
-                      <p className="text-xs text-muted-foreground mt-1">{card.sub}</p>
+                      <p className="text-3xl font-bold text-gray-900">{card.value}</p>
+                      <p className="text-xs text-gray-400 mt-1">{card.sub}</p>
                     </div>
                   ))}
                 </div>
@@ -2532,66 +2630,84 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                 {/* Secondary KPI row */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                   {[
-                    { label: "Checks Today", value: checksToday.toLocaleString(), sub: `${totalDocs.toLocaleString()} all time`, icon: <CheckCircle className="w-5 h-5" />, color: "text-purple-500", bg: "bg-purple-500/10" },
-                    { label: "Words Today", value: wordsToday >= 1000 ? `${(wordsToday/1000).toFixed(1)}K` : wordsToday.toString(), sub: `${(totalWords/1000).toFixed(0)}K total`, icon: <FileText className="w-5 h-5" />, color: "text-indigo-500", bg: "bg-indigo-500/10" },
-                    { label: "Monthly Revenue", value: `₹${monthlyRevenue.toLocaleString("en-IN")}`, sub: "Based on Pro users × ₹500", icon: <TrendingUp className="w-5 h-5" />, color: "text-emerald-500", bg: "bg-emerald-500/10" },
-                    { label: "Conversion Rate", value: `${conversionRate}%`, sub: "Free → Pro", icon: <BarChart3 className="w-5 h-5" />, color: "text-orange-500", bg: "bg-orange-500/10" },
+                    { label: "Checks Today", value: checksToday.toLocaleString(), sub: `${totalDocs.toLocaleString()} all time`, icon: <CheckCircle className="w-5 h-5" />, light: "bg-purple-50", color: "text-purple-600", border: "border-l-purple-500" },
+                    { label: "Words Today", value: wordsToday >= 1000 ? `${(wordsToday/1000).toFixed(1)}K` : wordsToday.toString(), sub: `${(totalWords/1000).toFixed(0)}K total`, icon: <FileText className="w-5 h-5" />, light: "bg-indigo-50", color: "text-indigo-600", border: "border-l-indigo-500" },
+                    { label: "Monthly Revenue", value: `₹${monthlyRevenue.toLocaleString("en-IN")}`, sub: "Based on Pro users × ₹500", icon: <TrendingUp className="w-5 h-5" />, light: "bg-teal-50", color: "text-teal-600", border: "border-l-teal-500" },
+                    { label: "Conversion Rate", value: `${conversionRate}%`, sub: "Free → Pro", icon: <BarChart3 className="w-5 h-5" />, light: "bg-orange-50", color: "text-orange-600", border: "border-l-orange-500" },
                   ].map(card => (
-                    <div key={card.label} className="bg-card rounded-xl border border-border p-5">
+                    <div key={card.label} className={`bg-white rounded-xl border border-gray-200 border-l-4 ${card.border} p-5 shadow-sm`}>
                       <div className="flex items-center justify-between mb-3">
-                        <span className="text-sm text-muted-foreground">{card.label}</span>
-                        <div className={`${card.bg} ${card.color} p-2 rounded-lg`}>{card.icon}</div>
+                        <span className="text-sm text-gray-500 font-medium">{card.label}</span>
+                        <div className={`${card.light} ${card.color} p-2 rounded-lg`}>{card.icon}</div>
                       </div>
-                      <p className="text-3xl font-bold text-foreground">{card.value}</p>
-                      <p className="text-xs text-muted-foreground mt-1">{card.sub}</p>
+                      <p className="text-3xl font-bold text-gray-900">{card.value}</p>
+                      <p className="text-xs text-gray-400 mt-1">{card.sub}</p>
                     </div>
                   ))}
                 </div>
 
-                {/* User breakdown + Quick stats side-by-side */}
+                {/* User breakdown + Activity + Quick Actions */}
                 <div className="grid lg:grid-cols-3 gap-4">
 
-                  {/* User Plan Breakdown */}
-                  <div className="bg-card rounded-xl border border-border p-6 space-y-4">
-                    <h3 className="text-sm font-semibold text-foreground">User Plan Breakdown</h3>
-                    <div className="space-y-3">
-                      {[
-                        { label: "Pro", count: proUsers, color: "bg-yellow-500" },
-                        { label: "Free", count: freeUsers, color: "bg-blue-400" },
-                        { label: "Suspended", count: suspendedUsers, color: "bg-red-500" },
-                      ].map(item => (
-                        <div key={item.label}>
-                          <div className="flex items-center justify-between text-sm mb-1">
-                            <span className="text-muted-foreground">{item.label}</span>
-                            <span className="font-medium">{item.count}</span>
+                  {/* User Plan Breakdown with Donut Chart */}
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
+                    <h3 className="text-sm font-semibold text-gray-900">User Plan Breakdown</h3>
+                    <div className="flex items-center gap-6">
+                      {/* SVG Donut Chart */}
+                      {(() => {
+                        const total = totalUsers || 1;
+                        const radius = 54;
+                        const circumference = 2 * Math.PI * radius;
+                        const proAngle = (proUsers / total) * circumference;
+                        const freeAngle = (freeUsers / total) * circumference;
+                        const susAngle = (suspendedUsers / total) * circumference;
+                        return (
+                          <svg viewBox="0 0 120 120" className="w-32 h-32 shrink-0">
+                            <circle cx="60" cy="60" r={radius} fill="none" stroke="#f1f5f9" strokeWidth="12" />
+                            <circle cx="60" cy="60" r={radius} fill="none" stroke="#f59e0b" strokeWidth="12"
+                              strokeDasharray={`${proAngle} ${circumference - proAngle}`}
+                              strokeDashoffset={circumference * 0.25} strokeLinecap="round" />
+                            <circle cx="60" cy="60" r={radius} fill="none" stroke="#3b82f6" strokeWidth="12"
+                              strokeDasharray={`${freeAngle} ${circumference - freeAngle}`}
+                              strokeDashoffset={circumference * 0.25 - proAngle} strokeLinecap="round" />
+                            <circle cx="60" cy="60" r={radius} fill="none" stroke="#ef4444" strokeWidth="12"
+                              strokeDasharray={`${susAngle} ${circumference - susAngle}`}
+                              strokeDashoffset={circumference * 0.25 - proAngle - freeAngle} strokeLinecap="round" />
+                            <text x="60" y="56" textAnchor="middle" fill="#111827" fontSize="16" fontWeight="700">{total}</text>
+                            <text x="60" y="70" textAnchor="middle" fill="#9ca3af" fontSize="9">users</text>
+                          </svg>
+                        );
+                      })()}
+                      <div className="space-y-2 flex-1">
+                        {[
+                          { label: "Pro", count: proUsers, dot: "bg-amber-500" },
+                          { label: "Free", count: freeUsers, dot: "bg-blue-500" },
+                          { label: "Suspended", count: suspendedUsers, dot: "bg-red-500" },
+                        ].map(item => (
+                          <div key={item.label} className="flex items-center gap-2">
+                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${item.dot}`} />
+                            <span className="text-sm text-gray-500 flex-1">{item.label}</span>
+                            <span className="text-sm font-semibold text-gray-900">{item.count}</span>
+                            <span className="text-xs text-gray-400">{totalUsers ? Math.round((item.count / totalUsers) * 100) : 0}%</span>
                           </div>
-                          <div className="w-full bg-muted rounded-full h-2">
-                            <div
-                              className={`${item.color} h-2 rounded-full transition-all`}
-                              style={{ width: `${totalUsers ? Math.round((item.count / totalUsers) * 100) : 0}%` }}
-                            />
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {totalUsers ? Math.round((item.count / totalUsers) * 100) : 0}% of total
-                          </p>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
                   </div>
 
                   {/* Activity Summary */}
-                  <div className="bg-card rounded-xl border border-border p-6 space-y-4">
-                    <h3 className="text-sm font-semibold text-foreground">Activity Summary</h3>
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
+                    <h3 className="text-sm font-semibold text-gray-900">Activity Summary</h3>
                     <div className="space-y-3">
                       {[
-                        { label: "New Users Today", value: `+${newUsersToday}`, color: "text-green-500" },
-                        { label: "Total Documents", value: totalDocs.toLocaleString(), color: "text-blue-500" },
-                        { label: "Total Words Processed", value: `${(totalWords/1000).toFixed(1)}K`, color: "text-purple-500" },
-                        { label: "Words Per Check", value: totalDocs ? Math.round(totalWords / totalDocs).toLocaleString() : "—", color: "text-orange-500" },
-                        { label: "Avg Credits/User", value: users.length ? Math.round(users.reduce((s,u) => s + (u.credits||0), 0) / users.length).toLocaleString() : "—", color: "text-indigo-500" },
+                        { label: "New Users Today", value: `+${newUsersToday}`, color: "text-emerald-600" },
+                        { label: "Total Documents", value: totalDocs.toLocaleString(), color: "text-blue-600" },
+                        { label: "Total Words Processed", value: `${(totalWords/1000).toFixed(1)}K`, color: "text-purple-600" },
+                        { label: "Words Per Check", value: totalDocs ? Math.round(totalWords / totalDocs).toLocaleString() : "—", color: "text-orange-600" },
+                        { label: "Avg Credits/User", value: users.length ? Math.round(users.reduce((s,u) => s + (u.credits||0), 0) / users.length).toLocaleString() : "—", color: "text-indigo-600" },
                       ].map(item => (
                         <div key={item.label} className="flex items-center justify-between">
-                          <span className="text-sm text-muted-foreground">{item.label}</span>
+                          <span className="text-sm text-gray-500">{item.label}</span>
                           <span className={`text-sm font-semibold ${item.color}`}>{item.value}</span>
                         </div>
                       ))}
@@ -2599,8 +2715,8 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                   </div>
 
                   {/* Quick Actions */}
-                  <div className="bg-card rounded-xl border border-border p-6 space-y-3">
-                    <h3 className="text-sm font-semibold text-foreground">Quick Actions</h3>
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-3">
+                    <h3 className="text-sm font-semibold text-gray-900">Quick Actions</h3>
                     <div className="space-y-2">
                       {[
                         { label: "Manage Users", tab: "users" as const, icon: <Users className="w-4 h-4" /> },
@@ -2612,32 +2728,30 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                         <button
                           key={a.label}
                           onClick={() => setActiveTab(a.tab)}
-                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-muted/60 transition-colors text-left border border-border"
+                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors text-left border border-gray-200 group"
                         >
-                          <span className="text-muted-foreground">{a.icon}</span>
+                          <span className="text-gray-400 group-hover:text-blue-500">{a.icon}</span>
                           {a.label}
-                          <ChevronRight className="w-3 h-3 ml-auto text-muted-foreground" />
+                          <ChevronRight className="w-3.5 h-3.5 ml-auto text-gray-300 group-hover:text-blue-400" />
                         </button>
                       ))}
                     </div>
                   </div>
                 </div>
 
-                {/* Daily Activity row */}
-                <div className="bg-card rounded-xl border border-border p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-sm font-semibold text-foreground">Today at a Glance</h2>
-                  </div>
+                {/* Today at a Glance */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                  <h2 className="text-sm font-semibold text-gray-900 mb-4">Today at a Glance</h2>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     {[
-                      { label: "New Signups", value: `+${newUsersToday}` },
-                      { label: "Checks Run", value: checksToday.toLocaleString() },
-                      { label: "Words Checked", value: wordsToday >= 1000 ? `${(wordsToday/1000).toFixed(1)}K` : wordsToday.toString() },
-                      { label: "Avg Words/Check", value: checksToday ? Math.round(wordsToday / checksToday).toLocaleString() : "—" },
+                      { label: "New Signups", value: `+${newUsersToday}`, color: "text-emerald-600", bg: "bg-emerald-50" },
+                      { label: "Checks Run", value: checksToday.toLocaleString(), color: "text-blue-600", bg: "bg-blue-50" },
+                      { label: "Words Checked", value: wordsToday >= 1000 ? `${(wordsToday/1000).toFixed(1)}K` : wordsToday.toString(), color: "text-purple-600", bg: "bg-purple-50" },
+                      { label: "Avg Words/Check", value: checksToday ? Math.round(wordsToday / checksToday).toLocaleString() : "—", color: "text-orange-600", bg: "bg-orange-50" },
                     ].map(s => (
-                      <div key={s.label} className="bg-muted/30 rounded-lg p-4 text-center">
-                        <p className="text-2xl font-bold text-foreground">{s.value}</p>
-                        <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
+                      <div key={s.label} className={`${s.bg} rounded-xl p-4 text-center`}>
+                        <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+                        <p className="text-xs text-gray-500 mt-1 font-medium">{s.label}</p>
                       </div>
                     ))}
                   </div>
@@ -2657,16 +2771,19 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                   if (proUsers > 0) insights.push({ type: "good", text: `MRR ₹${monthlyRevenue.toLocaleString("en-IN")} — ARR estimate ₹${(monthlyRevenue * 12).toLocaleString("en-IN")}.` });
                   if (insights.length === 0) return null;
                   return (
-                    <div className="bg-card rounded-xl border border-border p-5">
-                      <h2 className="text-sm font-semibold text-foreground mb-3">⚡ Smart Insights</h2>
+                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+                      <h2 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-amber-500" />
+                        Smart Insights
+                      </h2>
                       <div className="space-y-2">
                         {insights.map((ins, i) => (
-                          <div key={i} className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg text-sm ${
-                            ins.type === "warn" ? "bg-red-500/8 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800/50" :
-                            ins.type === "good" ? "bg-emerald-500/8 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50" :
-                            "bg-blue-500/8 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800/50"
+                          <div key={i} className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg text-sm border ${
+                            ins.type === "warn" ? "bg-red-50 text-red-700 border-red-200" :
+                            ins.type === "good" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                            "bg-blue-50 text-blue-700 border-blue-200"
                           }`}>
-                            <span className="mt-0.5 shrink-0">{ins.type === "warn" ? "⚠️" : ins.type === "good" ? "✅" : "ℹ️"}</span>
+                            <span className="mt-0.5 shrink-0">{ins.type === "warn" ? <AlertTriangle className="w-4 h-4" /> : ins.type === "good" ? <CheckCircle className="w-4 h-4" /> : <Info className="w-4 h-4" />}</span>
                             <span>{ins.text}</span>
                           </div>
                         ))}
@@ -2678,55 +2795,51 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
             )}
 
             {activeTab === "users" && (
-              <div className="space-y-6">
+              <div className="space-y-5">
+                {/* Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h1 className="text-2xl font-bold text-foreground mb-1">
-                      Users
-                    </h1>
-                    <p className="text-muted-foreground">
-                      Manage all registered users
-                    </p>
+                    <h1 className="text-2xl font-bold text-gray-900">Users</h1>
+                    <p className="text-gray-500 text-sm mt-0.5">Manage all registered users — {users.length.toLocaleString()} total</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button 
-                      variant="default" 
-                      size="sm"
+                    <Button
+                      className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg h-9 px-4 text-sm shadow-sm"
                       onClick={() => setIsCreateUserOpen(true)}
                     >
                       <UserPlus className="w-4 h-4 mr-2" />
                       Create User
                     </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
+                    <Button
+                      variant="outline"
+                      className="rounded-lg h-9 px-4 text-sm border-gray-200"
                       onClick={() => setIsBulkUploadOpen(true)}
                     >
                       <Upload className="w-4 h-4 mr-2" />
                       Bulk Upload
                     </Button>
-                    <Button variant="outline" size="sm" onClick={exportUsersCsv}>
+                    <Button variant="outline" className="rounded-lg h-9 px-4 text-sm border-gray-200" onClick={exportUsersCsv}>
                       <Download className="w-4 h-4 mr-2" />
                       Export CSV
                     </Button>
                   </div>
                 </div>
 
-                {/* Bulk Actions Toolbar — visible when rows are selected */}
+                {/* Bulk Actions Toolbar */}
                 {selectedUsers.size > 0 && (
-                  <div className="flex flex-wrap items-center gap-2 px-4 py-3 rounded-xl border border-primary/30 bg-primary/5">
-                    <span className="text-sm font-semibold text-primary mr-1">
+                  <div className="flex flex-wrap items-center gap-2 px-4 py-3 rounded-xl border border-blue-200 bg-blue-50 shadow-sm">
+                    <span className="text-sm font-bold text-blue-700 mr-1">
                       {selectedUsers.size} selected
                     </span>
                     <button
-                      className="text-xs text-muted-foreground underline hover:text-foreground"
+                      className="text-xs text-blue-500 underline hover:text-blue-700"
                       onClick={() => setSelectedUsers(new Set())}
                     >
                       Clear
                     </button>
-                    <div className="w-px h-4 bg-border mx-1" />
+                    <div className="w-px h-4 bg-blue-200 mx-1" />
                     <Button
-                      size="sm" variant="default" className="h-8 text-xs"
+                      size="sm" className="h-8 text-xs bg-amber-500 hover:bg-amber-600 text-white rounded-lg"
                       onClick={() => { setBulkPlanAction("grant"); setBulkPlanDialogOpen(true); }}
                       disabled={isBulkActioning}
                     >
@@ -2734,14 +2847,14 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                       Grant Pro
                     </Button>
                     <Button
-                      size="sm" variant="outline" className="h-8 text-xs"
+                      size="sm" variant="outline" className="h-8 text-xs rounded-lg border-gray-300"
                       onClick={handleBulkRevokePro}
                       disabled={isBulkActioning}
                     >
-                      ↓ Revoke Pro
+                      Revoke Pro
                     </Button>
                     <Button
-                      size="sm" variant="outline" className="h-8 text-xs"
+                      size="sm" variant="outline" className="h-8 text-xs rounded-lg border-gray-300"
                       onClick={() => { setBulkCreditsDialogOpen(true); const d = new Date(); d.setDate(d.getDate() + 30); setBulkCreditsExpiry(d.toISOString().slice(0, 16)); }}
                       disabled={isBulkActioning}
                     >
@@ -2749,14 +2862,14 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                       Add Credits
                     </Button>
                     <Button
-                      size="sm" variant="outline" className="h-8 text-xs"
+                      size="sm" variant="outline" className="h-8 text-xs rounded-lg border-gray-300"
                       onClick={() => setBulkCategoryDialogOpen(true)}
                       disabled={isBulkActioning}
                     >
                       Set Category
                     </Button>
                     <Button
-                      size="sm" variant="outline" className="h-8 text-xs"
+                      size="sm" variant="outline" className="h-8 text-xs rounded-lg border-gray-300"
                       onClick={() => { setBulkSuspendAction("suspend"); setBulkSuspendDialogOpen(true); }}
                       disabled={isBulkActioning}
                     >
@@ -2764,14 +2877,14 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                       Suspend
                     </Button>
                     <Button
-                      size="sm" variant="outline" className="h-8 text-xs"
+                      size="sm" variant="outline" className="h-8 text-xs rounded-lg border-gray-300"
                       onClick={() => { setBulkSuspendAction("reactivate"); setBulkSuspendDialogOpen(true); }}
                       disabled={isBulkActioning}
                     >
                       Reactivate
                     </Button>
                     <Button
-                      size="sm" variant="destructive" className="h-8 text-xs ml-auto"
+                      size="sm" className="h-8 text-xs ml-auto bg-red-500 hover:bg-red-600 text-white rounded-lg"
                       onClick={() => setIsDeleteDialogOpen(true)}
                       disabled={isDeletingUsers || isBulkActioning}
                     >
@@ -2781,7 +2894,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                   </div>
                 )}
 
-                {/* User Segments */}
+                {/* Segment Pills */}
                 <div className="space-y-2">
                   <div className="flex flex-wrap gap-2">
                     {([
@@ -2794,22 +2907,22 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                       <button
                         key={seg.label}
                         onClick={seg.onClick}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                        className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-all ${
                           seg.active
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                            ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                            : "bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:text-blue-600"
                         }`}
                       >
                         {seg.label}
-                        <span className={`px-1.5 py-0.5 rounded-full text-xs ${
-                          seg.active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground"
+                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          seg.active ? "bg-white/25 text-white" : "bg-gray-100 text-gray-500"
                         }`}>{seg.count}</span>
                       </button>
                     ))}
                   </div>
                   {uniqueCategories.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 items-center">
-                      <span className="text-xs text-muted-foreground mr-1">Category:</span>
+                      <span className="text-xs text-gray-400 mr-1 font-medium">Category:</span>
                       {uniqueCategories.map(cat => {
                         const count = users.filter(u => (u.category || "Uncategorized").toLowerCase() === cat.toLowerCase()).length;
                         const active = categoryFilter.toLowerCase() === cat.toLowerCase();
@@ -2817,12 +2930,12 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                           <button
                             key={cat}
                             onClick={() => setCategoryFilter(active ? "" : cat)}
-                            className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
-                              active ? "bg-blue-600 text-white border-blue-600" : "bg-background text-muted-foreground border-border hover:border-blue-400 hover:text-blue-500"
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                              active ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-500 border-gray-200 hover:border-blue-300 hover:text-blue-600"
                             }`}
                           >
                             {cat}
-                            <span className={`px-1 rounded-full text-[10px] ${active ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"}`}>{count}</span>
+                            <span className={`px-1 rounded-full text-[10px] font-bold ${active ? "bg-white/25 text-white" : "bg-gray-100 text-gray-400"}`}>{count}</span>
                           </button>
                         );
                       })}
@@ -2830,17 +2943,17 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                   )}
                 </div>
 
-                {/* Search & Filter */}
-                <div className="bg-card rounded-xl border border-border p-4 space-y-3">
+                {/* Search & Filter Bar */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-3">
                   <div className="flex flex-wrap gap-3 items-center">
                     {/* Search */}
                     <div className="relative flex-1 min-w-[180px]">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <Input
                         placeholder="Search name, email, phone..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-10 h-9"
+                        className="pl-10 h-9 border-gray-200 bg-gray-50 focus:bg-white text-sm"
                       />
                     </div>
 
@@ -2851,7 +2964,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                         placeholder="Category..."
                         value={categoryFilter}
                         onChange={(e) => setCategoryFilter(e.target.value)}
-                        className="h-9 w-36 text-sm"
+                        className="h-9 w-36 text-sm border-gray-200 bg-gray-50"
                       />
                       <datalist id="admin-category-filter">
                         <option value="Uncategorized" />
@@ -2863,7 +2976,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                     <select
                       value={planFilter}
                       onChange={(e) => setPlanFilter(e.target.value as "all" | "free" | "pro")}
-                      className="h-9 px-3 rounded-md border border-border bg-background text-sm text-foreground cursor-pointer"
+                      className="h-9 px-3 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 cursor-pointer"
                     >
                       <option value="all">All Plans</option>
                       <option value="pro">Pro Only</option>
@@ -2874,7 +2987,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                     <select
                       value={statusFilter}
                       onChange={(e) => setStatusFilter(e.target.value as "all" | "active" | "deactivated")}
-                      className="h-9 px-3 rounded-md border border-border bg-background text-sm text-foreground cursor-pointer"
+                      className="h-9 px-3 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 cursor-pointer"
                     >
                       <option value="all">All Status</option>
                       <option value="active">Active</option>
@@ -2885,7 +2998,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                     <select
                       value={dateFilter}
                       onChange={(e) => setDateFilter(e.target.value as "all" | "7days" | "30days" | "90days")}
-                      className="h-9 px-3 rounded-md border border-border bg-background text-sm text-foreground cursor-pointer"
+                      className="h-9 px-3 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 cursor-pointer"
                     >
                       <option value="all">All Time</option>
                       <option value="7days">Last 7 Days</option>
@@ -2897,7 +3010,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                     <select
                       value={sortBy}
                       onChange={(e) => setSortBy(e.target.value as "newest" | "oldest" | "name" | "credits")}
-                      className="h-9 px-3 rounded-md border border-border bg-background text-sm text-foreground cursor-pointer"
+                      className="h-9 px-3 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 cursor-pointer"
                     >
                       <option value="newest">Newest First</option>
                       <option value="oldest">Oldest First</option>
@@ -2910,7 +3023,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-9 text-muted-foreground hover:text-foreground"
+                        className="h-9 text-gray-500 hover:text-gray-900"
                         onClick={() => {
                           setSearchQuery("");
                           setCategoryFilter("");
@@ -2927,122 +3040,97 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                   </div>
 
                   {/* Stats summary */}
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground pt-1 border-t border-border">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-400 pt-2 border-t border-gray-100">
                     <span>
-                      Showing <span className="font-semibold text-foreground">{Math.min(pageSize, filteredUsers.length - (currentPage - 1) * pageSize)}</span> of <span className="font-semibold text-foreground">{filteredUsers.length}</span> {filteredUsers.length !== users.length ? `(filtered from ${users.length})` : "users"}
+                      Showing <span className="font-semibold text-gray-700">{Math.min(pageSize, filteredUsers.length - (currentPage - 1) * pageSize)}</span> of <span className="font-semibold text-gray-700">{filteredUsers.length}</span> {filteredUsers.length !== users.length ? `(filtered from ${users.length})` : "users"}
                     </span>
-                    <span className="flex items-center gap-1"><Crown className="w-3 h-3 text-yellow-500" /> Pro: <span className="font-semibold text-foreground">{filteredUsers.filter(u => u.plan === "Pro").length}</span></span>
-                    <span className="flex items-center gap-1"><Zap className="w-3 h-3 text-blue-400" /> Free: <span className="font-semibold text-foreground">{filteredUsers.filter(u => u.plan !== "Pro").length}</span></span>
-                    <span className="flex items-center gap-1"><UserX className="w-3 h-3 text-red-500" /> Suspended: <span className="font-semibold text-foreground">{filteredUsers.filter(u => u.status === "deactivated").length}</span></span>
+                    <span className="flex items-center gap-1"><Crown className="w-3 h-3 text-amber-500" /> Pro: <span className="font-semibold text-gray-700">{filteredUsers.filter(u => u.plan === "Pro").length}</span></span>
+                    <span className="flex items-center gap-1"><Zap className="w-3 h-3 text-blue-400" /> Free: <span className="font-semibold text-gray-700">{filteredUsers.filter(u => u.plan !== "Pro").length}</span></span>
+                    <span className="flex items-center gap-1"><UserX className="w-3 h-3 text-red-400" /> Suspended: <span className="font-semibold text-gray-700">{filteredUsers.filter(u => u.status === "deactivated").length}</span></span>
                   </div>
                 </div>
 
                 {/* Users Table */}
-                <div className="bg-card rounded-xl border border-border overflow-hidden">
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
-                        <tr className="border-b border-border bg-muted/50">
-                          <th className="py-4 px-6 text-sm font-medium text-muted-foreground w-12">
+                        <tr className="border-b border-gray-100 bg-gray-50">
+                          <th className="py-3 px-5 text-sm font-medium text-gray-500 w-12">
                             <input
                               type="checkbox"
                               checked={selectedUsers.size === filteredUsers.length && filteredUsers.length > 0}
                               onChange={toggleSelectAll}
-                              className="w-4 h-4 cursor-pointer"
+                              className="w-4 h-4 cursor-pointer accent-blue-600"
                             />
                           </th>
-                          <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                            User
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                            Phone
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                            Category
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                            Plan
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                            Status
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                            Credits
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                            Addon Credits
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                            Addon Used
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                            Usage
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                            Word Limit
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                            Joined
-                          </th>
-                          <th className="text-right py-4 px-6 text-sm font-medium text-muted-foreground">
-                            Actions
-                          </th>
+                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">User</th>
+                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Phone</th>
+                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Category</th>
+                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Plan</th>
+                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Credits</th>
+                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Addon</th>
+                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Addon Used</th>
+                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Usage</th>
+                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Limit</th>
+                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Joined</th>
+                          <th className="text-right py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {paginatedUsers.map((user) => (
                           <tr
                             key={user.id}
-                            className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors"
+                            className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition-colors"
                           >
-                            <td className="py-4 px-6">
+                            <td className="py-4 px-5">
                               <input
                                 type="checkbox"
                                 checked={selectedUsers.has(user.id)}
                                 onChange={() => toggleSelectUser(user.id)}
-                                className="w-4 h-4 cursor-pointer"
+                                className="w-4 h-4 cursor-pointer accent-blue-600"
                               />
                             </td>
-                            <td className="py-4 px-6">
+                            <td className="py-4 px-5">
                               <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center">
-                                  <span className="text-xs font-medium text-accent-foreground">
-                                    {user.name.charAt(0)}
+                                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shrink-0">
+                                  <span className="text-xs font-bold text-white">
+                                    {user.name.charAt(0).toUpperCase()}
                                   </span>
                                 </div>
-                                <div className="flex-1">
-                                  <p className="text-sm font-medium text-foreground">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-semibold text-gray-900 truncate">
                                     {user.name}
                                   </p>
-                                  <p className="text-xs text-muted-foreground mb-1">
+                                  <p className="text-xs text-gray-400 truncate mb-1.5">
                                     {user.email}
                                   </p>
                                   <div className="flex items-center gap-1.5">
-                                    <Button 
-                                      variant="outline" 
+                                    <Button
+                                      variant="outline"
                                       size="sm"
-                                      className="h-7 px-2.5 text-xs border-border/50 hover:bg-accent/10"
+                                      className="h-6 px-2 text-xs border-gray-200 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 rounded"
                                       onClick={() => handleEditUser(user.id, user)}
                                     >
                                       Edit
                                     </Button>
-                                    <Button 
-                                      variant="outline" 
+                                    <Button
+                                      variant="outline"
                                       size="sm"
-                                      className="h-7 px-2.5 text-xs border-border/50 hover:bg-accent/10"
+                                      className="h-6 px-2 text-xs border-gray-200 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 rounded"
                                       onClick={() => handleAddAddonCredits(user.id, user)}
                                       title="Add Addon Credits"
                                     >
-                                      <Coins className="w-3.5 h-3.5 mr-1" />
+                                      <Coins className="w-3 h-3 mr-1" />
                                       Credits
                                     </Button>
-                                    <Button 
-                                      variant={user.plan === "Pro" ? "destructive" : "default"}
+                                    <Button
                                       size="sm"
-                                      className="h-7 px-2.5 text-xs"
+                                      className={`h-6 px-2 text-xs rounded ${user.plan === "Pro" ? "bg-red-100 hover:bg-red-200 text-red-700 border border-red-200" : "bg-amber-100 hover:bg-amber-200 text-amber-700 border border-amber-200"}`}
                                       onClick={() => handleTogglePlan(user)}
                                       disabled={togglingPlanUserId === user.id}
-                                      title={user.plan === "Pro" ? "Downgrade to Free" : "Upgrade to Pro (Manual - No auto-renewal)"}
+                                      title={user.plan === "Pro" ? "Downgrade to Free" : "Upgrade to Pro"}
                                     >
                                       {togglingPlanUserId === user.id ? "..." : user.plan === "Pro" ? "↓ Free" : "↑ Pro"}
                                     </Button>
@@ -3050,13 +3138,15 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                                 </div>
                               </div>
                             </td>
-                            <td className="py-4 px-6 text-sm text-muted-foreground">
+                            <td className="py-4 px-5 text-sm text-gray-500">
                               {user.phone || "—"}
                             </td>
-                            <td className="py-4 px-6 text-sm text-muted-foreground">
-                              {user.category || "—"}
+                            <td className="py-4 px-5 text-sm text-gray-500">
+                              {user.category ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">{user.category}</span>
+                              ) : "—"}
                             </td>
-                            <td className="py-4 px-6">
+                            <td className="py-4 px-5">
                               <div className="flex flex-col gap-1">
                                 <Badge
                                   variant={
@@ -3066,6 +3156,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                                       ? "secondary"
                                       : "outline"
                                   }
+                                  className={user.plan === "Pro" ? "bg-amber-500 hover:bg-amber-500 text-white border-0" : user.plan !== "Pro" ? "text-blue-600 border-blue-200 bg-blue-50" : ""}
                                 >
                                   {user.plan}
                                 </Badge>
@@ -3118,63 +3209,64 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                                 })()}
                               </div>
                             </td>
-                            <td className="py-4 px-6">
-                              <Badge
-                                variant={user.status === "deactivated" ? "destructive" : "outline"}
-                              >
-                                {user.status === "deactivated" ? "Deactivated" : "Active"}
-                              </Badge>
+                            <td className="py-4 px-5">
+                              {user.status === "deactivated" ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Suspended</span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Active</span>
+                              )}
                             </td>
-                            <td className="py-4 px-6 text-sm text-foreground">
+                            <td className="py-4 px-5 text-sm text-gray-700 font-medium">
                               {user.credits ? user.credits.toLocaleString() : "—"}
                             </td>
-                            <td className="py-4 px-6">
+                            <td className="py-4 px-5">
                               {user.addonCredits && user.addonCredits > 0 ? (
                                 <div className="flex flex-col">
-                                  <span className="text-sm text-foreground font-medium">
+                                  <span className="text-sm text-gray-700 font-medium">
                                     {user.addonCredits.toLocaleString()}
                                   </span>
                                   {user.addonCreditsExpiryAt && (
-                                    <span className="text-xs text-muted-foreground">
-                                      Expires: {new Date(user.addonCreditsExpiryAt).toLocaleDateString()}
+                                    <span className="text-[10px] text-gray-400">
+                                      Exp: {new Date(user.addonCreditsExpiryAt).toLocaleDateString()}
                                     </span>
                                   )}
                                 </div>
                               ) : (
-                                <span className="text-sm text-muted-foreground">—</span>
+                                <span className="text-sm text-gray-400">—</span>
                               )}
                             </td>
-                            <td className="py-4 px-6 text-sm text-foreground">
+                            <td className="py-4 px-5 text-sm text-gray-700">
                               {(() => {
                                 const baseLimit = user.credits || 0;
                                 const totalUsed = user.creditsUsed || 0;
                                 const totalAddon = (user.addonCredits || 0) + (user.adminCredits || 0);
                                 const addonUsed = Math.max(0, totalUsed - baseLimit);
-                                return addonUsed > 0 && totalAddon > 0 
+                                return addonUsed > 0 && totalAddon > 0
                                   ? `${addonUsed.toLocaleString()} / ${totalAddon.toLocaleString()}`
                                   : "—";
                               })()}
                             </td>
-                            <td className="py-4 px-6 text-sm text-foreground">
+                            <td className="py-4 px-5 text-sm text-gray-700">
                               {user.credits
                                 ? `${(user.creditsUsed || 0).toLocaleString()} / ${user.credits.toLocaleString()}`
                                 : "—"}
                             </td>
-                            <td className="py-4 px-6 text-sm text-foreground">
+                            <td className="py-4 px-5 text-sm text-gray-700">
                               {user.wordLimit ? user.wordLimit.toLocaleString() : "—"}
                             </td>
-                            <td className="py-4 px-6 text-sm text-muted-foreground">
+                            <td className="py-4 px-5 text-sm text-gray-400">
                               {user.createdAt
                                 ? new Date(user.createdAt).toLocaleDateString()
                                 : user.updatedAt
                                 ? new Date(user.updatedAt).toLocaleDateString()
                                 : "—"}
                             </td>
-                            <td className="py-4 px-6 text-right">
-                              <div className="flex items-center justify-end gap-2">
+                            <td className="py-4 px-5 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
                                 <Button
                                   variant="outline"
                                   size="sm"
+                                  className="h-7 px-2.5 text-xs border-gray-200 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 rounded"
                                   onClick={() => setViewingUser(user)}
                                 >
                                   <Info className="w-3.5 h-3.5 mr-1" />
@@ -3184,21 +3276,22 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                                   <Button
                                     variant="outline"
                                     size="sm"
+                                    className="h-7 px-2.5 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded"
                                     onClick={() => handleReactivateUser(user.id)}
                                     disabled={reactivatingUserId === user.id}
                                   >
-                                    {reactivatingUserId === user.id ? "Reactivating..." : "Reactivate"}
+                                    {reactivatingUserId === user.id ? "..." : "Reactivate"}
                                   </Button>
                                 )}
                                 <Button
                                   variant="ghost"
                                   size="sm"
+                                  className="h-7 w-7 p-0 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
                                   onClick={() => {
                                     setUserToDelete(user.id);
                                     setIsDeleteDialogOpen(true);
                                   }}
                                   disabled={isDeletingUsers}
-                                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
                                 >
                                   <X className="w-4 h-4" />
                                 </Button>
@@ -3212,13 +3305,13 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
 
                   {/* Pagination controls */}
                   {totalPages > 1 && (
-                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-border">
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <span>Page <span className="font-semibold text-foreground">{currentPage}</span> of <span className="font-semibold text-foreground">{totalPages}</span></span>
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-t border-gray-100">
+                      <div className="flex items-center gap-2 text-sm text-gray-500">
+                        <span>Page <span className="font-semibold text-gray-900">{currentPage}</span> of <span className="font-semibold text-gray-900">{totalPages}</span></span>
                         <select
                           value={pageSize}
                           onChange={e => setPageSize(Number(e.target.value) as 25 | 50 | 100)}
-                          className="ml-2 h-7 px-2 rounded border border-border bg-background text-xs text-foreground"
+                          className="ml-2 h-7 px-2 rounded border border-gray-200 bg-white text-xs text-gray-700"
                         >
                           <option value={25}>25 / page</option>
                           <option value={50}>50 / page</option>
@@ -3226,17 +3319,17 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                         </select>
                       </div>
                       <div className="flex items-center gap-1">
-                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => setCurrentPage(1)} disabled={currentPage === 1}>«</Button>
-                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>‹ Prev</Button>
+                        <Button variant="outline" size="sm" className="h-7 px-2 border-gray-200" onClick={() => setCurrentPage(1)} disabled={currentPage === 1}>«</Button>
+                        <Button variant="outline" size="sm" className="h-7 px-2 border-gray-200" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>‹ Prev</Button>
                         {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                           const start = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
                           const page = start + i;
                           return page <= totalPages ? (
-                            <Button key={page} variant={page === currentPage ? "default" : "outline"} size="sm" className="h-7 w-7 p-0 text-xs" onClick={() => setCurrentPage(page)}>{page}</Button>
+                            <Button key={page} variant={page === currentPage ? "default" : "outline"} size="sm" className={`h-7 w-7 p-0 text-xs ${page === currentPage ? "bg-blue-600 hover:bg-blue-700 border-blue-600" : "border-gray-200"}`} onClick={() => setCurrentPage(page)}>{page}</Button>
                           ) : null;
                         })}
-                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next ›</Button>
-                        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages}>»</Button>
+                        <Button variant="outline" size="sm" className="h-7 px-2 border-gray-200" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next ›</Button>
+                        <Button variant="outline" size="sm" className="h-7 px-2 border-gray-200" onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages}>»</Button>
                       </div>
                     </div>
                   )}
@@ -3945,47 +4038,33 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
               <div className="space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h1 className="text-2xl font-bold text-foreground mb-1">
-                      Suggestions
-                    </h1>
-                    <p className="text-muted-foreground">
-                      User ideas and product feedback
-                    </p>
+                    <h1 className="text-2xl font-bold text-gray-900">Suggestions</h1>
+                    <p className="text-gray-500 text-sm mt-0.5">User ideas and product feedback</p>
                   </div>
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-4">
                   <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <Input
                       placeholder="Search suggestions..."
                       value={suggestionSearch}
                       onChange={(e) => setSuggestionSearch(e.target.value)}
-                      className="pl-10"
+                      className="pl-10 border-gray-200 bg-white"
                     />
                   </div>
                 </div>
 
-                <div className="bg-card rounded-xl border border-border overflow-hidden">
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
-                        <tr className="border-b border-border bg-muted/50">
-                          <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                            Message
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                            User
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                            Status
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                            Date
-                          </th>
-                          <th className="text-right py-4 px-6 text-sm font-medium text-muted-foreground">
-                            Actions
-                          </th>
+                        <tr className="border-b border-gray-100 bg-gray-50">
+                          <th className="text-left py-3 px-6 text-xs font-semibold text-gray-500 uppercase tracking-wide">Message</th>
+                          <th className="text-left py-3 px-6 text-xs font-semibold text-gray-500 uppercase tracking-wide">User</th>
+                          <th className="text-left py-3 px-6 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                          <th className="text-left py-3 px-6 text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
+                          <th className="text-right py-3 px-6 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -3993,28 +4072,20 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                           filteredSuggestions.map((item) => (
                             <tr
                               key={item.id}
-                              className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors"
+                              className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition-colors"
                             >
-                              <td className="py-4 px-6 text-sm text-foreground max-w-xl">
-                                {item.message}
-                              </td>
-                              <td className="py-4 px-6 text-sm text-muted-foreground">
-                                {item.email || "Anonymous"}
-                              </td>
+                              <td className="py-4 px-6 text-sm text-gray-800 max-w-xl">{item.message}</td>
+                              <td className="py-4 px-6 text-sm text-gray-500">{item.email || "Anonymous"}</td>
                               <td className="py-4 px-6">
-                                <Badge
-                                  variant={
-                                    item.status === "resolved"
-                                      ? "secondary"
-                                      : item.status === "reviewed"
-                                      ? "default"
-                                      : "outline"
-                                  }
-                                >
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                  item.status === "resolved" ? "bg-emerald-100 text-emerald-700" :
+                                  item.status === "reviewed" ? "bg-blue-100 text-blue-700" :
+                                  "bg-gray-100 text-gray-600"
+                                }`}>
                                   {item.status}
-                                </Badge>
+                                </span>
                               </td>
-                              <td className="py-4 px-6 text-sm text-muted-foreground">
+                              <td className="py-4 px-6 text-sm text-gray-400">
                                 {new Date(item.createdAt).toLocaleString()}
                               </td>
                               <td className="py-4 px-6 text-right">
@@ -4022,6 +4093,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                                   <Button
                                     variant="ghost"
                                     size="sm"
+                                    className="h-7 text-xs text-gray-600 hover:text-blue-700 hover:bg-blue-50"
                                     onClick={() => updateSuggestionStatus(item.id, "reviewed")}
                                   >
                                     Mark reviewed
@@ -4029,6 +4101,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                                   <Button
                                     variant="ghost"
                                     size="sm"
+                                    className="h-7 text-xs text-gray-600 hover:text-emerald-700 hover:bg-emerald-50"
                                     onClick={() => updateSuggestionStatus(item.id, "resolved")}
                                   >
                                     Resolve
@@ -4039,7 +4112,8 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                           ))
                         ) : (
                           <tr>
-                            <td className="py-8 text-center text-sm text-muted-foreground" colSpan={5}>
+                            <td className="py-12 text-center text-sm text-gray-400" colSpan={5}>
+                              <MessageSquare className="w-10 h-10 text-gray-200 mx-auto mb-2" />
                               No suggestions yet.
                             </td>
                           </tr>
@@ -4055,18 +4129,14 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
               <div className="space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h1 className="text-2xl font-bold text-foreground mb-1">
-                      User Grammar Checks
-                    </h1>
-                    <p className="text-muted-foreground">
-                      Track all grammar check requests from users
-                    </p>
+                    <h1 className="text-2xl font-bold text-gray-900">User Grammar Checks</h1>
+                    <p className="text-gray-500 text-sm mt-0.5">Track all grammar check requests from users</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <select
                       value={checksFilter}
                       onChange={(e) => setChecksFilter(e.target.value as typeof checksFilter)}
-                      className="px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                      className="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-700"
                     >
                       <option value="all">All Time</option>
                       <option value="today">Today</option>
@@ -4076,6 +4146,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                       <Button
                         variant="outline"
                         size="sm"
+                        className="border-gray-200 text-gray-700 hover:bg-gray-50"
                         onClick={() => setSelectedUserId(null)}
                       >
                         ← Back to Users
@@ -4085,56 +4156,34 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="bg-card rounded-xl border border-border p-6">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-blue-500/10">
-                        <Activity className="w-5 h-5 text-blue-500" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Total Checks</p>
-                        <p className="text-2xl font-bold text-foreground">{userChecks.length}</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="bg-card rounded-xl border border-border p-6">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-green-500/10">
-                        <Users className="w-5 h-5 text-green-500" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Unique Users</p>
-                        <p className="text-2xl font-bold text-foreground">
-                          {new Set(userChecks.map(c => c.userId)).size}
-                        </p>
+                  {[
+                    { label: "Total Checks", value: userChecks.length, icon: <Activity className="w-5 h-5" />, light: "bg-blue-50", color: "text-blue-600", border: "border-l-blue-500" },
+                    { label: "Unique Users", value: new Set(userChecks.map(c => c.userId)).size, icon: <Users className="w-5 h-5" />, light: "bg-emerald-50", color: "text-emerald-600", border: "border-l-emerald-500" },
+                    { label: "Total Words", value: userChecks.reduce((sum, c) => sum + c.wordCount, 0).toLocaleString(), icon: <FileText className="w-5 h-5" />, light: "bg-purple-50", color: "text-purple-600", border: "border-l-purple-500" },
+                  ].map(card => (
+                    <div key={card.label} className={`bg-white rounded-xl border border-gray-200 border-l-4 ${card.border} shadow-sm p-5`}>
+                      <div className="flex items-center gap-3">
+                        <div className={`${card.light} ${card.color} p-2.5 rounded-lg`}>{card.icon}</div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-500">{card.label}</p>
+                          <p className="text-2xl font-bold text-gray-900">{card.value}</p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="bg-card rounded-xl border border-border p-6">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-purple-500/10">
-                        <FileText className="w-5 h-5 text-purple-500" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Total Words</p>
-                        <p className="text-2xl font-bold text-foreground">
-                          {userChecks.reduce((sum, c) => sum + c.wordCount, 0).toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+                  ))}
                 </div>
 
                 {checksLoading ? (
-                  <div className="bg-card rounded-xl border border-border py-12 text-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-3"></div>
-                    <p className="text-sm text-muted-foreground">Loading checks...</p>
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-12 text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-3"></div>
+                    <p className="text-sm text-gray-400">Loading checks...</p>
                   </div>
                 ) : !selectedUserId ? (
                   // User List View
-                  <div className="bg-card rounded-xl border border-border overflow-hidden">
-                    <div className="px-6 py-4 border-b border-border">
-                      <h2 className="text-lg font-semibold text-foreground">Users</h2>
-                      <p className="text-sm text-muted-foreground">Click on a user to view their check history</p>
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-100">
+                      <h2 className="text-base font-semibold text-gray-900">Users</h2>
+                      <p className="text-sm text-gray-400">Click on a user to view their check history</p>
                     </div>
                     <div className="divide-y divide-border">
                       {(() => {
@@ -4281,15 +4330,11 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
               <div className="space-y-8">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h1 className="text-2xl font-bold text-foreground mb-1">
-                      Blog
-                    </h1>
-                    <p className="text-muted-foreground">
-                      Create, edit, and publish blog posts
-                    </p>
+                    <h1 className="text-2xl font-bold text-gray-900">Blog</h1>
+                    <p className="text-gray-500 text-sm mt-0.5">Create, edit, and publish blog posts</p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <Button variant="outline" onClick={resetBlogForm}>
+                    <Button className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg" onClick={resetBlogForm}>
                       New Post
                     </Button>
                   </div>
@@ -4900,12 +4945,8 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
               <div className="space-y-8">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h1 className="text-2xl font-bold text-foreground mb-1">
-                      Languages Management
-                    </h1>
-                    <p className="text-muted-foreground">
-                      Add and manage custom languages for your grammar checker
-                    </p>
+                    <h1 className="text-2xl font-bold text-gray-900">Languages Management</h1>
+                    <p className="text-gray-500 text-sm mt-0.5">Add and manage custom languages for your grammar checker</p>
                   </div>
                 </div>
 
@@ -5177,10 +5218,10 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h1 className="text-2xl font-bold text-foreground mb-1">Billing & Plans</h1>
-                    <p className="text-muted-foreground">Revenue, subscriptions, discounts, and payment activity</p>
+                    <h1 className="text-2xl font-bold text-gray-900">Billing & Plans</h1>
+                    <p className="text-gray-500 text-sm mt-0.5">Revenue, subscriptions, discounts, and payment activity</p>
                   </div>
-                  <Button variant="outline" size="sm" onClick={handleExportBilling}>
+                  <Button variant="outline" size="sm" className="border-gray-200 rounded-lg" onClick={handleExportBilling}>
                     <Download className="w-4 h-4 mr-2" />
                     Export CSV
                   </Button>
@@ -5189,20 +5230,20 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                 {/* KPI row */}
                 <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                   {[
-                    { label: "MRR", value: `₹${monthlyRevenue.toLocaleString("en-IN")}`, sub: "Monthly recurring", color: "text-emerald-500", bg: "bg-emerald-500/10", icon: <CreditCard className="w-4 h-4" /> },
-                    { label: "Active Subs", value: proUsers.toLocaleString(), sub: "Pro plans", color: "text-blue-500", bg: "bg-blue-500/10", icon: <Users className="w-4 h-4" /> },
-                    { label: "ARPU", value: `₹${arpu.toLocaleString("en-IN")}`, sub: "Avg revenue/user", color: "text-indigo-500", bg: "bg-indigo-500/10", icon: <BarChart3 className="w-4 h-4" /> },
-                    { label: "Conversion", value: `${conversionRate}%`, sub: "Free → Pro", color: "text-orange-500", bg: "bg-orange-500/10", icon: <TrendingUp className="w-4 h-4" /> },
-                    { label: "Churn Risk", value: pastDueUsers.length.toLocaleString(), sub: "Past due accounts", color: "text-red-500", bg: "bg-red-500/10", icon: <AlertTriangle className="w-4 h-4" /> },
-                    { label: "Cancelled", value: cancelledUsers.length.toLocaleString(), sub: "Cancelled subs", color: "text-muted-foreground", bg: "bg-muted/60", icon: <UserX className="w-4 h-4" /> },
+                    { label: "MRR", value: `₹${monthlyRevenue.toLocaleString("en-IN")}`, sub: "Monthly recurring", color: "text-teal-600", bg: "bg-teal-50", border: "border-l-teal-500", icon: <CreditCard className="w-4 h-4" /> },
+                    { label: "Active Subs", value: proUsers.toLocaleString(), sub: "Pro plans", color: "text-blue-600", bg: "bg-blue-50", border: "border-l-blue-500", icon: <Users className="w-4 h-4" /> },
+                    { label: "ARPU", value: `₹${arpu.toLocaleString("en-IN")}`, sub: "Avg revenue/user", color: "text-indigo-600", bg: "bg-indigo-50", border: "border-l-indigo-500", icon: <BarChart3 className="w-4 h-4" /> },
+                    { label: "Conversion", value: `${conversionRate}%`, sub: "Free → Pro", color: "text-orange-600", bg: "bg-orange-50", border: "border-l-orange-500", icon: <TrendingUp className="w-4 h-4" /> },
+                    { label: "Churn Risk", value: pastDueUsers.length.toLocaleString(), sub: "Past due accounts", color: "text-red-600", bg: "bg-red-50", border: "border-l-red-500", icon: <AlertTriangle className="w-4 h-4" /> },
+                    { label: "Cancelled", value: cancelledUsers.length.toLocaleString(), sub: "Cancelled subs", color: "text-gray-500", bg: "bg-gray-50", border: "border-l-gray-300", icon: <UserX className="w-4 h-4" /> },
                   ].map(c => (
-                    <div key={c.label} className="bg-card rounded-xl border border-border p-4">
+                    <div key={c.label} className={`bg-white rounded-xl border border-gray-200 border-l-4 ${c.border} shadow-sm p-4`}>
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs text-muted-foreground">{c.label}</span>
+                        <span className="text-xs text-gray-500 font-medium">{c.label}</span>
                         <div className={`${c.bg} ${c.color} p-1.5 rounded-md`}>{c.icon}</div>
                       </div>
-                      <p className="text-2xl font-bold text-foreground">{c.value}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{c.sub}</p>
+                      <p className="text-2xl font-bold text-gray-900">{c.value}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{c.sub}</p>
                     </div>
                   ))}
                 </div>
@@ -5441,12 +5482,8 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
               <div className="space-y-8">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h1 className="text-2xl font-bold text-foreground mb-1">
-                      SEO Language Pages
-                    </h1>
-                    <p className="text-muted-foreground">
-                      Create SEO-optimized landing pages for each language
-                    </p>
+                    <h1 className="text-2xl font-bold text-gray-900">SEO Language Pages</h1>
+                    <p className="text-gray-500 text-sm mt-0.5">Create SEO-optimized landing pages for each language</p>
                   </div>
                   <div className="flex gap-3">
                     <Button variant="outline" onClick={() => {
@@ -6544,71 +6581,83 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
             {activeTab === "settings" && (
               <div className="space-y-6">
                 <div>
-                  <h1 className="text-2xl font-bold text-foreground mb-1">
-                    Settings
-                  </h1>
-                  <p className="text-muted-foreground">
-                    Platform configuration and preferences
-                  </p>
+                  <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+                  <p className="text-gray-500 text-sm mt-0.5">Platform configuration and preferences</p>
                 </div>
 
-                <div className="bg-card rounded-xl border border-border p-6">
-                  <h2 className="text-lg font-semibold text-foreground mb-4">
-                    API Configuration
-                  </h2>
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                  <h2 className="text-base font-semibold text-gray-900 mb-4">API Configuration</h2>
                   <div className="space-y-4">
                     <div>
-                      <label className="text-sm text-muted-foreground">
-                        Gemini API Status
-                      </label>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="w-2 h-2 rounded-full bg-green-500" />
-                        <span className="text-foreground">Connected</span>
+                      <label className="text-sm text-gray-500">Gemini API Status</label>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                        <span className="text-gray-800 font-medium">Connected</span>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm">
+                    <Button variant="outline" size="sm" className="border-gray-200">
                       Update API Key
                     </Button>
                   </div>
                 </div>
 
-                <div className="bg-card rounded-xl border border-border p-6">
-                  <h2 className="text-lg font-semibold text-foreground mb-4">
-                    Rate Limits
-                  </h2>
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                  <h2 className="text-base font-semibold text-gray-900 mb-4">Rate Limits</h2>
                   <div className="grid sm:grid-cols-2 gap-4">
+                    {[
+                      { label: "Free Plan — Words/Check", value: "200" },
+                      { label: "Free Plan — Monthly Words", value: "Limited" },
+                      { label: "Pro Plan — Words/Check", value: "5,000" },
+                      { label: "Pro Plan — Monthly Words", value: "25,000" },
+                    ].map(row => (
+                      <div key={row.label} className="bg-gray-50 rounded-lg px-4 py-3 border border-gray-100">
+                        <p className="text-xs text-gray-500 mb-1">{row.label}</p>
+                        <p className="text-sm font-semibold text-gray-900">{row.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Admin user creation */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                  <h2 className="text-base font-semibold text-gray-900 mb-1">Create Admin Account</h2>
+                  <p className="text-sm text-gray-400 mb-4">Grant admin access to another email address</p>
+                  <div className="space-y-3 max-w-md">
                     <div>
-                      <label className="text-sm text-muted-foreground">
-                        Free Plan - Words/Check
-                      </label>
-                      <p className="text-foreground font-medium">200</p>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Email</label>
+                      <Input
+                        type="email"
+                        value={newAdminEmail}
+                        onChange={(e) => setNewAdminEmail(e.target.value)}
+                        placeholder="admin@example.com"
+                        className="border-gray-200"
+                      />
                     </div>
                     <div>
-                      <label className="text-sm text-muted-foreground">
-                        Free Plan - Monthly Words
-                      </label>
-                      <p className="text-foreground font-medium">Limited</p>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Password</label>
+                      <Input
+                        type="password"
+                        value={newAdminPassword}
+                        onChange={(e) => setNewAdminPassword(e.target.value)}
+                        placeholder="Minimum 6 characters"
+                        className="border-gray-200"
+                      />
                     </div>
-                    <div>
-                      <label className="text-sm text-muted-foreground">
-                        Pro Plan - Words/Check
-                      </label>
-                      <p className="text-foreground font-medium">5,000</p>
-                    </div>
-                    <div>
-                      <label className="text-sm text-muted-foreground">
-                        Pro Plan - Monthly Words
-                      </label>
-                      <p className="text-foreground font-medium">25,000</p>
-                    </div>
+                    <Button
+                      className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                      onClick={handleCreateAdmin}
+                      disabled={creatingAdmin}
+                    >
+                      {creatingAdmin ? "Creating..." : "Create Admin"}
+                    </Button>
                   </div>
                 </div>
               </div>
             )}
-          </main>
-        </div>
+        </main>
+      </div>
 
-        {/* Plan Grant Duration Dialog */}
+      {/* Plan Grant Duration Dialog */}
         <Dialog open={!!planGrantDialogUser} onOpenChange={(open) => { if (!open) setPlanGrantDialogUser(null); }}>
           <DialogContent className="max-w-sm">
             <DialogHeader>
@@ -6690,7 +6739,6 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </div>
     </div>
   );
 };
