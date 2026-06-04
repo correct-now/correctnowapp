@@ -30,6 +30,7 @@ import { deleteUser, onAuthStateChanged, signOut } from "firebase/auth";
 import { collection, deleteDoc, doc, getDoc, getDocs as getFirestoreDocs, onSnapshot, setDoc } from "firebase/firestore";
 import { clearSessionId } from "@/lib/session";
 import { detectCountryCode, formatPrice, resolvePricing, type RegionalPricing } from "@/lib/pricing";
+import { useLanguageDetection } from "@/hooks/use-language-detection";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -87,6 +88,7 @@ const Index = () => {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editingTitleValue, setEditingTitleValue] = useState("");
   const [miniEditorLanguage, setMiniEditorLanguage] = useState("auto");
+  const [miniEditorLanguageMode, setMiniEditorLanguageMode] = useState<"auto" | "manual">("auto");
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [miniIsLoading, setMiniIsLoading] = useState(false);
   const [miniHasResults, setMiniHasResults] = useState(false);
@@ -101,6 +103,22 @@ const Index = () => {
   const [miniHoverSuggestion, setMiniHoverSuggestion] = useState<{
     open: boolean; top: number; left: number; changeIdx?: number; original: string;
   }>({ open: false, top: 0, left: 0, original: "" });
+
+  // ── CLD3 auto-detection for dashboard mini-editor ────────────────────────
+  const {
+    detectedLanguage: miniDetectedLanguage,
+    detectedConfidence: miniDetectedConfidence,
+  } = useLanguageDetection({
+    text: miniEditorText,
+    isManualMode: miniEditorLanguageMode === "manual",
+    onDetected: (result) => {
+      if (miniEditorLanguageMode === "manual") return;
+      if (result.isReliable && result.language !== "auto") {
+        setMiniEditorLanguage(result.language);
+      }
+    },
+  });
+  // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     const auth = getFirebaseAuth();
@@ -845,8 +863,8 @@ const Index = () => {
             <div className="flex-1 flex flex-col overflow-hidden">
               {/* Dashboard Top Nav - matches old Header sizing */}
               <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex-shrink-0">
-                <div className="container max-w-none px-3 sm:px-4 md:px-0">
-                  <div className="flex flex-col md:grid md:grid-cols-[1fr_auto_1fr] md:items-center gap-2 sm:gap-3 py-2 sm:py-4">
+                <div className="ds-container">
+                  <div className="flex items-center justify-between h-[72px]">
                     <div className="flex w-full md:w-auto items-center justify-center md:justify-start md:pl-6">
                       <Link to="/" className="flex items-center">
                         <img
@@ -1478,10 +1496,41 @@ const Index = () => {
                     </div>
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3 flex-wrap">
-                        <LanguageSelector
-                          value={miniEditorLanguage}
-                          onChange={setMiniEditorLanguage}
-                        />
+                        {/* Language detection pill — auto-detects, no manual selector */}
+                        {(() => {
+                          const displayCode = miniEditorLanguage !== "auto" ? miniEditorLanguage : miniDetectedLanguage;
+                          const allLangs = [...(Array.isArray([]) ? [] : [])];
+                          // Inline language name lookup from LANGUAGE_OPTIONS
+                          const LANG_MAP: Record<string, string> = {
+                            en:"English",ta:"Tamil",hi:"Hindi",te:"Telugu",kn:"Kannada",
+                            ml:"Malayalam",bn:"Bengali",gu:"Gujarati",pa:"Punjabi",mr:"Marathi",
+                            ar:"Arabic",fr:"French",de:"German",es:"Spanish",pt:"Portuguese",
+                            ru:"Russian",ja:"Japanese",ko:"Korean",zh:"Chinese",vi:"Vietnamese",
+                            tr:"Turkish",it:"Italian",nl:"Dutch",pl:"Polish",sv:"Swedish",
+                            no:"Norwegian",da:"Danish",fi:"Finnish",ur:"Urdu",fa:"Persian",
+                            he:"Hebrew",th:"Thai",id:"Indonesian",ms:"Malay",tl:"Tagalog",
+                          };
+                          const langName = LANG_MAP[displayCode] ?? null;
+                          const pct = miniDetectedConfidence > 0 ? Math.round(miniDetectedConfidence * 100) : null;
+                          const isDetected = !!(miniDetectedLanguage && miniDetectedLanguage !== "auto" && pct);
+                          if (!langName) {
+                            return (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 text-xs text-gray-400 select-none">
+                                <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />
+                                Detecting language…
+                              </span>
+                            );
+                          }
+                          return (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-100 text-xs font-medium text-emerald-700 select-none">
+                              <span className={`w-1.5 h-1.5 rounded-full ${isDetected ? "bg-emerald-500 animate-pulse" : "bg-emerald-400"}`} />
+                              {isDetected ? "Detected: " : ""}{langName}
+                              {isDetected && pct !== null && (
+                                <span className="text-[10px] text-emerald-500 font-semibold">{pct}%</span>
+                              )}
+                            </span>
+                          );
+                        })()}
                         <span className="text-sm text-gray-500">
                           {miniWordCount} / {userProfile?.wordLimit?.toLocaleString() || "5,000"} words
                         </span>
@@ -1752,7 +1801,7 @@ const Index = () => {
                   {/* Subtle grid */}
                   <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,#1f2a4410_1px,transparent_1px),linear-gradient(to_bottom,#1f2a4410_1px,transparent_1px)] bg-[size:64px_64px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]" />
 
-                  <div className="relative z-10 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-16 md:py-24 lg:py-28">
+                  <div className="relative z-10 ds-container py-16 md:py-24 lg:py-28">
                     <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
 
                       {/* Left: Copy */}
@@ -1912,7 +1961,7 @@ const Index = () => {
                     LOGO / TRUST BAR
                 ═══════════════════════════════════════════ */}
                 <section className="py-10 bg-gray-50 border-y border-gray-100">
-                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <div className="ds-container">
                     <p className="text-center text-sm text-gray-400 font-medium mb-6 uppercase tracking-widest">Trusted by writers, students, and professionals worldwide</p>
                     <div className="flex flex-wrap justify-center items-center gap-x-8 gap-y-3 text-sm font-semibold text-gray-400">
                       {["Content Writers", "Students", "Journalists", "Researchers", "Bloggers", "Email Marketers", "ESL Learners"].map((t) => (
@@ -1929,7 +1978,7 @@ const Index = () => {
                     HOW IT WORKS — 3 steps
                 ═══════════════════════════════════════════ */}
                 <section className="py-20 md:py-28 bg-white">
-                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <div className="ds-container">
                     <div className="text-center mb-16">
                       <div className="inline-flex items-center gap-2 rounded-full bg-indigo-50 border border-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-600 mb-5">
                         <Zap className="w-3.5 h-3.5" /> How It Works
@@ -1983,7 +2032,7 @@ const Index = () => {
                     FEATURES GRID — 6 cards
                 ═══════════════════════════════════════════ */}
                 <section className="py-20 md:py-28 bg-gradient-to-b from-slate-50 to-white">
-                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <div className="ds-container">
                     <div className="text-center mb-16">
                       <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 border border-blue-100 px-4 py-1.5 text-sm font-semibold text-blue-600 mb-5">
                         <Sparkles className="w-3.5 h-3.5" /> Why Choose CorrectNow
@@ -2036,7 +2085,7 @@ const Index = () => {
                     TESTIMONIALS — 6 cards in 3-column grid
                 ═══════════════════════════════════════════ */}
                 <section className="py-20 md:py-28 bg-white">
-                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <div className="ds-container">
                     <div className="text-center mb-16">
                       <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 border border-amber-100 px-4 py-1.5 text-sm font-semibold text-amber-700 mb-5">
                         <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> Real Users, Real Results
@@ -2086,7 +2135,7 @@ const Index = () => {
                     PRICING — Free · Pro · Enterprise (3 cards)
                 ═══════════════════════════════════════════ */}
                 <section className="py-20 md:py-28 bg-gradient-to-b from-slate-50 to-white">
-                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <div className="ds-container">
                     <div className="text-center mb-14">
                       <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 border border-blue-100 px-4 py-1.5 text-sm font-semibold text-blue-600 mb-5">
                         <Crown className="w-3.5 h-3.5" /> Simple, Transparent Pricing
@@ -2257,7 +2306,7 @@ const Index = () => {
 
                 {/* Recent documents (only when there are docs) */}
                 {filtered.length > 0 && (
-                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+                  <div className="ds-container py-10">
                     <div className="flex items-center justify-between mb-6">
                       <div>
                         <div className="inline-flex items-center gap-2 rounded-full bg-gray-100 border border-gray-200 px-4 py-1.5 text-sm font-medium text-gray-500 mb-2">
@@ -2293,7 +2342,7 @@ const Index = () => {
                 )}
 
                 {/* Feedback suggestion */}
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
+                <div className="ds-container pb-8">
                   <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div>
                       <div className="text-base font-bold text-gray-900">Help us improve CorrectNow</div>
@@ -2317,7 +2366,7 @@ const Index = () => {
                     <div className="absolute top-0 right-0 w-[500px] h-[500px] rounded-full bg-white/10 blur-[100px] translate-x-1/3 -translate-y-1/3" />
                     <div className="absolute bottom-0 left-0 w-[420px] h-[420px] rounded-full bg-indigo-300/20 blur-[100px] -translate-x-1/3 translate-y-1/3" />
                   </div>
-                  <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+                  <div className="relative z-10 ds-container max-w-4xl text-center">
                     <div className="inline-flex items-center gap-2 rounded-full bg-white/15 border border-white/20 px-4 py-1.5 text-sm font-semibold text-white mb-8">
                       <Sparkles className="w-3.5 h-3.5" /> Ready to get started?
                     </div>

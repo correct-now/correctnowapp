@@ -212,7 +212,7 @@ const Pricing = () => {
         {/* Hero Section */}
         <section className="relative overflow-hidden py-16 sm:py-20 md:py-24 px-3 sm:px-4">
           <div className="pointer-events-none absolute right-0 top-0 w-[500px] h-[500px] rounded-full bg-gradient-to-br from-blue-100/60 via-indigo-200/40 to-violet-200/50 blur-3xl translate-x-1/3 -translate-y-1/4" />
-          <div className="relative container max-w-6xl mx-auto text-center">
+          <div className="relative ds-container text-center">
             <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 border border-blue-100 px-4 py-1.5 text-sm font-semibold text-blue-600 mb-5">
               <Sparkles className="w-3.5 h-3.5" /> Simple, transparent pricing
             </div>
@@ -232,7 +232,7 @@ const Pricing = () => {
 
         {/* Pricing Cards */}
         <section className="pb-12 sm:pb-16 md:pb-20 px-3 sm:px-4">
-          <div className="container max-w-6xl mx-auto">
+          <div className="ds-container">
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 md:gap-8">
               {displayPlans.map((plan) => {
                 const isCurrent = plan.name === currentPlan;
@@ -392,7 +392,7 @@ const Pricing = () => {
 
         {/* FAQ Section */}
         <section className="py-20 px-4 bg-gradient-to-b from-gray-50 to-white">
-          <div className="container max-w-3xl mx-auto">
+          <div className="ds-container max-w-3xl mx-auto">
             <div className="text-center mb-12">
               <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 border border-blue-100 px-4 py-1.5 text-sm font-semibold text-blue-600 mb-5">
                 <Sparkles className="w-3.5 h-3.5" /> Questions, answered

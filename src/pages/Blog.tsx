@@ -42,7 +42,7 @@ const Blog = () => {
       <main className="flex-1">
         <section className="relative overflow-hidden border-b border-border bg-gradient-to-b from-white via-blue-50/30 to-indigo-50/20 py-12 md:py-18">
           <div className="pointer-events-none absolute -top-24 -right-24 w-[400px] h-[400px] rounded-full bg-gradient-to-br from-blue-200/40 via-indigo-200/30 to-violet-200/20 blur-3xl" />
-          <div className="container max-w-7xl relative">
+          <div className="ds-container relative">
             <div className="flex flex-col items-center text-center gap-4">
               <div className="inline-flex items-center gap-2 rounded-full border border-blue-200/60 bg-blue-50 px-4 py-1.5 text-sm font-semibold text-blue-700">
                 <Rss className="w-3.5 h-3.5" />
@@ -60,7 +60,7 @@ const Blog = () => {
         </section>
 
         <section className="py-6 md:py-8">
-          <div className="container max-w-7xl">
+          <div className="ds-container">
             <div className="grid gap-6">
               {loading ? (
                 <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">

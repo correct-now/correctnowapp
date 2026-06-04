@@ -60,23 +60,25 @@ const Header = () => {
     <header
       className={`sticky top-0 z-50 w-full transition-all duration-300 ${
         scrolled
-          ? "bg-white/95 backdrop-blur-xl border-b border-gray-200/80 shadow-sm"
-          : "bg-white/80 backdrop-blur-md border-b border-gray-100"
+          ? "bg-white/95 backdrop-blur-xl border-b border-gray-200/70 shadow-[0_1px_3px_0_rgb(0_0_0/0.06)]"
+          : "bg-white/90 backdrop-blur-md border-b border-gray-100"
       }`}
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo */}
+      {/* DS container: max 1280px, 32px desktop / 24px tablet / 16px mobile */}
+      <div className="ds-container">
+        <div className="flex items-center justify-between h-[72px]">
+
+          {/* Logo — always 40px, always left */}
           <Link to="/" className="flex items-center flex-shrink-0">
             <img
               src="/Icon/correctnow logo final2.png"
               alt="CorrectNow"
-              className="h-9 sm:h-10 w-auto object-contain"
+              className="h-10 w-auto object-contain"
               loading="eager"
             />
           </Link>
 
-          {/* Desktop nav */}
+          {/* Desktop nav — 32px gap between links */}
           <nav className="hidden md:flex items-center gap-1">
             {navItems.map(({ to, label }) => {
               const active = location.pathname === to || (to !== "/" && location.pathname.startsWith(to));
@@ -84,10 +86,10 @@ const Header = () => {
                 <Link
                   key={to}
                   to={to}
-                  className={`relative px-3.5 py-2 text-sm font-medium rounded-lg transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                  className={`relative px-3 py-2 text-[14px] font-medium rounded-[8px] transition-all duration-150 focus:outline-none ${
                     active
                       ? "text-gray-900 bg-gray-100"
-                      : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
                   }`}
                 >
                   {label}
@@ -96,24 +98,24 @@ const Header = () => {
             })}
           </nav>
 
-          {/* Desktop CTA */}
-          <div className="hidden md:flex items-center gap-2.5">
+          {/* Desktop CTAs — 44px height */}
+          <div className="hidden md:flex items-center gap-2">
             {!isAuthenticated ? (
               <>
                 <Link to="/auth">
-                  <Button variant="ghost" size="sm" className="h-9 px-4 text-sm font-medium text-gray-700">
+                  <Button variant="ghost" size="sm" className="h-11 px-4 text-[14px] font-medium text-gray-600">
                     Log in
                   </Button>
                 </Link>
                 <Link to="/auth?mode=register">
-                  <Button size="sm" className="h-9 px-4 text-sm font-semibold rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-sm shadow-blue-500/20">
+                  <Button size="sm" className="h-11 px-5 text-[14px] font-semibold rounded-[10px] bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
                     Get Started Free
                   </Button>
                 </Link>
               </>
             ) : (
               <Link to="/">
-                <Button size="sm" className="h-9 px-4 text-sm font-semibold rounded-full bg-primary hover:bg-primary/90 text-white">
+                <Button size="sm" className="h-11 px-5 text-[14px] font-semibold rounded-[10px] bg-blue-600 hover:bg-blue-700 text-white">
                   Dashboard
                 </Button>
               </Link>
@@ -122,7 +124,7 @@ const Header = () => {
 
           {/* Mobile hamburger */}
           <button
-            className="md:hidden p-2 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+            className="md:hidden p-2 rounded-[8px] text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
             onClick={() => setIsMobileOpen((v) => !v)}
             aria-label="Toggle menu"
           >
@@ -137,14 +139,14 @@ const Header = () => {
           isMobileOpen ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
         }`}
       >
-        <div className="border-t border-gray-100 bg-white/98 backdrop-blur-xl px-4 pt-3 pb-5 space-y-1">
+        <div className="border-t border-gray-100 bg-white px-4 pt-3 pb-5 space-y-1">
           {navItems.map(({ to, label }) => {
             const active = location.pathname === to || (to !== "/" && location.pathname.startsWith(to));
             return (
               <Link
                 key={to}
                 to={to}
-                className={`block px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                className={`block px-4 py-3 rounded-[10px] text-[14px] font-medium transition-colors ${
                   active ? "bg-gray-100 text-gray-900" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                 }`}
               >
@@ -152,16 +154,16 @@ const Header = () => {
               </Link>
             );
           })}
-          <div className="pt-3 flex flex-col gap-2.5">
+          <div className="pt-3 border-t border-gray-100 flex flex-col gap-2 mt-2">
             {!isAuthenticated ? (
               <>
                 <Link to="/auth" className="w-full">
-                  <Button variant="outline" className="w-full h-11 text-sm font-medium rounded-xl">
+                  <Button variant="outline" className="w-full h-12 text-[14px] font-medium rounded-[10px]">
                     Log in
                   </Button>
                 </Link>
                 <Link to="/auth?mode=register" className="w-full">
-                  <Button className="w-full h-11 text-sm font-semibold rounded-xl bg-blue-600 hover:bg-blue-700 text-white">
+                  <Button className="w-full h-12 text-[14px] font-semibold rounded-[10px] bg-blue-600 hover:bg-blue-700 text-white">
                     Get Started Free
                   </Button>
                 </Link>
@@ -169,11 +171,11 @@ const Header = () => {
             ) : (
               <>
                 <Link to="/" className="w-full">
-                  <Button className="w-full h-11 text-sm font-semibold rounded-xl bg-primary hover:bg-primary/90 text-white">
+                  <Button className="w-full h-12 text-[14px] font-semibold rounded-[10px] bg-blue-600 hover:bg-blue-700 text-white">
                     Dashboard
                   </Button>
                 </Link>
-                <Button variant="ghost" className="w-full h-11 text-sm text-gray-600" onClick={handleSignOut}>
+                <Button variant="ghost" className="w-full h-11 text-[14px] text-gray-600" onClick={handleSignOut}>
                   Sign out
                 </Button>
               </>

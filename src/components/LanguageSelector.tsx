@@ -12,7 +12,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Globe } from "lucide-react";
 import { useState, useEffect } from "react";
 import {
   Tooltip,
@@ -31,6 +31,10 @@ interface LanguageSelectorProps {
   onOpenChange?: (open: boolean) => void;
   showTooltip?: boolean;
   highlight?: boolean;
+  /** Detected language code (from useLanguageDetection) */
+  detectedLanguage?: string;
+  /** Detection confidence 0–1 */
+  detectedConfidence?: number;
 }
 
 export const LANGUAGE_OPTIONS = [
@@ -198,7 +202,7 @@ export const LANGUAGE_OPTIONS = [
   { code: "hmn", name: "Hmong" },
 ];
 
-const LanguageSelector = ({ value, onChange, open, onOpenChange, showTooltip = false, highlight = false }: LanguageSelectorProps) => {
+const LanguageSelector = ({ value, onChange, open, onOpenChange, showTooltip = false, highlight = false, detectedLanguage, detectedConfidence }: LanguageSelectorProps) => {
   const [internalOpen, setInternalOpen] = useState(false);
   const [allLanguages, setAllLanguages] = useState(LANGUAGE_OPTIONS);
   const isControlled = open !== undefined;
@@ -235,6 +239,18 @@ const LanguageSelector = ({ value, onChange, open, onOpenChange, showTooltip = f
   const uniqueLanguages = Array.from(new Map(allLanguages.map((lang) => [lang.code, lang])).values());
   const selectedLanguage = uniqueLanguages.find((lang) => lang.code === value);
 
+  // Build the button label — show detection hint when in auto mode
+  const isAutoMode = !value || value === "auto";
+  const detectedLang = detectedLanguage && detectedLanguage !== "auto"
+    ? uniqueLanguages.find((l) => l.code === detectedLanguage)
+    : null;
+  const detectionPct = detectedConfidence ? Math.round(detectedConfidence * 100) : 0;
+  const buttonLabel = isAutoMode && detectedLang
+    ? `Detected: ${detectedLang.name.split(" ")[0]}` // e.g. "Detected: Tamil"
+    : selectedLanguage
+      ? selectedLanguage.name
+      : "Auto Detect";
+
   const handleOpenChange = (nextOpen: boolean) => {
     if (!isControlled) {
       setInternalOpen(nextOpen);
@@ -259,8 +275,19 @@ const LanguageSelector = ({ value, onChange, open, onOpenChange, showTooltip = f
             highlight ? "blink-green-slow" : ""
           )}
         >
-          <span className="truncate">
-            {selectedLanguage ? selectedLanguage.name : "Select language"}
+          <span className="truncate flex items-center gap-1.5">
+            {isAutoMode && !detectedLang && (
+              <Globe className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+            )}
+            {isAutoMode && detectedLang && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-pulse" />
+            )}
+            <span className="truncate">{buttonLabel}</span>
+            {isAutoMode && detectedLang && detectionPct > 0 && (
+              <span className="text-[10px] text-emerald-600 font-semibold shrink-0">
+                {detectionPct}%
+              </span>
+            )}
           </span>
           <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>

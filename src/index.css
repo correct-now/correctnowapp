@@ -1,8 +1,64 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════
+   CORRECTNOW DESIGN SYSTEM — Single Source of Truth
+   All values follow the 8pt grid. No arbitrary numbers.
+═══════════════════════════════════════════════════════════════ */
+@layer utilities {
+
+  /* ── Container (max-w-ds = 1280px) ── */
+  .ds-container {
+    width: 100%;
+    max-width: 1280px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;   /* 16px mobile */
+    padding-right: 1rem;
+  }
+  @media (min-width: 640px) {
+    .ds-container { padding-left: 1.5rem; padding-right: 1.5rem; } /* 24px */
+  }
+  @media (min-width: 1024px) {
+    .ds-container { padding-left: 2rem; padding-right: 2rem; }     /* 32px */
+  }
+
+  /* ── Typography Scale ── */
+  .ds-h1 { @apply text-[56px] font-bold leading-[1.1] tracking-tight; }
+  .ds-h2 { @apply text-[40px] font-bold leading-[1.15] tracking-tight; }
+  .ds-h3 { @apply text-[28px] font-semibold leading-[1.25]; }
+  .ds-h4 { @apply text-[22px] font-semibold leading-[1.3]; }
+  .ds-body-lg { @apply text-[20px] leading-[1.6]; }
+  .ds-body    { @apply text-[16px] leading-[1.6]; }
+  .ds-small   { @apply text-[14px] leading-[1.5]; }
+  .ds-caption { @apply text-[12px] leading-[1.4]; }
+
+  /* ── Responsive heading ── */
+  .ds-h1-responsive { @apply text-4xl sm:text-5xl lg:text-[56px] font-bold leading-[1.1] tracking-tight; }
+  .ds-h2-responsive { @apply text-3xl sm:text-4xl lg:text-[40px] font-bold leading-[1.15] tracking-tight; }
+
+  /* ── Cards ── */
+  .ds-card {
+    @apply bg-white rounded-[16px] border border-gray-100 shadow-sm;
+  }
+  .ds-card-padding { @apply p-6; }             /* 24px */
+  .ds-card-padding-lg { @apply p-8; }          /* 32px */
+
+  /* ── Section spacing ── */
+  .ds-section { @apply py-16 md:py-20 lg:py-24; }
+  .ds-section-sm { @apply py-10 md:py-14; }
+  .ds-section-gap { @apply mt-8; }             /* 32px below page header */
+
+  /* ── Page header pattern ── */
+  .ds-page-header {
+    @apply mb-8;
+  }
+  .ds-page-title { @apply text-3xl font-bold text-gray-900; }
+  .ds-page-subtitle { @apply text-base text-gray-500 mt-1; }
+}
 
 @layer base {
   :root {

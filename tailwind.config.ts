@@ -7,12 +7,17 @@ export default {
   theme: {
     container: {
       center: true,
-      padding: "1.5rem",
+      padding: {
+        DEFAULT: "1rem",   /* 16px mobile */
+        sm:      "1.5rem", /* 24px tablet */
+        lg:      "2rem",   /* 32px desktop */
+      },
       screens: {
-        sm: "640px",
-        md: "768px",
-        lg: "1024px",
-        xl: "1200px",
+        sm:  "640px",
+        md:  "768px",
+        lg:  "1024px",
+        xl:  "1280px",
+        "2xl": "1280px",  /* cap at 1280px */
       },
     },
     extend: {
@@ -72,9 +77,28 @@ export default {
         },
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        lg:   "var(--radius)",
+        md:   "calc(var(--radius) - 2px)",
+        sm:   "calc(var(--radius) - 4px)",
+        /* Design system tokens */
+        card: "16px",   /* --ds-radius-card */
+        btn:  "12px",   /* --ds-radius-btn  */
+        input:"12px",   /* --ds-radius-input */
+      },
+      height: {
+        header: "72px",  /* --ds-header-height */
+        "btn-md": "48px", /* --ds-btn-height */
+        "input-md": "48px",
+      },
+      spacing: {
+        /* 8pt system supplements */
+        "18": "4.5rem",
+        "22": "5.5rem",
+        "26": "6.5rem",
+        "30": "7.5rem",
+      },
+      maxWidth: {
+        "ds": "1280px",
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import LanguageSelector, { LANGUAGE_OPTIONS } from "./LanguageSelector";
+import { useLanguageDetection } from "@/hooks/use-language-detection";
 import WordCounter from "./WordCounter";
 import LoadingDots from "./LoadingDots";
 import { Change } from "./ChangeLogTable";
@@ -521,6 +522,50 @@ const SuggestionCard = React.memo(({
 
 SuggestionCard.displayName = 'SuggestionCard';
 
+/**
+ * Read-only pill that shows the auto-detected language.
+ * No dropdown, no interaction — purely informational.
+ */
+const LanguageDetectionPill = React.memo(({
+  language,
+  detectedLanguage,
+  detectedConfidence,
+  languageOptions,
+}: {
+  language: string;
+  detectedLanguage: string;
+  detectedConfidence: number;
+  languageOptions: Array<{ code: string; name: string }>;
+}) => {
+  // Determine what to display
+  const displayCode = (language && language !== "auto") ? language : detectedLanguage;
+  const langObj = languageOptions.find((l) => l.code === displayCode);
+  const langName = langObj ? langObj.name.split(" ")[0] : null; // e.g. "Tamil" from "Tamil (தமிழ்)"
+  const pct = detectedConfidence > 0 ? Math.round(detectedConfidence * 100) : null;
+  const isDetected = !!(detectedLanguage && detectedLanguage !== "auto" && pct);
+
+  if (!langName) {
+    // Nothing detected yet — show subtle placeholder
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 text-xs text-gray-400 select-none">
+        <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />
+        Detecting language…
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-100 text-xs font-medium text-emerald-700 select-none">
+      <span className={`w-1.5 h-1.5 rounded-full ${isDetected ? "bg-emerald-500 animate-pulse" : "bg-emerald-400"}`} />
+      {isDetected ? "Detected:" : ""} {langName}
+      {isDetected && pct !== null && (
+        <span className="text-[10px] text-emerald-500 font-semibold">{pct}%</span>
+      )}
+    </span>
+  );
+});
+LanguageDetectionPill.displayName = 'LanguageDetectionPill';
+
 const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLanguage, noPaddingTop }: ProofreadingEditorProps) => {
   const [planName, setPlanName] = useState<"Free" | "Pro">("Free");
   const [wordLimit, setWordLimit] = useState(FREE_WORD_LIMIT);
@@ -536,7 +581,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
   const [correctedText, setCorrectedText] = useState("");
   const [changes, setChanges] = useState<Change[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [language, setLanguage] = useState("");
+  const [language, setLanguage] = useState("auto");  // "auto" = CLD3 will detect
   const [languageMode, setLanguageMode] = useState<"auto" | "manual">("auto");
   const [shouldBlinkInput, setShouldBlinkInput] = useState(false);
   const [shouldBlinkLanguage, setShouldBlinkLanguage] = useState(false);
@@ -569,29 +614,51 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
   const speechPulseRef = useRef<number | null>(null);
   const speechInterimRef = useRef<string>("");
   const suggestionsRef = useRef<HTMLDivElement>(null);
+  // ── CLD3 Auto-detection ──────────────────────────────────────────────────
+  const { detectedLanguage, detectedConfidence, detectionResult } = useLanguageDetection({
+    text: inputText,
+    isManualMode: languageMode === "manual",
+    onDetected: (result) => {
+      // Only auto-apply when in auto mode — never override a manual selection
+      if (languageMode === "manual") return;
+      if (result.isReliable && result.language !== "auto" && result.language !== language) {
+        setLanguage(result.language);
+        // Persist so repeated visits use the detected language as starting point
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem("correctnow:language", result.language);
+        }
+      }
+    },
+  });
+  // ─────────────────────────────────────────────────────────────────────────
+
   const uniqueLanguageOptions = Array.from(
     new Map(LANGUAGE_OPTIONS.map((lang) => [lang.code, lang])).values()
   );
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      // If initialLanguage is provided (e.g., from SEO landing page), use that
+      // SEO landing pages pass a specific language — always honour it
       if (initialLanguage) {
         setLanguage(initialLanguage);
         setLanguageMode(initialLanguage === "auto" ? "auto" : "manual");
         setShouldBlinkLanguage(true);
         window.setTimeout(() => setShouldBlinkLanguage(false), 12000);
-      } else {
-        const storedLanguage = window.localStorage.getItem("correctnow:language");
-        if (storedLanguage) {
-          setLanguage(storedLanguage);
-          setLanguageMode(storedLanguage === "auto" ? "auto" : "manual");
-          setShouldBlinkLanguage(true);
-          window.setTimeout(() => setShouldBlinkLanguage(false), 12000);
-        } else {
-          setShowLanguageDialog(true);
-        }
+        return;
       }
+      // Restore last manually-selected language from localStorage
+      const storedLanguage = window.localStorage.getItem("correctnow:language");
+      if (storedLanguage && storedLanguage !== "auto") {
+        setLanguage(storedLanguage);
+        setLanguageMode("manual");
+        setShouldBlinkLanguage(true);
+        window.setTimeout(() => setShouldBlinkLanguage(false), 12000);
+        return;
+      }
+      // New user / auto mode — CLD3 will detect once they start typing.
+      // Do NOT show blocking dialog; language defaults to "auto".
+      setLanguage("auto");
+      setLanguageMode("auto");
     }
   }, [initialLanguage]);
 
@@ -607,7 +674,12 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
     setLanguage(value);
     setLanguageMode(value === "auto" ? "auto" : "manual");
     if (typeof window !== "undefined") {
-      window.localStorage.setItem("correctnow:language", value);
+      if (value !== "auto") {
+        // Persist manual selections; don't persist "auto" so detection re-runs on next visit
+        window.localStorage.setItem("correctnow:language", value);
+      } else {
+        window.localStorage.removeItem("correctnow:language");
+      }
     }
     setIsLanguageOpen(false);
     setShowLanguageDialog(false);
@@ -1094,11 +1166,10 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
       return;
     }
 
-    if (!language || language === "") {
-      setShowLanguageTooltip(true);
-      setIsLanguageOpen(false);
-      setShowLanguageDialog(true);
-      return;
+    // "auto" is always a valid language (server-side will handle it too).
+    // An empty string should not occur now, but guard defensively.
+    if (!language) {
+      setLanguage("auto");
     }
 
     const overrideWordCount = countWords(textToCheck);
@@ -1677,24 +1748,13 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                     Your Text
                   </CardTitle>
                   <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
-                    <div className="relative w-full sm:w-auto">
-                      {showLanguageTooltip && !language && (
-                        <div className="absolute -top-12 left-0 right-0 sm:right-auto z-20 rounded-lg border border-destructive/60 bg-destructive px-3 sm:px-4 py-1.5 sm:py-2 text-xs font-semibold text-destructive-foreground shadow-xl ring-4 ring-destructive/20 animate-pulse">
-                          Please select a language first
-                          <span className="absolute -bottom-1.5 left-4 h-3 w-3 rotate-45 border-b border-r border-destructive/60 bg-destructive" />
-                        </div>
-                      )}
-                      <LanguageSelector
-                        value={language}
-                        open={isLanguageOpen}
-                        onOpenChange={setIsLanguageOpen}
-                        showTooltip={showLanguageTooltip}
-                        highlight={shouldBlinkLanguage}
-                        onChange={(value) => {
-                          handleLanguagePick(value);
-                        }}
-                      />
-                    </div>
+                    {/* Language detection pill — read-only, no manual selector */}
+                    <LanguageDetectionPill
+                      language={language}
+                      detectedLanguage={detectedLanguage}
+                      detectedConfidence={detectedConfidence}
+                      languageOptions={uniqueLanguageOptions}
+                    />
                     <div className="flex flex-col items-start gap-0.5 sm:gap-1 w-full sm:w-auto">
                       <WordCounter count={wordCount} limit={wordLimit} />
                       {planName === "Free" && currentUserId && (

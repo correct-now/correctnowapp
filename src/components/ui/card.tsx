@@ -2,8 +2,9 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
+/* Design system: 16px radius, 1px border, subtle shadow — consistent everywhere */
 const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn("rounded-lg border bg-card text-card-foreground shadow-sm", className)} {...props} />
+  <div ref={ref} className={cn("rounded-[16px] border border-gray-100 bg-card text-card-foreground shadow-[0_1px_3px_0_rgb(0_0_0/0.06),0_1px_2px_-1px_rgb(0_0_0/0.04)]", className)} {...props} />
 ));
 Card.displayName = "Card";
 

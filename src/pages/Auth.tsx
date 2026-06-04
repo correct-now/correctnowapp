@@ -655,7 +655,7 @@ const Auth = () => {
     <div className="min-h-screen bg-white">
       <Header />
 
-      <div className="min-h-[calc(100vh-64px)] bg-white flex">
+      <div className="min-h-[calc(100vh-72px)] bg-white flex">
       {/* Left Panel - Branding */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-blue-600 to-indigo-700 p-8 xl:p-12 flex-col justify-between">
         {/* Decorative orbs */}

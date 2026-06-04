@@ -355,7 +355,7 @@ const Payment = () => {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b border-border bg-background/95 backdrop-blur">
-        <div className="container max-w-7xl flex items-center py-3">
+        <div className="ds-container flex items-center h-[72px]">
           <div className="flex-1 flex items-center min-w-0">
             <Link to="/" className="flex items-center">
               <img 
@@ -368,7 +368,7 @@ const Payment = () => {
         </div>
       </header>
 
-      <main className="container max-w-6xl mx-auto py-12 px-4">
+      <main className="ds-container py-12">
         <Link
           to="/pricing"
           className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-8"

@@ -23,4 +23,10 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  optimizeDeps: {
+    // cld3-asm contains a large self-contained WASM+JS bundle.
+    // Excluding it from Vite pre-bundling avoids transform timeouts
+    // and lets the browser build resolve correctly at runtime.
+    exclude: ["cld3-asm"],
+  },
 }));

@@ -69,7 +69,7 @@ const Languages = () => {
           </div>
         </section>
 
-        <section className="container max-w-6xl mx-auto px-4 py-12 md:py-16">
+        <section className="ds-container px-4 py-12 md:py-16">
           <div className="rounded-2xl border border-border/60 bg-card p-6 md:p-8 shadow-sm">
             <div className="flex flex-wrap gap-2 md:gap-3">
               {languages.map((language) => (

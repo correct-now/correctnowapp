@@ -32,7 +32,7 @@ const Footer = () => {
 
   return (
     <footer className="mt-auto w-full border-t border-gray-200 bg-gradient-to-b from-white to-gray-50">
-      <div className="container max-w-7xl mx-auto px-4 sm:px-6 py-14 md:py-16">
+      <div className="ds-container py-14 md:py-16">
         {/* Top grid: brand + 4 link columns */}
         <div className="grid grid-cols-2 md:grid-cols-6 gap-8 md:gap-10">
           {/* Brand block — spans 2 cols on md+ */}
