@@ -7,6 +7,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { sendPasswordResetEmail } from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase";
+import Header from "@/components/Header";
 
 const ForgotPassword = () => {
   const [email, setEmail] = useState("");
@@ -45,21 +46,15 @@ const ForgotPassword = () => {
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/40 flex items-center justify-center p-4">
-      {/* Decorative orbs */}
-      <div className="pointer-events-none absolute -top-32 -left-32 w-[480px] h-[480px] rounded-full bg-gradient-to-br from-blue-200/40 via-indigo-200/30 to-violet-200/30 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-32 -right-32 w-[520px] h-[520px] rounded-full bg-gradient-to-tr from-emerald-100/40 via-blue-100/30 to-indigo-200/30 blur-3xl" />
+    <div className="min-h-screen bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/40 flex flex-col">
+      <Header />
 
+      {/* Decorative orbs */}
+      <div className="pointer-events-none fixed -top-32 -left-32 w-[480px] h-[480px] rounded-full bg-gradient-to-br from-blue-200/40 via-indigo-200/30 to-violet-200/30 blur-3xl" />
+      <div className="pointer-events-none fixed -bottom-32 -right-32 w-[520px] h-[520px] rounded-full bg-gradient-to-tr from-emerald-100/40 via-blue-100/30 to-indigo-200/30 blur-3xl" />
+
+      <div className="flex-1 flex items-center justify-center p-4 relative z-10">
       <div className="relative w-full max-w-md">
-        <div className="text-center mb-6">
-          <Link to="/" className="inline-flex items-center justify-center mb-6">
-            <img
-              src="/Icon/correctnow logo final2.png"
-              alt="CorrectNow"
-              className="h-16 w-auto object-contain"
-            />
-          </Link>
-        </div>
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-xl shadow-blue-500/5 p-7 sm:p-8">
           <div className="text-center mb-6">
@@ -161,6 +156,7 @@ const ForgotPassword = () => {
         )}
         </div>{/* close card */}
       </div>{/* close max-w-md */}
+      </div>{/* close flex-1 centering wrapper */}
     </div>
   );
 };

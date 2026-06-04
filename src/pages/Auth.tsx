@@ -18,6 +18,7 @@ import {
 import { getFirebaseAuth, getFirebaseDb } from "@/lib/firebase";
 import { writeSessionId } from "@/lib/session";
 import { doc as firestoreDoc, setDoc, getDoc, getDocFromServer } from "firebase/firestore";
+import Header from "@/components/Header";
 import {
   Dialog,
   DialogContent,
@@ -652,92 +653,9 @@ const Auth = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <header className="w-full border-b border-gray-100 bg-white">
-        <div className="container max-w-none px-3 sm:px-4 md:px-0">
-          <div className="flex flex-col md:grid md:grid-cols-[1fr_auto_1fr] md:items-center gap-2 sm:gap-3 py-2 sm:py-4">
-            <div className="flex w-full md:w-auto items-center justify-center md:justify-start md:pl-6">
-              <Link to="/" className="flex items-center">
-                <img
-                  src="/Icon/correctnow logo final2.png"
-                  alt="CorrectNow"
-                  className="brand-logo"
-                  loading="eager"
-                />
-              </Link>
-            </div>
+      <Header />
 
-            <nav className="hidden md:flex items-center justify-center gap-4 lg:gap-6">
-              <Link
-                to="/about"
-                className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-              >
-                About Us
-              </Link>
-              <Link
-                to="/features"
-                className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Features
-              </Link>
-              <Link
-                to="/blog"
-                className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Blog
-              </Link>
-              <Link
-                to="/pricing"
-                className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Pricing
-              </Link>
-              <Link
-                to="/languages"
-                className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Languages
-              </Link>
-            </nav>
-
-            <div className="hidden md:flex items-center justify-end pr-6" />
-          </div>
-
-          <nav className="flex md:hidden items-center justify-center gap-3 overflow-x-auto scrollbar-hide pb-2 -mt-1">
-            <Link
-              to="/about"
-              className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
-            >
-              About Us
-            </Link>
-            <Link
-              to="/features"
-              className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
-            >
-              Features
-            </Link>
-            <Link
-              to="/blog"
-              className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
-            >
-              Blog
-            </Link>
-            <Link
-              to="/pricing"
-              className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
-            >
-              Pricing
-            </Link>
-            <Link
-              to="/languages"
-              className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
-            >
-              Languages
-            </Link>
-          </nav>
-        </div>
-      </header>
-
-      <div className="min-h-[calc(100vh-72px)] bg-white flex">
+      <div className="min-h-[calc(100vh-64px)] bg-white flex">
       {/* Left Panel - Branding */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-blue-600 to-indigo-700 p-8 xl:p-12 flex-col justify-between">
         {/* Decorative orbs */}
