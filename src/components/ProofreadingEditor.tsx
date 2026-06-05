@@ -1581,21 +1581,6 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                       )}
                     </div>
                     <Button
-                      variant="outline"
-                      size="icon"
-                      className={`inline-flex sm:hidden md:inline-flex ${
-                        isRecording
-                          ? isSpeaking
-                            ? "border-accent text-accent bg-accent/10 ring-4 ring-accent/40 shadow-[0_0_0_8px_rgba(37,99,235,0.5)] animate-pulse scale-105 transition-transform"
-                            : "border-accent text-accent bg-accent/5"
-                          : ""
-                      }`}
-                      onClick={toggleRecording}
-                      title={isRecording ? "Stop recording" : "Voice input"}
-                    >
-                      {isRecording ? <MicOff className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Mic className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
-                    </Button>
-                    <Button
                       variant="accent"
                       size="sm"
                       className={`w-full sm:w-auto text-sm${isLoading ? " is-checking" : ""}${shouldBlinkCheck ? " blink-green-slow" : ""}`}

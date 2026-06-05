@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -84,6 +83,8 @@ const Index = () => {
   const [selectedArchivedIds, setSelectedArchivedIds] = useState<Set<string>>(new Set());
   const [docFilter, setDocFilter] = useState<"all" | "today" | "week" | "month">("all");
   const [regionalPricing, setRegionalPricing] = useState<RegionalPricing>(() => resolvePricing(""));
+  const getInlineEditorVisible = () => (typeof window !== "undefined" ? window.innerWidth >= 1280 : true);
+  const [isInlineEditorVisible, setIsInlineEditorVisible] = useState(getInlineEditorVisible);
   const [miniEditorText, setMiniEditorText] = useState("");
   const [miniEditorTitle, setMiniEditorTitle] = useState("Untitled Document");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -97,6 +98,8 @@ const Index = () => {
   const [miniCorrectedText, setMiniCorrectedText] = useState("");
   const miniTextareaRef = useRef<HTMLTextAreaElement>(null);
   const miniHighlightRef = useRef<HTMLDivElement>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
   const miniHoverTimerRef = useRef<number | null>(null);
   const miniHoverCloseTimerRef = useRef<number | null>(null);
   const [miniIsHoverPopover, setMiniIsHoverPopover] = useState(false);
@@ -104,6 +107,13 @@ const Index = () => {
   const [miniHoverSuggestion, setMiniHoverSuggestion] = useState<{
     open: boolean; top: number; left: number; changeIdx?: number; original: string;
   }>({ open: false, top: 0, left: 0, original: "" });
+
+  useEffect(() => {
+    const handleResize = () => setIsInlineEditorVisible(getInlineEditorVisible());
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   // ── Gemini auto-detection for dashboard mini-editor ─────────────────────
   const {
@@ -458,17 +468,53 @@ const Index = () => {
 
   const openDoc = (id: string) => {
     const doc = getDocById(id);
-    if (doc) {
-      setSelectedDocId(id);
-      setMiniEditorTitle(doc.title || "Untitled Document");
-      setMiniEditorText(doc.text || "");
-      setMiniHasResults(false);
-      setMiniChanges([]);
-      setMiniCorrectedText("");
+    if (!doc) return;
+
+    if (longPressTriggeredRef.current) {
+      longPressTriggeredRef.current = false;
+      return;
     }
+
+    // On mobile/smaller screens the inline editor is hidden — open the full editor route instead
+    if (!isInlineEditorVisible) {
+      navigate("/editor", { state: { id } });
+      return;
+    }
+
+    // Desktop/XL: keep inline editor behavior
+    setSelectedDocId(id);
+    setMiniEditorTitle(doc.title || "Untitled Document");
+    setMiniEditorText(doc.text || "");
+    setMiniHasResults(false);
+    setMiniChanges([]);
+    setMiniCorrectedText("");
+    setMiniEditorLanguage("auto");
+    setMiniEditorLanguageMode("auto");
   };
 
   const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+  const startLongPress = (id: string, isArchived: boolean) => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+    }
+    longPressTriggeredRef.current = false;
+    longPressTimerRef.current = window.setTimeout(() => {
+      if (isArchived) {
+        toggleArchivedSelected(id, !selectedArchivedIds.has(id));
+      } else {
+        toggleDocSelected(id, !selectedDocIds.has(id));
+      }
+      longPressTriggeredRef.current = true;
+    }, 400);
+  };
+
+  const clearLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
   const miniHighlightHtml = useMemo(() => {
     const pending = miniChanges.filter((c) => c.status === "pending");
     let html = escapeHtml(miniEditorText).replace(/\n/g, "<br>");
@@ -1064,18 +1110,37 @@ const Index = () => {
                       ) : sidebarView === "archived" ? (
                         <div className="divide-y divide-gray-100">
                           {filtered.map((docItem) => (
-                            <div key={docItem.id} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors group">
-                              <Checkbox
-                                checked={selectedArchivedIds.has(docItem.id)}
-                                onCheckedChange={(v) => toggleArchivedSelected(docItem.id, v === true)}
-                                className="flex-shrink-0"
-                              />
-                              <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                                <Archive className="w-4 h-4 text-primary" />
+                            <div
+                              key={docItem.id}
+                              className="group flex items-center gap-3 px-4 py-3 sm:px-5 sm:py-3 rounded-xl border border-gray-100 bg-white shadow-sm hover:shadow transition-all sm:border-0 sm:rounded-none sm:shadow-none hover:bg-gray-50"
+                            >
+                              <button
+                                type="button"
+                                aria-label={selectedArchivedIds.has(docItem.id) ? "Deselect" : "Select"}
+                                onClick={(e) => { e.stopPropagation(); toggleArchivedSelected(docItem.id, !selectedArchivedIds.has(docItem.id)); }}
+                                className={`hidden sm:flex flex-shrink-0 h-4 w-4 rounded-full border transition-colors items-center justify-center text-[10px] font-semibold ${selectedArchivedIds.has(docItem.id)
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-gray-300 bg-white text-transparent"}
+                                `}
+                              >
+                                ✓
+                              </button>
+                              <div
+                                className="w-14 h-14 sm:w-9 sm:h-9 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0"
+                                onTouchStart={() => startLongPress(docItem.id, true)}
+                                onTouchEnd={clearLongPress}
+                                onTouchCancel={clearLongPress}
+                                onMouseDown={(e) => {
+                                  if (window.innerWidth < 640) startLongPress(docItem.id, true);
+                                }}
+                                onMouseUp={clearLongPress}
+                                onMouseLeave={clearLongPress}
+                              >
+                                <Archive className="w-5 h-5 sm:w-4 sm:h-4 text-primary" />
                               </div>
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-gray-900 line-clamp-1">{docItem.title}</p>
-                                <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{docItem.preview}</p>
+                                <p className="text-base sm:text-base font-semibold text-gray-900 line-clamp-2 sm:line-clamp-1 leading-tight">{docItem.title}</p>
+                                <p className="text-xs sm:text-sm text-gray-500 line-clamp-1 mt-0.5">{docItem.preview}</p>
                                 <p className="text-[11px] text-gray-400 mt-0.5">Archived</p>
                               </div>
                               <DropdownMenu>
@@ -1112,27 +1177,32 @@ const Index = () => {
                                   .map((docItem) => (
                                     <div
                                       key={docItem.id}
-                                      className={`flex items-center gap-3 px-5 py-3 transition-colors cursor-pointer group ${
+                                      className={`group flex items-center gap-3 px-4 py-3 sm:px-5 sm:py-3 rounded-xl border border-gray-100 bg-white shadow-sm hover:shadow transition-all sm:border-0 sm:rounded-none sm:shadow-none cursor-pointer ${
                                         selectedDocId === docItem.id
                                           ? "bg-primary/5 border-l-[3px] border-l-primary"
                                           : "hover:bg-blue-50/50 border-l-[3px] border-l-transparent"
                                       }`}
                                       onClick={() => openDoc(docItem.id)}
                                     >
-                                      <Checkbox
-                                        checked={selectedDocIds.has(docItem.id)}
-                                        onCheckedChange={(v) => toggleDocSelected(docItem.id, v === true)}
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="flex-shrink-0"
-                                      />
-                                      <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                                        <FileText className="w-4 h-4 text-primary" />
+                                      <button
+                                        type="button"
+                                        aria-label={selectedDocIds.has(docItem.id) ? "Deselect" : "Select"}
+                                        onClick={(e) => { e.stopPropagation(); toggleDocSelected(docItem.id, !selectedDocIds.has(docItem.id)); }}
+                                        className={`hidden sm:flex flex-shrink-0 h-4 w-4 rounded-full border transition-colors items-center justify-center text-[10px] font-semibold ${selectedDocIds.has(docItem.id)
+                                          ? "border-primary bg-primary/10 text-primary"
+                                          : "border-gray-300 bg-white text-transparent"}
+                                        `}
+                                      >
+                                        ✓
+                                      </button>
+                                      <div className="w-14 h-14 sm:w-9 sm:h-9 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
+                                        <FileText className="w-5 h-5 sm:w-4 sm:h-4 text-primary" />
                                       </div>
                                       <div className="flex-1 min-w-0">
-                                        <p className="text-base font-semibold text-gray-900 line-clamp-1 group-hover:text-primary transition-colors">
+                                        <p className="text-base sm:text-base font-semibold text-gray-900 line-clamp-2 sm:line-clamp-1 leading-tight group-hover:text-primary transition-colors">
                                           {docItem.title}
                                         </p>
-                                        <p className="text-sm text-gray-500 line-clamp-1 mt-0.5">{docItem.preview}</p>
+                                        <p className="text-xs sm:text-sm text-gray-500 line-clamp-1 mt-0.5">{docItem.preview}</p>
                                         <p className="text-xs text-gray-400 mt-0.5">
                                           {docItem.updated} &bull; {docItem.text?.split(/\s+/).filter(Boolean).length || 0} words
                                         </p>
@@ -1456,7 +1526,7 @@ const Index = () => {
               </div>
 
               {/* Right Panel - Editor + Suggestions (hidden on smaller screens) */}
-              <div className="hidden xl:flex flex-1 flex-row bg-white">
+              <div className={`flex-1 flex-row bg-white ${isInlineEditorVisible ? "hidden xl:flex" : "hidden"}`}>
                 {/* Editor Area */}
                 <div className="flex-1 flex flex-col min-w-0">
                   {/* Editor Header */}
@@ -1614,7 +1684,7 @@ const Index = () => {
                 </div>
 
                 {/* Suggestions Sidebar */}
-                <div className="w-[260px] 2xl:w-[280px] border-l border-gray-100 flex-shrink-0 overflow-auto bg-gray-50/50">
+                <div className={`w-[260px] 2xl:w-[280px] border-l border-gray-100 flex-shrink-0 overflow-auto bg-gray-50/50 ${isInlineEditorVisible ? "block" : "hidden"}`}>
                   <div className="p-5">
                     {/* Suggestions Header */}
                     <div className="flex items-center gap-2 mb-5">
