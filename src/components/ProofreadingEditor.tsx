@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useDeferredValue, useCallback, startTransition } from "react";
+﻿import React, { useState, useRef, useEffect, useMemo, useDeferredValue, useCallback, startTransition } from "react";
 import { Send, Copy, Check, RotateCcw, FileText, Bold, Italic, Underline, Mic, MicOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,229 +36,6 @@ const PRO_WORD_LIMIT = 5000;
 const PRO_CREDITS = 25000;
 const DETECT_DEBOUNCE_MS = 600;
 
-const detectLanguageLocal = (text: string): string => {
-  if (!text.trim()) return "auto";
-
-  const hasArabicScript = /[\u0600-\u06FF]/.test(text);
-  if (hasArabicScript) return "ar";
-
-  const hasUrdu = /[\u0600-\u06FF]/.test(text) && /\b(میں|ہے|نہیں|آپ|اور|ہے)\b/.test(text);
-  if (hasUrdu) return "ur";
-
-  const hasPersian = /[\u0600-\u06FF]/.test(text) && /\b(است|نیست|این|برای|شما)\b/.test(text);
-  if (hasPersian) return "fa";
-
-  const hasTamil = /[\u0B80-\u0BFF]/.test(text);
-  if (hasTamil) return "ta";
-
-  const hasHindi = /[\u0900-\u097F]/.test(text);
-  if (hasHindi) return "hi";
-
-  const hasBengali = /[\u0980-\u09FF]/.test(text);
-  if (hasBengali) return "bn";
-
-  const hasTelugu = /[\u0C00-\u0C7F]/.test(text);
-  if (hasTelugu) return "te";
-
-  const hasKannada = /[\u0C80-\u0CFF]/.test(text);
-  if (hasKannada) return "kn";
-
-  const hasMalayalam = /[\u0D00-\u0D7F]/.test(text);
-  if (hasMalayalam) return "ml";
-
-  const hasGujarati = /[\u0A80-\u0AFF]/.test(text);
-  if (hasGujarati) return "gu";
-
-  const hasPunjabi = /[\u0A00-\u0A7F]/.test(text);
-  if (hasPunjabi) return "pa";
-
-  const hasMarathi = /[\u0900-\u097F]/.test(text);
-  if (hasMarathi) return "mr";
-
-  const hasGreek = /[\u0370-\u03FF]/.test(text);
-  if (hasGreek) return "el";
-
-  const hasHebrew = /[\u0590-\u05FF]/.test(text);
-  if (hasHebrew) return "he";
-
-  const hasThai = /[\u0E00-\u0E7F]/.test(text);
-  if (hasThai) return "th";
-
-  const countMatches = (patterns: RegExp[]) =>
-    patterns.reduce((count, pattern) => count + ((text.match(pattern) || []).length), 0);
-
-  const hasVietnamese = /[ăâđêôơưĂÂĐÊÔƠƯ]/i.test(text);
-  const hasVietnameseWords = /\b(voi|ban|toi|khong|va|la|mot)\b/i.test(text);
-  if (hasVietnamese || hasVietnameseWords) return "vi";
-
-  const frenchSignals = [
-    /\bce document contient\b/i,
-    /\borganisation\b/i,
-    /\bsystème\b/i,
-    /\binformations\b/i,
-    /[àâçéèêëîïôùûüÿœæ]/i,
-  ];
-  if (countMatches(frenchSignals) >= 2) return "fr";
-
-  const germanSignals = [
-    /\bdieses dokument\b/i,
-    /\berklärt\b/i,
-    /\bstruktur\b/i,
-    /\bfunktion\b/i,
-    /\borganisationssystem\b/i,
-    /[äöüß]/i,
-  ];
-  if (countMatches(germanSignals) >= 2) return "de";
-
-  const dutchSignals = [
-    /\bdit document\b/i,
-    /\bbeschrijft\b/i,
-    /\bstructuur\b/i,
-    /\borganisatie\b/i,
-  ];
-  if (countMatches(dutchSignals) >= 2) return "nl";
-
-  const afrikaansSignals = [
-    /\bhierdie dokument\b/i,
-    /\bverduidelik\b/i,
-    /\bstruktuur\b/i,
-    /\borganisasie\b/i,
-    /\bfunksie\b/i,
-  ];
-  if (countMatches(afrikaansSignals) >= 2) return "af";
-
-  const spanishSignals = [
-    /\beste documento\b/i,
-    /\bexplica\b/i,
-    /\bestructura\b/i,
-    /\borganización\b/i,
-    /[ñÑáÁéÉíÍóÓúÚüÜ¿¡]/,
-  ];
-  if (countMatches(spanishSignals) >= 2) return "es";
-
-  const portugueseSignals = [
-    /\beste documento\b/i,
-    /\bexplica\b/i,
-    /\bestrutura\b/i,
-    /\borganiza(?:ç|c)ão\b/i,
-    /\bnão\b/i,
-  ];
-  if (countMatches(portugueseSignals) >= 2) return "pt";
-
-  const italianSignals = [
-    /\bquesto documento\b/i,
-    /\bspiega\b/i,
-    /\bstruttura\b/i,
-    /\borganizzazione\b/i,
-  ];
-  if (countMatches(italianSignals) >= 2) return "it";
-
-  const norwegianSignals = [
-    /\bdette dokumentet\b/i,
-    /\bforklarer\b/i,
-    /\bstrukturen\b/i,
-    /\borganiseringen\b/i,
-    /[æøå]/i,
-  ];
-  if (countMatches(norwegianSignals) >= 2) return "no";
-
-  const swedishSignals = [
-    /\bdetta dokument\b/i,
-    /\bförklarar\b/i,
-    /\bstrukturen\b/i,
-    /\borganisationen\b/i,
-    /[åäö]/i,
-  ];
-  if (countMatches(swedishSignals) >= 2) return "sv";
-
-  const danishSignals = [
-    /\bdette dokument\b/i,
-    /\bforklarer\b/i,
-    /\bstrukturen\b/i,
-    /\borganisationen\b/i,
-    /\baf\b/i,
-    /[æøå]/i,
-  ];
-  if (countMatches(danishSignals) >= 2) return "da";
-
-  const romanianSignals = [
-    /\bacest document\b/i,
-    /\bexplică\b/i,
-    /\bstructura\b/i,
-    /\borganizarea\b/i,
-    /[ăâîșț]/i,
-  ];
-  if (countMatches(romanianSignals) >= 2) return "ro";
-
-  const czechSignals = [
-    /\btento dokument\b/i,
-    /\bvysvětluje\b/i,
-    /\bstrukturu\b/i,
-    /\borganizaci\b/i,
-    /[áčďéěíňóřšťúůýž]/i,
-  ];
-  if (countMatches(czechSignals) >= 2) return "cs";
-
-  const polishSignals = [
-    /\bten dokument\b/i,
-    /\bwyjaśnia\b/i,
-    /\bstruktur(?:ę|e)\b/i,
-    /\borganizację\b/i,
-    /[ąćęłńóśźż]/i,
-  ];
-  if (countMatches(polishSignals) >= 2) return "pl";
-
-  const hungarianSignals = [
-    /\bez a dokument\b/i,
-    /\belmagyarázza\b/i,
-    /\brendszer\b/i,
-    /\bszerkezet\b/i,
-    /[áéíóöőúüű]/i,
-  ];
-  if (countMatches(hungarianSignals) >= 2) return "hu";
-
-  const indonesianSignals = [
-    /\bdokumen ini\b/i,
-    /\bmenjelaskan\b/i,
-    /\bstruktur\b/i,
-    /\borganisasi\b/i,
-  ];
-  if (countMatches(indonesianSignals) >= 2) return "id";
-
-  const malaySignals = [
-    /\bdokumen ini\b/i,
-    /\bmenerangkan\b/i,
-    /\bstruktur\b/i,
-    /\borganisasi\b/i,
-  ];
-  if (countMatches(malaySignals) >= 2) return "ms";
-
-  const tagalogSignals = [
-    /\bipinapaliwanag\b/i,
-    /\bdokumentong ito\b/i,
-    /\bistruktura\b/i,
-    /\borganisasyon\b/i,
-  ];
-  if (countMatches(tagalogSignals) >= 2) return "tl";
-
-  const hasTurkish = /[çğıİöşü]/i.test(text) || /\b(ve|değil|teşekkür|lütfen|bugün|yarın)\b/i.test(text);
-  if (hasTurkish) return "tr";
-
-  const hasFinnish = /\b(kiitos|hei|tänään|huomenna|en)\b/i.test(text);
-  if (hasFinnish) return "fi";
-
-  const tagalogWords = (text.match(/\b(salamat|ikaw|hindi|ngayon|bukas|at|ako|tayo|kayo|sila|wala|meron)\b/gi) || []).length;
-  const englishWords = (text.match(/\b(the|and|is|are|was|were|this|that|I|you|we|they|to|for|of|in|on|with)\b/gi) || []).length;
-  if (tagalogWords >= 2 && tagalogWords > englishWords * 2) return "tl";
-
-  const hasSwahili = /\b(asante|habari|siku|leo|kesho|na)\b/i.test(text);
-  if (hasSwahili) return "sw";
-
-  const hasEnglish = /[A-Za-z]/.test(text);
-  if (hasEnglish) return "auto";
-
-  return "auto";
-};
 
 const countWords = (text: string): number => {
   // Avoid allocating large arrays (`split`) on big documents.
@@ -524,7 +301,7 @@ SuggestionCard.displayName = 'SuggestionCard';
 
 /**
  * Read-only pill that shows the auto-detected language.
- * No dropdown, no interaction — purely informational.
+ * No dropdown, no interaction â€” purely informational.
  */
 const LanguageDetectionPill = React.memo(({
   language,
@@ -540,16 +317,16 @@ const LanguageDetectionPill = React.memo(({
   // Determine what to display
   const displayCode = (language && language !== "auto") ? language : detectedLanguage;
   const langObj = languageOptions.find((l) => l.code === displayCode);
-  const langName = langObj ? langObj.name.split(" ")[0] : null; // e.g. "Tamil" from "Tamil (தமிழ்)"
+  const langName = langObj ? langObj.name.split(" ")[0] : null; // e.g. "Tamil" from "Tamil (à®¤à®®à®¿à®´à¯)"
   const pct = detectedConfidence > 0 ? Math.round(detectedConfidence * 100) : null;
   const isDetected = !!(detectedLanguage && detectedLanguage !== "auto" && pct);
 
   if (!langName) {
-    // Nothing detected yet — show subtle placeholder
+    // Nothing detected yet â€” show subtle placeholder
     return (
       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 text-xs text-gray-400 select-none">
         <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />
-        Detecting language…
+        Detecting languageâ€¦
       </span>
     );
   }
@@ -581,7 +358,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
   const [correctedText, setCorrectedText] = useState("");
   const [changes, setChanges] = useState<Change[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [language, setLanguage] = useState("auto");  // "auto" = CLD3 will detect
+  const [language, setLanguage] = useState("auto");  // "auto" = Gemini will detect
   const [languageMode, setLanguageMode] = useState<"auto" | "manual">("auto");
   const [shouldBlinkInput, setShouldBlinkInput] = useState(false);
   const [shouldBlinkLanguage, setShouldBlinkLanguage] = useState(false);
@@ -614,12 +391,12 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
   const speechPulseRef = useRef<number | null>(null);
   const speechInterimRef = useRef<string>("");
   const suggestionsRef = useRef<HTMLDivElement>(null);
-  // ── CLD3 Auto-detection ──────────────────────────────────────────────────
+  // ── Gemini Auto-detection ──────────────────────────────────────────────
   const { detectedLanguage, detectedConfidence, detectionResult } = useLanguageDetection({
     text: inputText,
     isManualMode: languageMode === "manual",
     onDetected: (result) => {
-      // Only auto-apply when in auto mode — never override a manual selection
+      // Only auto-apply when in auto mode â€” never override a manual selection
       if (languageMode === "manual") return;
       if (result.isReliable && result.language !== "auto" && result.language !== language) {
         setLanguage(result.language);
@@ -630,7 +407,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
       }
     },
   });
-  // ─────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const uniqueLanguageOptions = Array.from(
     new Map(LANGUAGE_OPTIONS.map((lang) => [lang.code, lang])).values()
@@ -638,7 +415,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      // SEO landing pages pass a specific language — always honour it
+      // SEO landing pages pass a specific language â€” always honour it
       if (initialLanguage) {
         setLanguage(initialLanguage);
         setLanguageMode(initialLanguage === "auto" ? "auto" : "manual");
@@ -655,7 +432,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
         window.setTimeout(() => setShouldBlinkLanguage(false), 12000);
         return;
       }
-      // New user / auto mode — CLD3 will detect once they start typing.
+      // New user / auto mode — Gemini will detect once they start typing.
       // Do NOT show blocking dialog; language defaults to "auto".
       setLanguage("auto");
       setLanguageMode("auto");
@@ -980,7 +757,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
 
   const normalizeToken = (value: string) => {
     const trimmed = value.trim().toLowerCase();
-    const stripped = trimmed.replace(/[.,!?;:()"'“”‘’]/g, "").trim();
+    const stripped = trimmed.replace(/[.,!?;:()"'â€œâ€â€˜â€™]/g, "").trim();
     return stripped || trimmed;
   };
 
@@ -1194,7 +971,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
       setHasResults(true);
       setIsLoading(false);
       persistDoc(normalizedInput);
-      toast.success("No changes needed — your text is clean.");
+      toast.success("No changes needed â€” your text is clean.");
       return;
     }
     
@@ -1748,7 +1525,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                     Your Text
                   </CardTitle>
                   <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
-                    {/* Language detection pill — read-only, no manual selector */}
+                    {/* Language detection pill â€” read-only, no manual selector */}
                     <LanguageDetectionPill
                       language={language}
                       detectedLanguage={detectedLanguage}
@@ -1760,7 +1537,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                       {planName === "Free" && currentUserId && (
                         <div className="text-[10px] sm:text-xs text-muted-foreground">
                           Dialy 300 words per day for free users
-                          {dailyRemaining !== null ? ` • Remaining: ${dailyRemaining}` : ""}
+                          {dailyRemaining !== null ? ` â€¢ Remaining: ${dailyRemaining}` : ""}
                         </div>
                       )}
                       {creditsLimitEnabled && (
@@ -1873,7 +1650,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                         highlightRef.current.scrollLeft = e.currentTarget.scrollLeft;
                       }
                     }}
-                    placeholder="Welcome! Paste or type your text here, and we’ll proofread it professionally while preserving your meaning and tone."
+                    placeholder="Welcome! Paste or type your text here, and weâ€™ll proofread it professionally while preserving your meaning and tone."
                     className={`editor-textarea editor-input ${shouldBlinkInput ? 'blink-green' : ''}`}
                     disabled={isLoading}
                   />
@@ -2033,7 +1810,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                         className="cursor-pointer"
                       >
                         <span className="mr-2 inline-flex h-4 w-4 items-center justify-center">
-                          {language === lang.code ? "✓" : ""}
+                          {language === lang.code ? "âœ“" : ""}
                         </span>
                         {lang.name}
                       </CommandItem>
@@ -2192,7 +1969,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
           </DialogHeader>
           <div className="rounded-xl border border-border bg-gradient-to-br from-accent/10 to-primary/10 p-4">
             <p className="text-sm text-muted-foreground">
-              You’ve used all available credits. Add more credits to continue checking without interruptions.
+              Youâ€™ve used all available credits. Add more credits to continue checking without interruptions.
             </p>
           </div>
           <div className="mt-4 space-y-3">

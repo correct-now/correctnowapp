@@ -5,12 +5,11 @@
  *
  * Behaviour:
  *  1. Does nothing until text reaches DETECTION_MIN_CHARS characters.
- *  2. Debounces by DETECTION_DEBOUNCE_MS ms to avoid detecting on every keystroke.
- *  3. Runs fast synchronous heuristic detection first for immediate UI feedback.
- *  4. Runs async CLD3 detection; updates result when it completes.
- *  5. Respects `isManualMode` — when the user has explicitly chosen a language,
+ *  2. Debounces by DETECTION_DEBOUNCE_MS ms to avoid calling on every keystroke.
+ *  3. Calls the Gemini backend (/api/detect-language) for the result.
+ *  4. Respects `isManualMode` — when the user has explicitly chosen a language,
  *     detection is suppressed entirely (zero interference with manual selection).
- *  6. All exceptions are caught — the editor always remains functional.
+ *  5. All exceptions are caught — the editor always remains functional.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -19,7 +18,6 @@ import {
   DETECTION_DEBOUNCE_MS,
   DETECTION_MIN_CHARS,
   detectLanguage,
-  detectLanguageFast,
 } from "@/lib/languageDetection";
 
 export interface LanguageDetectionState {
@@ -27,7 +25,7 @@ export interface LanguageDetectionState {
   detectedLanguage: string;
   /** 0–1 confidence score */
   detectedConfidence: number;
-  /** True once CLD3 async pass has completed */
+  /** True while the Gemini API call is in-flight */
   isDetecting: boolean;
   /** Full detection result for consumers who need it */
   detectionResult: DetectionResult | null;
@@ -42,7 +40,7 @@ interface UseLanguageDetectionOptions {
    */
   isManualMode: boolean;
   /**
-   * Callback invoked when a high-confidence result arrives.
+   * Callback invoked when a reliable result arrives.
    * Consumers should call `setLanguage` here.
    */
   onDetected?: (result: DetectionResult) => void;
@@ -66,7 +64,7 @@ export const useLanguageDetection = ({
   const onDetectedRef = useRef(onDetected);
   useEffect(() => { onDetectedRef.current = onDetected; }, [onDetected]);
 
-  // Track whether we're still mounted — prevent state updates after unmount
+  // Track whether the component is still mounted — prevent state updates after unmount
   const mountedRef = useRef(true);
   useEffect(() => () => { mountedRef.current = false; }, []);
 
@@ -75,44 +73,28 @@ export const useLanguageDetection = ({
 
   const runDetection = useCallback(async (input: string) => {
     if (!mountedRef.current) return;
-    if (input.trim().length < DETECTION_MIN_CHARS) {
-      setState(INITIAL_STATE);
-      return;
-    }
 
-    // ── Fast sync heuristic pass (immediate) ──
-    const fast = detectLanguageFast(input);
-    if (mountedRef.current) {
-      setState({
-        detectedLanguage: fast.language,
-        detectedConfidence: fast.confidence,
-        isDetecting: true, // CLD3 still in flight
-        detectionResult: fast,
-      });
-      if (fast.isReliable) {
-        onDetectedRef.current?.(fast);
-      }
-    }
+    // Show "detecting" spinner while the API call is in-flight
+    setState((prev) => ({ ...prev, isDetecting: true }));
 
-    // ── Async CLD3 pass (more accurate) ──
     try {
-      const cld3 = await detectLanguage(input);
+      const result = await detectLanguage(input);
       if (!mountedRef.current) return;
 
       setState({
-        detectedLanguage: cld3.language,
-        detectedConfidence: cld3.confidence,
+        detectedLanguage: result.language,
+        detectedConfidence: result.confidence,
         isDetecting: false,
-        detectionResult: cld3,
+        detectionResult: result,
       });
 
-      if (cld3.isReliable) {
-        onDetectedRef.current?.(cld3);
+      if (result.isReliable && result.language !== "auto") {
+        onDetectedRef.current?.(result);
       }
     } catch {
-      // CLD3 failed — keep the heuristic result
+      // API failure — reset to neutral state, never block the editor
       if (mountedRef.current) {
-        setState((prev) => ({ ...prev, isDetecting: false }));
+        setState(INITIAL_STATE);
       }
     }
   }, []);
@@ -120,17 +102,19 @@ export const useLanguageDetection = ({
   useEffect(() => {
     // Suppress when user has manually selected a language
     if (isManualMode) {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
       setState(INITIAL_STATE);
       return;
     }
 
-    // Below minimum threshold — reset
+    // Below minimum threshold — reset silently
     if (!text || text.trim().length < DETECTION_MIN_CHARS) {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
       setState(INITIAL_STATE);
       return;
     }
 
-    // Debounce
+    // Debounce: wait for the user to pause typing before calling the API
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       runDetection(text);

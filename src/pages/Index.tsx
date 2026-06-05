@@ -104,7 +104,7 @@ const Index = () => {
     open: boolean; top: number; left: number; changeIdx?: number; original: string;
   }>({ open: false, top: 0, left: 0, original: "" });
 
-  // ── CLD3 auto-detection for dashboard mini-editor ────────────────────────
+  // ── Gemini auto-detection for dashboard mini-editor ─────────────────────
   const {
     detectedLanguage: miniDetectedLanguage,
     detectedConfidence: miniDetectedConfidence,

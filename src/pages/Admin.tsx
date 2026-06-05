@@ -2526,10 +2526,10 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
   // Show login form if not authenticated
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "#0a0f1e" }}>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-          <p className="mt-4 text-slate-400">Loading...</p>
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto" />
+          <p className="mt-4 text-sm text-gray-400">Loading…</p>
         </div>
       </div>
     );
@@ -2537,39 +2537,38 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center relative overflow-hidden" style={{ background: "#0a0f1e" }}>
-        {/* Background decorative blobs */}
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 right-1/4 w-80 h-80 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 relative overflow-hidden">
+        {/* Subtle background accents */}
+        <div className="absolute -top-32 -left-32 w-96 h-96 bg-blue-100 rounded-full blur-3xl opacity-60 pointer-events-none" />
+        <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-indigo-100 rounded-full blur-3xl opacity-60 pointer-events-none" />
 
-        <div className="w-full max-w-md px-6 py-8 relative z-10">
-          {/* Logo */}
+        <div className="w-full max-w-sm relative z-10">
+          {/* Logo + badge */}
           <div className="flex flex-col items-center mb-8">
             <img
               src="/Icon/correctnow logo final2.png"
               alt="CorrectNow"
-              className="h-9 sm:h-10 w-auto object-contain mb-4"
+              className="h-10 w-auto object-contain mb-4"
             />
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-blue-500/15 text-blue-400 border border-blue-500/20">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 border border-blue-200">
               <Shield className="w-3 h-3" />
               Admin Panel
-            </div>
+            </span>
           </div>
 
           {/* Card */}
-          <div className="rounded-2xl border border-white/10 p-8 shadow-2xl" style={{ background: "rgba(255,255,255,0.04)", backdropFilter: "blur(20px)" }}>
-            <h1 className="text-2xl font-bold text-white text-center mb-1">Welcome back</h1>
-            <p className="text-center text-slate-400 text-sm mb-8">
-              Sign in to access the admin dashboard
-            </p>
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
+            <h1 className="text-xl font-bold text-gray-900 text-center mb-1">Welcome back</h1>
+            <p className="text-center text-gray-500 text-sm mb-7">Sign in to access the admin dashboard</p>
 
-            <form onSubmit={handleLogin} className="space-y-5">
+            <form onSubmit={handleLogin} className="space-y-4">
+              {/* Email */}
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-2">
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
                   Email address
                 </label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <Input
                     id="email"
                     type="email"
@@ -2578,25 +2577,23 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                     onChange={(e) => setEmail(e.target.value)}
                     required
                     autoComplete="email"
-                    className="pl-10 bg-white/5 border-white/10 text-white placeholder:text-slate-500 focus:border-blue-500 focus:ring-blue-500/20"
+                    className="pl-10 h-10 border-gray-200 bg-gray-50 focus:bg-white text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:ring-blue-500/20"
                   />
                 </div>
               </div>
 
+              {/* Password */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label htmlFor="password" className="block text-sm font-medium text-slate-300">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                     Password
                   </label>
-                  <Link
-                    to="/forgot-password"
-                    className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-                  >
+                  <Link to="/forgot-password" className="text-xs text-blue-600 hover:text-blue-700 transition-colors">
                     Forgot password?
                   </Link>
                 </div>
                 <div className="relative">
-                  <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <Input
                     id="password"
                     type="password"
@@ -2605,27 +2602,29 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     autoComplete="current-password"
-                    className="pl-10 bg-white/5 border-white/10 text-white placeholder:text-slate-500 focus:border-blue-500 focus:ring-blue-500/20"
+                    className="pl-10 h-10 border-gray-200 bg-gray-50 focus:bg-white text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:ring-blue-500/20"
                   />
                 </div>
               </div>
 
+              {/* Error */}
               {loginError && (
-                <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-3 rounded-lg flex items-center gap-2">
+                <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">
                   <AlertTriangle className="w-4 h-4 shrink-0" />
                   {loginError}
                 </div>
               )}
 
+              {/* Submit */}
               <Button
                 type="submit"
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium h-11 rounded-lg transition-all shadow-lg shadow-blue-600/20"
+                className="w-full h-10 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors shadow-sm mt-1"
                 disabled={loggingIn}
               >
                 {loggingIn ? (
                   <span className="flex items-center gap-2">
-                    <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></span>
-                    Signing in...
+                    <span className="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-white" />
+                    Signing in…
                   </span>
                 ) : (
                   "Sign in to Admin"
@@ -2633,11 +2632,8 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
               </Button>
             </form>
 
-            <div className="mt-6 text-center">
-              <Link
-                to="/"
-                className="text-sm text-slate-500 hover:text-slate-300 transition-colors"
-              >
+            <div className="mt-6 pt-5 border-t border-gray-100 text-center">
+              <Link to="/" className="text-sm text-gray-400 hover:text-gray-700 transition-colors">
                 ← Back to CorrectNow
               </Link>
             </div>
