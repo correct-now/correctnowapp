@@ -31,6 +31,7 @@ import { collection, deleteDoc, doc, getDoc, getDocs as getFirestoreDocs, onSnap
 import { clearSessionId } from "@/lib/session";
 import { detectCountryCode, formatPrice, resolvePricing, type RegionalPricing } from "@/lib/pricing";
 import { useLanguageDetection } from "@/hooks/use-language-detection";
+import { detectLanguageViaGemini, DETECTION_MIN_CHARS } from "@/lib/languageDetection";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -600,6 +601,17 @@ const Index = () => {
       return;
     }
 
+    // ── Gemini language detection before proofread ──────────────────────────
+    let effectiveMiniLanguage = miniEditorLanguage || "auto";
+    if (effectiveMiniLanguage === "auto" && miniEditorLanguageMode !== "manual" && text.length >= DETECTION_MIN_CHARS) {
+      const detected = await detectLanguageViaGemini(text);
+      if (detected.isReliable && detected.language !== "auto") {
+        effectiveMiniLanguage = detected.language;
+        setMiniEditorLanguage(detected.language);
+      }
+    }
+    // ───────────────────────────────────────────────────────────────────────
+
     setMiniIsLoading(true);
     setMiniHasResults(false);
     try {
@@ -616,7 +628,7 @@ const Index = () => {
         headers,
         body: JSON.stringify({
           text,
-          language: miniEditorLanguage,
+          language: effectiveMiniLanguage,
           wordLimit,
           userId: auth?.currentUser?.uid || null,
         }),

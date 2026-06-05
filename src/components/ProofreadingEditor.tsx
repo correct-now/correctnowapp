@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import LanguageSelector, { LANGUAGE_OPTIONS } from "./LanguageSelector";
 import { useLanguageDetection } from "@/hooks/use-language-detection";
+import { detectLanguageViaGemini, DETECTION_MIN_CHARS } from "@/lib/languageDetection";
 import WordCounter from "./WordCounter";
 import LoadingDots from "./LoadingDots";
 import { Change } from "./ChangeLogTable";
@@ -948,12 +949,6 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
       return;
     }
 
-    // "auto" is always a valid language (server-side will handle it too).
-    // An empty string should not occur now, but guard defensively.
-    if (!language) {
-      setLanguage("auto");
-    }
-
     const overrideWordCount = countWords(textToCheck);
     if (overrideWordCount > wordLimit) {
       toast.error(`Text exceeds ${wordLimit} word limit`);
@@ -964,6 +959,22 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
       toast.error("Not enough credits. Please buy add-on credits to continue.");
       return;
     }
+
+    // ── Gemini language detection before proofread ──────────────────────────
+    // If language is still "auto" at click time (e.g. user clicked before the
+    // debounce fired, or first visit), call detect-language now so the proofread
+    // runs in the correct explicit language and the pill updates immediately.
+    let effectiveLanguage = language || "auto";
+    if (effectiveLanguage === "auto" && languageMode !== "manual" && textToCheck.length >= DETECTION_MIN_CHARS) {
+      const detected = await detectLanguageViaGemini(textToCheck);
+      if (detected.isReliable && detected.language !== "auto") {
+        effectiveLanguage = detected.language;
+        setLanguage(detected.language);
+        // Update detection state so the pill shows the result immediately
+        // (the hook will also settle on this value on next render)
+      }
+    }
+    // ───────────────────────────────────────────────────────────────────────
 
     setIsLoading(true);
     setHasResults(false);
@@ -1006,7 +1017,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
         headers,
         body: JSON.stringify({
           text: textToCheck,
-          language,
+          language: effectiveLanguage,
           wordLimit,
           userId: currentUserId,
         }),
