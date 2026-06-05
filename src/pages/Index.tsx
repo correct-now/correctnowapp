@@ -83,7 +83,7 @@ const Index = () => {
   const [selectedArchivedIds, setSelectedArchivedIds] = useState<Set<string>>(new Set());
   const [docFilter, setDocFilter] = useState<"all" | "today" | "week" | "month">("all");
   const [regionalPricing, setRegionalPricing] = useState<RegionalPricing>(() => resolvePricing(""));
-  const getInlineEditorVisible = () => (typeof window !== "undefined" ? window.innerWidth >= 1280 : true);
+  const getInlineEditorVisible = () => false;
   const [isInlineEditorVisible, setIsInlineEditorVisible] = useState(getInlineEditorVisible);
   const [miniEditorText, setMiniEditorText] = useState("");
   const [miniEditorTitle, setMiniEditorTitle] = useState("Untitled Document");
@@ -109,10 +109,7 @@ const Index = () => {
   }>({ open: false, top: 0, left: 0, original: "" });
 
   useEffect(() => {
-    const handleResize = () => setIsInlineEditorVisible(getInlineEditorVisible());
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    setIsInlineEditorVisible(false);
   }, []);
 
   // ── Gemini auto-detection for dashboard mini-editor ─────────────────────
@@ -1662,12 +1659,7 @@ const Index = () => {
 
                   {/* Editor Bottom Bar */}
                   <div className="px-5 py-2.5 border-t border-gray-100 flex items-center justify-between text-sm text-gray-500">
-                    <div className="flex items-center gap-4">
-                      <button className="flex items-center gap-1.5 hover:text-gray-700 transition-colors">
-                        <Upload className="w-3.5 h-3.5" />
-                        Upload File
-                      </button>
-                    </div>
+                    
                     <div className="flex items-center gap-4">
                       <span className="text-sm">{miniWordCount} words</span>
                       <span className="text-sm">{miniEditorText.length} characters</span>
