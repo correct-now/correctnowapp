@@ -226,10 +226,10 @@ const SuggestionCard = React.memo(({
   return (
     <div
       ref={setRef}
-      className={`rounded-lg border bg-card p-4 transition-all ${
+      className={`border bg-card p-4 transition-all rounded-none ${
         isActive
-          ? "border-2 border-accent shadow-lg ring-4 ring-accent/20"
-          : "border-border"
+          ? "border-gray-300 shadow-sm"
+          : "border-gray-200"
       }`}
     >
       <div className="grid gap-3 md:grid-cols-2">
@@ -1532,7 +1532,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
         <div className="w-full mx-auto">
           <div className="grid gap-4 sm:gap-6 lg:grid-cols-[3fr_1fr]">
             {/* Input Section */}
-            <Card className="shadow-elevated">
+            <Card className="border border-gray-200 shadow-sm rounded-none">
               <CardHeader className="pb-3 sm:pb-4 min-h-[72px] sm:min-h-[92px] px-3 sm:px-6">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
                   <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
@@ -1687,7 +1687,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
             </Card>
 
             {/* Suggestions Panel */}
-            <Card ref={suggestionsRef} className="shadow-card">
+            <Card ref={suggestionsRef} className="border border-gray-200 shadow-sm rounded-none">
               <CardHeader className="pb-4 min-h-[72px] sm:min-h-[92px]">
                 <CardTitle className="text-xl">Suggestions</CardTitle>
               </CardHeader>
@@ -1727,7 +1727,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                     </button>
                   </div>
                 )}
-                <div className="border border-border rounded-lg p-4">
+                <div className="border border-gray-200 rounded-none p-4">
                   <div className="flex flex-col gap-3 mb-5">
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-sm text-muted-foreground">Accuracy score</div>
