@@ -307,28 +307,33 @@ const LanguageDetectionPill = React.memo(({
   language,
   detectedLanguage,
   detectedConfidence,
+  isDetecting,
   languageOptions,
 }: {
   language: string;
   detectedLanguage: string;
   detectedConfidence: number;
+  isDetecting: boolean;
   languageOptions: Array<{ code: string; name: string }>;
 }) => {
-  // Determine what to display
   const displayCode = (language && language !== "auto") ? language : detectedLanguage;
   const langObj = languageOptions.find((l) => l.code === displayCode);
-  const langName = langObj ? langObj.name.split(" ")[0] : null; // e.g. "Tamil" from "Tamil (à®¤à®®à®¿à®´à¯)"
+  const langName = langObj ? langObj.name.split(" ")[0] : null;
   const pct = detectedConfidence > 0 ? Math.round(detectedConfidence * 100) : null;
   const isDetected = !!(detectedLanguage && detectedLanguage !== "auto" && pct);
 
-  if (!langName) {
-    // Nothing detected yet â€” show subtle placeholder
+  // In-flight: Gemini API call running
+  if (isDetecting && !langName) {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 text-xs text-gray-400 select-none">
-        <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />
-        Detecting languageâ€¦
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 text-xs text-blue-500 select-none">
+        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+        Detecting language…
       </span>
     );
+  }
+
+  if (!langName) {
+    return null;
   }
 
   return (
@@ -392,18 +397,18 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
   const speechInterimRef = useRef<string>("");
   const suggestionsRef = useRef<HTMLDivElement>(null);
   // ── Gemini Auto-detection ──────────────────────────────────────────────
-  const { detectedLanguage, detectedConfidence, detectionResult } = useLanguageDetection({
+  const { detectedLanguage, detectedConfidence, isDetecting: isDetectingLanguage } = useLanguageDetection({
     text: inputText,
     isManualMode: languageMode === "manual",
     onDetected: (result) => {
-      // Only auto-apply when in auto mode â€” never override a manual selection
+      // Only auto-apply in auto mode — never override a manual selection
       if (languageMode === "manual") return;
       if (result.isReliable && result.language !== "auto" && result.language !== language) {
         setLanguage(result.language);
-        // Persist so repeated visits use the detected language as starting point
-        if (typeof window !== "undefined") {
-          window.localStorage.setItem("correctnow:language", result.language);
-        }
+        // NOTE: do NOT persist here — auto-detected langs must not set languageMode="manual" on next load.
+
+
+
       }
     },
   });
@@ -1530,6 +1535,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                       language={language}
                       detectedLanguage={detectedLanguage}
                       detectedConfidence={detectedConfidence}
+                      isDetecting={isDetectingLanguage}
                       languageOptions={uniqueLanguageOptions}
                     />
                     <div className="flex flex-col items-start gap-0.5 sm:gap-1 w-full sm:w-auto">
