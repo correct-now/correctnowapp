@@ -3297,11 +3297,13 @@ app.post("/api/proofread", async (req, res) => {
         await adminDb.collection("userChecks").add({
           userId: String(userId),
           userEmail: userEmail,
-          text: text, // Store full text for admin review
+          text: text,
+          correctedText: correctedText !== text ? correctedText : null,
           language: language || 'auto',
           wordCount: words.length,
+          creditsUsed: creditsContext ? creditsContext.creditsUsedNext : words.length,
           suggestionsCount: result.changes?.length || 0,
-          suggestions: result.changes || [], // Store all suggestions
+          suggestions: result.changes || [],
           timestamp: new Date().toISOString(),
         });
       } catch (error) {

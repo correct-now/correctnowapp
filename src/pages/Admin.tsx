@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"; // redesigned
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle,
   Users,
@@ -93,6 +93,25 @@ import {
   type SuggestionItem,
 } from "@/lib/suggestions";
 import { LANGUAGE_OPTIONS } from "@/components/LanguageSelector";
+import {
+  useAuditLog,
+  useSavedPresets,
+  useBlogAutosave,
+  useSuggestionMeta,
+  useKeyboardShortcuts,
+  FilterPresetBar,
+  AuditTimeline,
+  BulkReasonDialog,
+  OgPreview,
+  JsonLdPanel,
+  PriorityBadge,
+  SlaTimer,
+  exportChecksCsv,
+  exportSuggestionsCsv,
+  exportPaymentsCsv,
+  downloadCsv,
+  type FilterPreset,
+} from "@/pages/admin-helpers";
 
 type AdminUser = {
   id: string;
@@ -156,6 +175,19 @@ type Coupon = {
   usageCount?: number;
 };
 
+// Apply all suggestions sequentially to reconstruct fully-corrected text
+const applyAllSuggestions = (text: string, suggestions: Array<{ original: string; corrected: string }>) => {
+  let result = text;
+  for (const s of suggestions) {
+    if (!s.original || s.original === s.corrected) continue;
+    const idx = result.indexOf(s.original);
+    if (idx !== -1) {
+      result = result.slice(0, idx) + s.corrected + result.slice(idx + s.original.length);
+    }
+  }
+  return result;
+};
+
 const Admin = () => {
   const auth = useMemo(() => getFirebaseAuth(), []);
   const [user, setUser] = useState(() => auth?.currentUser ?? null);
@@ -166,8 +198,9 @@ const Admin = () => {
   const [loggingIn, setLoggingIn] = useState(false);
 
   const [activeTab, setActiveTab] = useState<
-    "overview" | "users" | "suggestions" | "checks" | "billing" | "blog" | "seo" | "languages" | "settings"
+    "overview" | "users" | "suggestions" | "checks" | "billing" | "blog" | "seo" | "languages" | "settings" | "auditlog"
   >("overview");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
   const [suggestionSearch, setSuggestionSearch] = useState("");
@@ -298,10 +331,12 @@ const Admin = () => {
     userId: string;
     userEmail?: string;
     text: string;
+    correctedText?: string;
     language: string;
     wordCount: number;
     suggestionsCount: number;
-    suggestions?: Array<any>;
+    suggestions?: Array<{ original: string; corrected: string; explanation: string; status?: string }>;
+    creditsUsed?: number;
     timestamp: string;
   }>>([]);
   const [checksLoading, setChecksLoading] = useState(false);
@@ -360,6 +395,49 @@ const Admin = () => {
   const [bulkUploadPreview, setBulkUploadPreview] = useState<BulkPreviewRow[]>([]);
   const [bulkUploadStep, setBulkUploadStep] = useState<"select" | "preview" | "uploading" | "done">("select");
 
+  // ── Helpers: audit log, presets, suggestion meta, blog autosave ──
+  const adminEmail = user?.email || "admin";
+  const { entries: auditEntries, log: logAudit, clearLog: clearAuditLog } = useAuditLog(adminEmail);
+  const { presets: filterPresets, save: savePreset, remove: removePreset } = useSavedPresets();
+  const { get: getSuggMeta, update: updateSuggMeta } = useSuggestionMeta();
+  const { lastSaved: blogDraftSaved, loadDraft: loadBlogDraft, clearDraft: clearBlogDraft } = useBlogAutosave(
+    blogTitle, blogCustomSlug, blogContentHtml, blogEditingId
+  );
+
+  // ── Checks: search + date filter ──
+  const [checksSearch, setChecksSearch] = useState("");
+  const [checksDateFrom, setChecksDateFrom] = useState("");
+  const [checksDateTo, setChecksDateTo] = useState("");
+  const [checksUserSearch, setChecksUserSearch] = useState("");
+
+  // ── Suggestions: filter by status/priority ──
+  const [suggestionStatusFilter, setSuggestionStatusFilter] = useState<"all" | "new" | "reviewed" | "resolved">("all");
+  const [suggestionPriorityFilter, setSuggestionPriorityFilter] = useState<"all" | "low" | "medium" | "high" | "critical">("all");
+  const [suggestionTagInput, setSuggestionTagInput] = useState<Record<string, string>>({});
+  const [suggestionOwnerInput, setSuggestionOwnerInput] = useState<Record<string, string>>({});
+
+  // ── Billing: search + export ──
+  const [billingStatusFilter, setBillingStatusFilter] = useState<"all" | "active" | "past_due" | "cancelled">("all");
+
+  // ── Settings: API key masking ──
+  const [apiKeyVisible, setApiKeyVisible] = useState(false);
+  const [apiKeyRotating, setApiKeyRotating] = useState(false);
+
+  // ── Bulk action: reason note dialog ──
+  const [bulkReasonOpen, setBulkReasonOpen] = useState(false);
+  const [pendingBulkFn, setPendingBulkFn] = useState<((note: string) => Promise<void>) | null>(null);
+  const [pendingBulkTitle, setPendingBulkTitle] = useState("");
+  const [pendingBulkDesc, setPendingBulkDesc] = useState("");
+  const [pendingBulkDestructive, setPendingBulkDestructive] = useState(false);
+
+  // ── SEO: OG preview toggle, duplicate slug warning ──
+  const [seoOgPreviewOpen, setSeoOgPreviewOpen] = useState(false);
+  const [seoJsonLdOpen, setSeoJsonLdOpen] = useState(false);
+  const slugAlreadyExists = useMemo(
+    () => seoPages.some((p) => p.urlSlug === seoUrlSlug && p.id !== seoEditingId),
+    [seoPages, seoUrlSlug, seoEditingId]
+  );
+
   // Keep Firebase auth state in sync, but fail gracefully if Firebase is not configured
   useEffect(() => {
     if (!auth) {
@@ -411,6 +489,70 @@ const Admin = () => {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
+
+  // Keyboard shortcuts: G+U → users, G+C → checks, G+B → billing, G+S → suggestions, Mod+Shift+E → export
+  useKeyboardShortcuts(
+    useMemo(() => ({
+      "g+u": () => setActiveTab("users"),
+      "g+c": () => setActiveTab("checks"),
+      "g+b": () => setActiveTab("billing"),
+      "g+s": () => setActiveTab("suggestions"),
+    }), [])
+  );
+
+  // Helper to wrap a destructive/important bulk action with a reason dialog
+  const withBulkReason = useCallback(
+    (title: string, description: string, fn: (note: string) => Promise<void>, destructive = false) => {
+      setPendingBulkTitle(title);
+      setPendingBulkDesc(description);
+      setPendingBulkFn(() => fn);
+      setPendingBulkDestructive(destructive);
+      setBulkReasonOpen(true);
+    },
+    []
+  );
+
+  // Filtered checks (search + date + user)
+  const filteredChecks = useMemo(() => {
+    let list = userChecks;
+    if (checksSearch.trim()) {
+      const q = checksSearch.toLowerCase();
+      list = list.filter((c) => c.text.toLowerCase().includes(q) || c.language.toLowerCase().includes(q));
+    }
+    if (checksUserSearch.trim()) {
+      const q = checksUserSearch.toLowerCase();
+      list = list.filter((c) => (c.userEmail || "").toLowerCase().includes(q) || c.userId.toLowerCase().includes(q));
+    }
+    if (checksDateFrom) {
+      const from = new Date(checksDateFrom).getTime();
+      list = list.filter((c) => new Date(c.timestamp).getTime() >= from);
+    }
+    if (checksDateTo) {
+      const to = new Date(checksDateTo).getTime() + 86400000;
+      list = list.filter((c) => new Date(c.timestamp).getTime() <= to);
+    }
+    if (checksFilter === "today") {
+      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+      list = list.filter((c) => new Date(c.timestamp) >= todayStart);
+    } else if (checksFilter === "week") {
+      const weekAgo = Date.now() - 7 * 86400000;
+      list = list.filter((c) => new Date(c.timestamp).getTime() >= weekAgo);
+    }
+    return list;
+  }, [userChecks, checksSearch, checksUserSearch, checksDateFrom, checksDateTo, checksFilter]);
+
+  // Filtered suggestions (status + priority)
+  const filteredSuggestionsEnhanced = useMemo(() => {
+    return suggestions.filter((s) => {
+      const meta = getSuggMeta(s.id);
+      const matchStatus = suggestionStatusFilter === "all" || s.status === suggestionStatusFilter;
+      const matchPriority = suggestionPriorityFilter === "all" || meta.priority === suggestionPriorityFilter;
+      const matchSearch = !suggestionSearch.trim() ||
+        s.message.toLowerCase().includes(suggestionSearch.toLowerCase()) ||
+        (s.email || "").toLowerCase().includes(suggestionSearch.toLowerCase());
+      return matchStatus && matchPriority && matchSearch;
+    });
+  }, [suggestions, getSuggMeta, suggestionStatusFilter, suggestionPriorityFilter, suggestionSearch]);
 
   // All hooks must be called before any conditional returns
   const filteredUsers = useMemo(() => {
@@ -616,22 +758,17 @@ const Admin = () => {
       )
     ].join("\n");
 
-    // Add UTF-8 BOM for proper Excel compatibility
-    const BOM = "\uFEFF";
-    const csvWithBOM = BOM + csvContent;
-
-    // Create blob and download
-    const blob = new Blob([csvWithBOM], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    const timestamp = new Date().toISOString().split('T')[0];
-    
-    link.setAttribute("href", url);
-    link.setAttribute("download", `correctnow-billing-${timestamp}.csv`);
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    exportPaymentsCsv(
+      allBillingData.map((p) => ({
+        userId: p.userId,
+        userName: p.name,
+        userEmail: p.email,
+        plan: p.plan,
+        amount: p.amount,
+        status: p.status,
+        updatedAt: p.date,
+      }))
+    );
   };
 
   const toLocalInputValue = (iso?: string) => {
@@ -701,6 +838,8 @@ const Admin = () => {
         prev.map((u) => (u.id === userId ? { ...u, status: "deactivated" } : u))
       );
       if (viewingUser?.id === userId) setViewingUser(prev => prev ? { ...prev, status: "deactivated" } : prev);
+      const target = users.find((u) => u.id === userId);
+      logAudit("suspend", userId, target?.email || userId, `Suspended user ${target?.email || userId}`);
       toast.success("User suspended");
     } catch (err) {
       toast.error("Failed to suspend user");
@@ -728,12 +867,14 @@ const Admin = () => {
         throw new Error(data.error || "Failed to delete user");
       }
 
+      const target = users.find((u) => u.id === userId);
       setUsers((prev) => prev.filter((u) => u.id !== userId));
       setSelectedUsers((prev) => {
         const newSet = new Set(prev);
         newSet.delete(userId);
         return newSet;
       });
+      logAudit("delete", userId, target?.email || userId, `Deleted user ${target?.email || userId}`);
       toast.success("User deleted successfully");
     } catch (error) {
       console.error("Error deleting user:", error);
@@ -1048,32 +1189,42 @@ const Admin = () => {
     }
   };
 
-  const handleBulkGrantPro = async () => {
+  const handleBulkGrantPro = async (note = "") => {
+    const ids = Array.from(selectedUsers);
     await callBulkAction("grant-pro", { durationDays: bulkPlanDays });
+    logAudit("bulk_grant_pro", ids.join(","), `${ids.length} users`, `Bulk grant Pro (${bulkPlanDays}d) to ${ids.length} users`, note || undefined);
     setBulkPlanDialogOpen(false);
   };
 
-  const handleBulkRevokePro = async () => {
+  const handleBulkRevokePro = async (note = "") => {
+    const ids = Array.from(selectedUsers);
     await callBulkAction("revoke-pro");
+    logAudit("bulk_revoke_pro", ids.join(","), `${ids.length} users`, `Bulk revoke Pro from ${ids.length} users`, note || undefined);
   };
 
-  const handleBulkAddCredits = async () => {
+  const handleBulkAddCredits = async (note = "") => {
     const amount = parseInt(bulkCreditsAmount);
     if (!amount || amount <= 0) { toast.error("Enter a valid credits amount"); return; }
+    const ids = Array.from(selectedUsers);
     await callBulkAction("add-credits", { creditsAmount: amount, creditsExpiry: bulkCreditsExpiry || undefined });
+    logAudit("bulk_add_credits", ids.join(","), `${ids.length} users`, `Bulk add ${amount.toLocaleString()} credits to ${ids.length} users`, note || undefined);
     setBulkCreditsDialogOpen(false);
     setBulkCreditsAmount("");
     setBulkCreditsExpiry("");
   };
 
-  const handleBulkSuspend = async () => {
+  const handleBulkSuspend = async (note = "") => {
+    const ids = Array.from(selectedUsers);
     await callBulkAction(bulkSuspendAction);
+    logAudit(bulkSuspendAction === "suspend" ? "bulk_suspend" : "bulk_reactivate", ids.join(","), `${ids.length} users`, `Bulk ${bulkSuspendAction} ${ids.length} users`, note || undefined);
     setBulkSuspendDialogOpen(false);
   };
 
-  const handleBulkSetCategory = async () => {
+  const handleBulkSetCategory = async (note = "") => {
     if (!bulkCategoryValue.trim()) { toast.error("Enter a category name"); return; }
+    const ids = Array.from(selectedUsers);
     await callBulkAction("set-category", { category: bulkCategoryValue.trim() });
+    logAudit("bulk_set_category", ids.join(","), `${ids.length} users`, `Bulk set category "${bulkCategoryValue}" for ${ids.length} users`, note || undefined);
     setBulkCategoryDialogOpen(false);
     setBulkCategoryValue("");
   };
@@ -1331,10 +1482,12 @@ const Admin = () => {
           userId: d.data().userId || "anonymous",
           userEmail: d.data().userEmail || "",
           text: d.data().text || "",
+          correctedText: d.data().correctedText || null,
           language: d.data().language || "auto",
           wordCount: d.data().wordCount || 0,
           suggestionsCount: d.data().suggestionsCount || 0,
           suggestions: d.data().suggestions || [],
+          creditsUsed: d.data().creditsUsed ?? d.data().wordCount ?? 0,
           timestamp: d.data().timestamp || new Date().toISOString(),
         }));
         setUserChecks(checks);
@@ -1522,6 +1675,7 @@ const Admin = () => {
         )
       );
       const label = planGrantDays === 30 ? "30 days" : planGrantDays === 90 ? "3 months" : "1 year";
+      logAudit("grant_pro", userId, planGrantDialogUser?.email || userId, `Granted Pro plan for ${label}`);
       toast.success(`Pro plan granted for ${label}`);
     } catch (err: any) {
       toast.error(err.message || "Failed to grant plan");
@@ -1973,6 +2127,8 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
         )
       );
 
+      const target = users.find((u) => u.id === addingCreditsUserId);
+      logAudit("add_credits", addingCreditsUserId!, target?.email || addingCreditsUserId!, `Added ${amount.toLocaleString()} addon credits (expires ${addonCreditsExpiry})`);
       toast.success(`Added ${amount.toLocaleString()} credits successfully!`);
       setAddingCreditsUserId(null);
       setAddonCreditsAmount("");
@@ -2077,6 +2233,8 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
         };
       });
       setUsers(list);
+      const target = users.find((u) => u.id === editingUserId);
+      logAudit("edit_limits", editingUserId!, target?.email || editingUserId!, `Limits updated: type=${limitType}, wordLimit=${wordLimitValue}, credits=${creditsValue}, category=${editUserCategory}`);
       setEditingUserId(null);
     } catch (error) {
       console.error("Failed to update user limits:", error);
@@ -2500,10 +2658,11 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
     blog: "Blog",
     billing: "Billing & Plans",
     settings: "Settings",
+    auditlog: "Audit Log",
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 flex overflow-x-hidden w-full">
       {/* ── Fixed Left Sidebar ── */}
       <aside className="hidden lg:flex flex-col fixed inset-y-0 left-0 w-64 z-40 bg-blue-50 border-r border-blue-100 shadow-sm">
         {/* Logo area */}
@@ -2530,6 +2689,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
             { id: "blog", icon: FileText, label: "Blog" },
             { id: "billing", icon: CreditCard, label: "Billing & Plans" },
             { id: "settings", icon: Settings, label: "Settings" },
+            { id: "auditlog", icon: Shield, label: "Audit Log" },
           ].map((item) => (
             <button
               key={item.id}
@@ -2567,49 +2727,133 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
         </div>
       </aside>
 
+      {/* ── Mobile Nav Drawer ── */}
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden flex">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setMobileNavOpen(false)}
+            aria-hidden="true"
+          />
+          {/* Drawer panel */}
+          <aside className="relative flex flex-col w-72 max-w-[85vw] bg-blue-50 border-r border-blue-100 shadow-2xl h-full overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-blue-100">
+              <Link to="/" onClick={() => setMobileNavOpen(false)}>
+                <img src="/Icon/correctnow logo final2.png" alt="CorrectNow" className="h-9 w-auto object-contain" />
+              </Link>
+              <button
+                onClick={() => setMobileNavOpen(false)}
+                className="p-1.5 rounded-lg text-blue-700 hover:bg-blue-100 transition-colors"
+                aria-label="Close menu"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {/* Nav items */}
+            <nav className="flex-1 px-3 py-4 space-y-1">
+              {[
+                { id: "overview", icon: BarChart3, label: "Dashboard" },
+                { id: "users", icon: Users, label: "Users" },
+                { id: "suggestions", icon: MessageSquare, label: "Suggestions" },
+                { id: "checks", icon: Activity, label: "User Checks" },
+                { id: "seo", icon: Globe, label: "SEO Pages" },
+                { id: "languages", icon: Globe, label: "Languages" },
+                { id: "blog", icon: FileText, label: "Blog" },
+                { id: "billing", icon: CreditCard, label: "Billing & Plans" },
+                { id: "settings", icon: Settings, label: "Settings" },
+                { id: "auditlog", icon: Shield, label: "Audit Log" },
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => { setActiveTab(item.id as typeof activeTab); setMobileNavOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-semibold transition-all border ${
+                    activeTab === item.id
+                      ? "bg-white text-blue-900 border-blue-200 shadow-sm"
+                      : "text-blue-900 border-transparent hover:bg-blue-100"
+                  }`}
+                >
+                  <item.icon className="w-4 h-4 shrink-0" />
+                  {item.label}
+                </button>
+              ))}
+            </nav>
+            {/* User + logout */}
+            <div className="px-3 py-4 border-t border-blue-100 space-y-2">
+              <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white border border-blue-100">
+                <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
+                  <span className="text-xs font-bold text-white">A</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-blue-900 truncate">{user?.email?.split("@")[0] || "Admin"}</p>
+                  <p className="text-[10px] text-blue-700 truncate">{user?.email}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => { handleLogout(); setMobileNavOpen(false); }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-blue-900 hover:bg-blue-100 transition-all"
+              >
+                <LogOut className="w-4 h-4" />
+                Sign Out
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
+
       {/* ── Main Area ── */}
-      <div className="flex-1 flex flex-col min-h-screen lg:ml-64">
+      <div className="flex-1 min-w-0 flex flex-col min-h-screen lg:ml-64 overflow-x-hidden">
         {/* ── Top Header Bar ── */}
         <header className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between px-6 h-14">
+          <div className="flex items-center justify-between px-4 sm:px-6 h-14 gap-3">
+            {/* Hamburger — mobile only */}
+            <button
+              className="lg:hidden p-2 -ml-1 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open navigation"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+
             {/* Breadcrumb */}
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-gray-400">Admin</span>
-              <ChevronRight className="w-4 h-4 text-gray-300" />
-              <span className="font-semibold text-gray-900">{tabLabels[activeTab] || activeTab}</span>
+            <div className="flex items-center gap-2 text-sm flex-1 min-w-0">
+              <span className="hidden sm:block text-gray-400 shrink-0">Admin</span>
+              <ChevronRight className="hidden sm:block w-4 h-4 text-gray-300 shrink-0" />
+              <span className="font-semibold text-gray-900 truncate">{tabLabels[activeTab] || activeTab}</span>
             </div>
 
             {/* Right side: date + avatar */}
-            <div className="flex items-center gap-4">
-              <span className="hidden sm:block text-xs text-gray-400">
+            <div className="flex items-center gap-3 shrink-0">
+              <span className="hidden md:block text-xs text-gray-400">
                 {new Date().toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
               </span>
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
-                  <span className="text-xs font-bold text-white">A</span>
-                </div>
+              <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
+                <span className="text-xs font-bold text-white">A</span>
               </div>
             </div>
           </div>
         </header>
 
         {/* ── Page Content ── */}
-        <main className="flex-1 px-6 py-8 overflow-y-auto">
+        <main className="flex-1 px-4 sm:px-6 py-6 sm:py-8 overflow-x-hidden overflow-y-auto w-full">
             {activeTab === "overview" && (
               <div className="space-y-6">
                 {/* Page header */}
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Admin Dashboard</h1>
                     <p className="text-gray-500 text-sm mt-0.5">Platform overview — real-time metrics</p>
                   </div>
-                  <div className="text-xs text-gray-400 bg-white border border-gray-200 px-3 py-1.5 rounded-full shadow-sm">
-                    {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+                  <div className="text-xs text-gray-400 bg-white border border-gray-200 px-3 py-1.5 rounded-full shadow-sm shrink-0">
+                    {new Date().toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
                   </div>
                 </div>
 
                 {/* Primary KPI row */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                   {[
                     { label: "Total Users", value: totalUsers.toLocaleString(), sub: `+${newUsersToday} today`, icon: <Users className="w-5 h-5" />, accent: "bg-blue-500", light: "bg-blue-50", color: "text-blue-600", border: "border-l-blue-500" },
                     { label: "Pro Subscribers", value: proUsers.toLocaleString(), sub: `${conversionRate}% conversion`, icon: <Crown className="w-5 h-5" />, accent: "bg-amber-500", light: "bg-amber-50", color: "text-amber-600", border: "border-l-amber-500" },
@@ -2621,14 +2865,14 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                         <span className="text-sm text-gray-500 font-medium">{card.label}</span>
                         <div className={`${card.light} ${card.color} p-2 rounded-lg`}>{card.icon}</div>
                       </div>
-                      <p className="text-3xl font-bold text-gray-900">{card.value}</p>
+                      <p className="text-2xl sm:text-3xl font-bold text-gray-900">{card.value}</p>
                       <p className="text-xs text-gray-400 mt-1">{card.sub}</p>
                     </div>
                   ))}
                 </div>
 
                 {/* Secondary KPI row */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                   {[
                     { label: "Checks Today", value: checksToday.toLocaleString(), sub: `${totalDocs.toLocaleString()} all time`, icon: <CheckCircle className="w-5 h-5" />, light: "bg-purple-50", color: "text-purple-600", border: "border-l-purple-500" },
                     { label: "Words Today", value: wordsToday >= 1000 ? `${(wordsToday/1000).toFixed(1)}K` : wordsToday.toString(), sub: `${(totalWords/1000).toFixed(0)}K total`, icon: <FileText className="w-5 h-5" />, light: "bg-indigo-50", color: "text-indigo-600", border: "border-l-indigo-500" },
@@ -2640,14 +2884,14 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                         <span className="text-sm text-gray-500 font-medium">{card.label}</span>
                         <div className={`${card.light} ${card.color} p-2 rounded-lg`}>{card.icon}</div>
                       </div>
-                      <p className="text-3xl font-bold text-gray-900">{card.value}</p>
+                      <p className="text-2xl sm:text-3xl font-bold text-gray-900">{card.value}</p>
                       <p className="text-xs text-gray-400 mt-1">{card.sub}</p>
                     </div>
                   ))}
                 </div>
 
                 {/* User breakdown + Activity + Quick Actions */}
-                <div className="grid lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
                   {/* User Plan Breakdown with Donut Chart */}
                   <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
@@ -2799,7 +3043,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Users</h1>
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Users</h1>
                     <p className="text-gray-500 text-sm mt-0.5">Manage all registered users — {users.length.toLocaleString()} total</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -2945,9 +3189,9 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
 
                 {/* Search & Filter Bar */}
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-3">
-                  <div className="flex flex-wrap gap-3 items-center">
-                    {/* Search */}
-                    <div className="relative flex-1 min-w-[180px]">
+                  {/* Row 1: search + category */}
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <div className="relative flex-1 min-w-[200px]">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <Input
                         placeholder="Search name, email, phone..."
@@ -2956,61 +3200,54 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                         className="pl-10 h-9 border-gray-200 bg-gray-50 focus:bg-white text-sm"
                       />
                     </div>
-
-                    {/* Category */}
                     <div className="flex items-center gap-1">
                       <Input
                         list="admin-category-filter"
                         placeholder="Category..."
                         value={categoryFilter}
                         onChange={(e) => setCategoryFilter(e.target.value)}
-                        className="h-9 w-36 text-sm border-gray-200 bg-gray-50"
+                        className="h-9 w-32 sm:w-36 text-sm border-gray-200 bg-gray-50"
                       />
                       <datalist id="admin-category-filter">
                         <option value="Uncategorized" />
                         {uniqueCategories.map(c => <option key={c} value={c} />)}
                       </datalist>
                     </div>
-
-                    {/* Plan filter */}
+                  </div>
+                  {/* Row 2: filters + sort */}
+                  <div className="flex flex-wrap gap-2 items-center">
                     <select
                       value={planFilter}
                       onChange={(e) => setPlanFilter(e.target.value as "all" | "free" | "pro")}
-                      className="h-9 px-3 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 cursor-pointer"
+                      className="h-9 px-3 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 cursor-pointer flex-1 min-w-[110px]"
                     >
                       <option value="all">All Plans</option>
                       <option value="pro">Pro Only</option>
                       <option value="free">Free Only</option>
                     </select>
-
-                    {/* Status filter */}
                     <select
                       value={statusFilter}
                       onChange={(e) => setStatusFilter(e.target.value as "all" | "active" | "deactivated")}
-                      className="h-9 px-3 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 cursor-pointer"
+                      className="h-9 px-3 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 cursor-pointer flex-1 min-w-[110px]"
                     >
                       <option value="all">All Status</option>
                       <option value="active">Active</option>
                       <option value="deactivated">Suspended</option>
                     </select>
-
-                    {/* Date filter */}
                     <select
                       value={dateFilter}
                       onChange={(e) => setDateFilter(e.target.value as "all" | "7days" | "30days" | "90days")}
-                      className="h-9 px-3 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 cursor-pointer"
+                      className="h-9 px-3 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 cursor-pointer flex-1 min-w-[110px]"
                     >
                       <option value="all">All Time</option>
                       <option value="7days">Last 7 Days</option>
                       <option value="30days">Last 30 Days</option>
                       <option value="90days">Last 90 Days</option>
                     </select>
-
-                    {/* Sort */}
                     <select
                       value={sortBy}
                       onChange={(e) => setSortBy(e.target.value as "newest" | "oldest" | "name" | "credits")}
-                      className="h-9 px-3 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 cursor-pointer"
+                      className="h-9 px-3 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 cursor-pointer flex-1 min-w-[110px]"
                     >
                       <option value="newest">Newest First</option>
                       <option value="oldest">Oldest First</option>
@@ -3039,6 +3276,22 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                     )}
                   </div>
 
+                  {/* Filter Presets */}
+                  <FilterPresetBar
+                    presets={filterPresets}
+                    currentFilters={{ planFilter, statusFilter, dateFilter, categoryFilter, sortBy, searchQuery }}
+                    onApply={(p) => {
+                      setPlanFilter(p.planFilter as any);
+                      setStatusFilter(p.statusFilter as any);
+                      setDateFilter(p.dateFilter as any);
+                      setCategoryFilter(p.categoryFilter);
+                      setSortBy(p.sortBy as any);
+                      if (p.searchQuery !== undefined) setSearchQuery(p.searchQuery);
+                    }}
+                    onSave={(name) => savePreset({ name, planFilter, statusFilter, dateFilter, categoryFilter, sortBy, searchQuery })}
+                    onRemove={removePreset}
+                  />
+
                   {/* Stats summary */}
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-400 pt-2 border-t border-gray-100">
                     <span>
@@ -3050,8 +3303,113 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                   </div>
                 </div>
 
-                {/* Users Table */}
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                {/* Users — Mobile Card List (< md) */}
+                <div className="md:hidden space-y-3">
+                  {paginatedUsers.length === 0 ? (
+                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-10 text-center text-gray-400 text-sm">No users found.</div>
+                  ) : paginatedUsers.map((user) => {
+                    const isExpanded = expandedCheckId === `user-${user.id}`;
+                    return (
+                      <div key={user.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                        {/* Card main row */}
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedUsers.has(user.id)}
+                            onChange={() => toggleSelectUser(user.id)}
+                            className="w-4 h-4 shrink-0 accent-blue-600"
+                          />
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shrink-0">
+                            <span className="text-xs font-bold text-white">{user.name.charAt(0).toUpperCase()}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-gray-900 truncate">{user.name}</p>
+                            <p className="text-xs text-gray-400 truncate">{user.email}</p>
+                          </div>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <Badge
+                              className={user.plan === "Pro" ? "bg-amber-500 text-white border-0 text-xs" : "text-blue-600 border-blue-200 bg-blue-50 text-xs"}
+                            >{user.plan}</Badge>
+                            {user.status === "deactivated"
+                              ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">Suspended</span>
+                              : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">Active</span>
+                            }
+                          </div>
+                          <button
+                            className="p-1.5 text-gray-400 hover:text-gray-700 transition-colors"
+                            onClick={() => setExpandedCheckId(isExpanded ? null : `user-${user.id}`)}
+                            aria-label={isExpanded ? "Collapse" : "Expand"}
+                          >
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </button>
+                        </div>
+
+                        {/* Expanded detail drawer */}
+                        {isExpanded && (
+                          <div className="border-t border-gray-100 px-4 py-4 space-y-4 bg-gray-50/60">
+                            {/* Detail rows */}
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                              {[
+                                { label: "Phone", value: user.phone || "—" },
+                                { label: "Category", value: user.category || "—" },
+                                { label: "Credits", value: user.credits ? `${(user.creditsUsed || 0).toLocaleString()} / ${user.credits.toLocaleString()}` : "—" },
+                                { label: "Addon Credits", value: user.addonCredits && user.addonCredits > 0 ? user.addonCredits.toLocaleString() : "—" },
+                                { label: "Word Limit", value: user.wordLimit ? user.wordLimit.toLocaleString() : "—" },
+                                { label: "Joined", value: user.createdAt ? new Date(user.createdAt).toLocaleDateString() : user.updatedAt ? new Date(user.updatedAt).toLocaleDateString() : "—" },
+                              ].map(({ label, value }) => (
+                                <div key={label}>
+                                  <p className="text-xs text-gray-400 font-medium">{label}</p>
+                                  <p className="text-sm text-gray-800 font-medium truncate">{value}</p>
+                                </div>
+                              ))}
+                            </div>
+                            {/* Actions */}
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              <Button size="sm" variant="outline" className="h-8 text-xs flex-1 min-w-[80px]" onClick={() => setViewingUser(user)}>
+                                <Info className="w-3.5 h-3.5 mr-1" /> View
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-8 text-xs flex-1 min-w-[80px]" onClick={() => handleEditUser(user.id, user)}>
+                                Edit
+                              </Button>
+                              <Button
+                                size="sm"
+                                className={`h-8 text-xs flex-1 min-w-[80px] ${user.plan === "Pro" ? "bg-red-100 text-red-700 border border-red-200" : "bg-amber-100 text-amber-700 border border-amber-200"}`}
+                                onClick={() => handleTogglePlan(user)}
+                                disabled={togglingPlanUserId === user.id}
+                              >
+                                {togglingPlanUserId === user.id ? "..." : user.plan === "Pro" ? "↓ Free" : "↑ Pro"}
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-8 text-xs flex-1 min-w-[80px]" onClick={() => handleAddAddonCredits(user.id, user)}>
+                                <Coins className="w-3.5 h-3.5 mr-1" /> Credits
+                              </Button>
+                              {user.status === "deactivated" && (
+                                <Button size="sm" variant="outline" className="h-8 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50 flex-1 min-w-[80px]"
+                                  onClick={() => handleReactivateUser(user.id)} disabled={reactivatingUserId === user.id}>
+                                  {reactivatingUserId === user.id ? "..." : "Reactivate"}
+                                </Button>
+                              )}
+                              <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-gray-400 hover:text-red-600 hover:bg-red-50"
+                                onClick={() => { setUserToDelete(user.id); setIsDeleteDialogOpen(true); }} disabled={isDeletingUsers}>
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {/* Mobile pagination */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-between gap-2 py-2">
+                      <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>‹ Prev</Button>
+                      <span className="text-sm text-gray-500">Page {currentPage} / {totalPages}</span>
+                      <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next ›</Button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Users Table — Desktop (≥ md) */}
+                <div className="hidden md:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
@@ -3333,7 +3691,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                       </div>
                     </div>
                   )}
-                </div>
+                </div>{/* end desktop table */}
 
                 {/* Bulk: Grant Pro Dialog */}
                 {bulkPlanDialogOpen && (
@@ -4038,21 +4396,51 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
               <div className="space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Suggestions</h1>
-                    <p className="text-gray-500 text-sm mt-0.5">User ideas and product feedback</p>
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Suggestions</h1>
+                    <p className="text-gray-500 text-sm mt-0.5">User ideas and product feedback — {filteredSuggestionsEnhanced.length} of {suggestions.length} shown</p>
                   </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => exportSuggestionsCsv(suggestions, getSuggMeta)}
+                  >
+                    <Download className="w-3.5 h-3.5" /> Export CSV
+                  </Button>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-4">
-                  <div className="relative flex-1">
+                {/* Filters */}
+                <div className="flex flex-wrap gap-2 items-center">
+                  <div className="relative flex-1 min-w-[180px]">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <Input
                       placeholder="Search suggestions..."
                       value={suggestionSearch}
                       onChange={(e) => setSuggestionSearch(e.target.value)}
-                      className="pl-10 border-gray-200 bg-white"
+                      className="pl-10 border-gray-200 bg-white h-9 text-sm"
                     />
                   </div>
+                  <select
+                    value={suggestionStatusFilter}
+                    onChange={(e) => setSuggestionStatusFilter(e.target.value as any)}
+                    className="h-9 px-3 rounded-lg border border-gray-200 bg-white text-sm flex-1 min-w-[120px]"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="new">New</option>
+                    <option value="reviewed">Reviewed</option>
+                    <option value="resolved">Resolved</option>
+                  </select>
+                  <select
+                    value={suggestionPriorityFilter}
+                    onChange={(e) => setSuggestionPriorityFilter(e.target.value as any)}
+                    className="h-9 px-3 rounded-lg border border-gray-200 bg-white text-sm flex-1 min-w-[120px]"
+                  >
+                    <option value="all">All Priority</option>
+                    <option value="critical">Critical</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                  </select>
                 </div>
 
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -4060,61 +4448,156 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-gray-100 bg-gray-50">
-                          <th className="text-left py-3 px-6 text-xs font-semibold text-gray-500 uppercase tracking-wide">Message</th>
-                          <th className="text-left py-3 px-6 text-xs font-semibold text-gray-500 uppercase tracking-wide">User</th>
-                          <th className="text-left py-3 px-6 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                          <th className="text-left py-3 px-6 text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
-                          <th className="text-right py-3 px-6 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+                          <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">Message</th>
+                          <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">User</th>
+                          <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">Priority</th>
+                          <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">Owner</th>
+                          <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">Tags</th>
+                          <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">SLA</th>
+                          <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                          <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
+                          <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredSuggestions.length ? (
-                          filteredSuggestions.map((item) => (
-                            <tr
-                              key={item.id}
-                              className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition-colors"
-                            >
-                              <td className="py-4 px-6 text-sm text-gray-800 max-w-xl">{item.message}</td>
-                              <td className="py-4 px-6 text-sm text-gray-500">{item.email || "Anonymous"}</td>
-                              <td className="py-4 px-6">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
-                                  item.status === "resolved" ? "bg-emerald-100 text-emerald-700" :
-                                  item.status === "reviewed" ? "bg-blue-100 text-blue-700" :
-                                  "bg-gray-100 text-gray-600"
-                                }`}>
-                                  {item.status}
-                                </span>
-                              </td>
-                              <td className="py-4 px-6 text-sm text-gray-400">
-                                {new Date(item.createdAt).toLocaleString()}
-                              </td>
-                              <td className="py-4 px-6 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 text-xs text-gray-600 hover:text-blue-700 hover:bg-blue-50"
-                                    onClick={() => updateSuggestionStatus(item.id, "reviewed")}
-                                  >
-                                    Mark reviewed
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 text-xs text-gray-600 hover:text-emerald-700 hover:bg-emerald-50"
-                                    onClick={() => updateSuggestionStatus(item.id, "resolved")}
-                                  >
-                                    Resolve
-                                  </Button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))
+                        {filteredSuggestionsEnhanced.length ? (
+                          filteredSuggestionsEnhanced.map((item) => {
+                            const meta = getSuggMeta(item.id);
+                            return (
+                              <tr
+                                key={item.id}
+                                className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition-colors"
+                              >
+                                <td className="py-3 px-4 text-sm text-gray-800 max-w-xs">
+                                  <p className="line-clamp-2">{item.message}</p>
+                                  {meta.internalNote && (
+                                    <p className="text-xs text-amber-600 italic mt-0.5">Note: {meta.internalNote}</p>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 text-sm text-gray-500 whitespace-nowrap">
+                                  {item.email ? (
+                                    <a
+                                      href={`mailto:${item.email}?subject=Re: Your feedback&body=Hi, thank you for your suggestion: "${item.message.slice(0, 80)}..."`}
+                                      className="hover:text-blue-600 underline-offset-2 hover:underline"
+                                      title="Reply by email"
+                                    >
+                                      {item.email}
+                                    </a>
+                                  ) : "Anonymous"}
+                                </td>
+                                <td className="py-3 px-4">
+                                  <div className="flex items-center gap-1.5">
+                                    <PriorityBadge priority={meta.priority} />
+                                    <select
+                                      value={meta.priority}
+                                      onChange={(e) => {
+                                        updateSuggMeta(item.id, { priority: e.target.value as any });
+                                        logAudit("suggestion_priority", item.id, item.email || "anon", `Priority set to ${e.target.value}`);
+                                      }}
+                                      className="text-xs border-0 bg-transparent cursor-pointer focus:outline-none"
+                                    >
+                                      <option value="low">low</option>
+                                      <option value="medium">medium</option>
+                                      <option value="high">high</option>
+                                      <option value="critical">critical</option>
+                                    </select>
+                                  </div>
+                                </td>
+                                <td className="py-3 px-4">
+                                  <Input
+                                    value={suggestionOwnerInput[item.id] ?? meta.owner}
+                                    onChange={(e) => setSuggestionOwnerInput(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                    onBlur={(e) => {
+                                      const v = e.target.value.trim();
+                                      updateSuggMeta(item.id, { owner: v });
+                                      logAudit("suggestion_assign", item.id, item.email || "anon", `Assigned to ${v || "nobody"}`);
+                                    }}
+                                    placeholder="—"
+                                    className="h-7 text-xs w-24 border-gray-200"
+                                  />
+                                </td>
+                                <td className="py-3 px-4">
+                                  <div className="flex flex-wrap gap-1 items-center">
+                                    {meta.tags.map((tag) => (
+                                      <span
+                                        key={tag}
+                                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-xs cursor-pointer hover:bg-red-100 hover:text-red-700"
+                                        title="Click to remove"
+                                        onClick={() => updateSuggMeta(item.id, { tags: meta.tags.filter((t) => t !== tag) })}
+                                      >
+                                        {tag} ×
+                                      </span>
+                                    ))}
+                                    <input
+                                      value={suggestionTagInput[item.id] || ""}
+                                      onChange={(e) => setSuggestionTagInput(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter" || e.key === ",") {
+                                          e.preventDefault();
+                                          const tag = (suggestionTagInput[item.id] || "").trim().replace(/,/g, "");
+                                          if (tag && !meta.tags.includes(tag)) {
+                                            updateSuggMeta(item.id, { tags: [...meta.tags, tag] });
+                                            logAudit("suggestion_tag", item.id, item.email || "anon", `Tag added: ${tag}`);
+                                          }
+                                          setSuggestionTagInput(prev => ({ ...prev, [item.id]: "" }));
+                                        }
+                                      }}
+                                      placeholder="+ tag"
+                                      className="h-5 text-xs border-b border-dashed border-gray-300 bg-transparent w-12 focus:outline-none focus:border-blue-400"
+                                    />
+                                  </div>
+                                </td>
+                                <td className="py-3 px-4 whitespace-nowrap">
+                                  <SlaTimer deadline={meta.slaDeadline} />
+                                  {!meta.slaDeadline && (
+                                    <input
+                                      type="date"
+                                      className="text-xs border-0 bg-transparent text-muted-foreground focus:outline-none"
+                                      title="Set SLA deadline"
+                                      onChange={(e) => updateSuggMeta(item.id, { slaDeadline: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
+                                    />
+                                  )}
+                                </td>
+                                <td className="py-3 px-4">
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                    item.status === "resolved" ? "bg-emerald-100 text-emerald-700" :
+                                    item.status === "reviewed" ? "bg-blue-100 text-blue-700" :
+                                    "bg-gray-100 text-gray-600"
+                                  }`}>
+                                    {item.status}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 text-xs text-gray-400 whitespace-nowrap">
+                                  {new Date(item.createdAt).toLocaleDateString()}
+                                </td>
+                                <td className="py-3 px-4 text-right">
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 text-xs text-gray-600 hover:text-blue-700 hover:bg-blue-50"
+                                      onClick={() => { updateSuggestionStatus(item.id, "reviewed"); setSuggestions(prev => prev.map(s => s.id === item.id ? { ...s, status: "reviewed" as const } : s)); }}
+                                    >
+                                      Review
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 text-xs text-gray-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                      onClick={() => { updateSuggestionStatus(item.id, "resolved"); setSuggestions(prev => prev.map(s => s.id === item.id ? { ...s, status: "resolved" as const } : s)); }}
+                                    >
+                                      Resolve
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
                         ) : (
                           <tr>
-                            <td className="py-12 text-center text-sm text-gray-400" colSpan={5}>
+                            <td className="py-12 text-center text-sm text-gray-400" colSpan={9}>
                               <MessageSquare className="w-10 h-10 text-gray-200 mx-auto mb-2" />
-                              No suggestions yet.
+                              No suggestions match your filters.
                             </td>
                           </tr>
                         )}
@@ -4126,122 +4609,139 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
             )}
 
             {activeTab === "checks" && (
-              <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-5">
+
+                {/* ── Header ── */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <h1 className="text-2xl font-bold text-gray-900">User Grammar Checks</h1>
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900">User Grammar Checks</h1>
                     <p className="text-gray-500 text-sm mt-0.5">Track all grammar check requests from users</p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {selectedUserId && (
+                      <Button variant="outline" size="sm" className="border-gray-200 text-gray-700 hover:bg-gray-50" onClick={() => setSelectedUserId(null)}>
+                        ← All Users
+                      </Button>
+                    )}
                     <select
                       value={checksFilter}
                       onChange={(e) => setChecksFilter(e.target.value as typeof checksFilter)}
-                      className="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-700"
+                      className="h-9 px-3 rounded-lg border border-gray-200 bg-white text-sm text-gray-700"
                     >
                       <option value="all">All Time</option>
                       <option value="today">Today</option>
                       <option value="week">This Week</option>
                     </select>
-                    {selectedUserId && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-gray-200 text-gray-700 hover:bg-gray-50"
-                        onClick={() => setSelectedUserId(null)}
-                      >
-                        ← Back to Users
-                      </Button>
-                    )}
+                    <Button variant="outline" size="sm" className="border-gray-200 gap-1.5" onClick={() => exportChecksCsv(filteredChecks)}>
+                      <Download className="w-3.5 h-3.5" /> Export CSV
+                    </Button>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* ── KPI Cards ── */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                   {[
-                    { label: "Total Checks", value: userChecks.length, icon: <Activity className="w-5 h-5" />, light: "bg-blue-50", color: "text-blue-600", border: "border-l-blue-500" },
-                    { label: "Unique Users", value: new Set(userChecks.map(c => c.userId)).size, icon: <Users className="w-5 h-5" />, light: "bg-emerald-50", color: "text-emerald-600", border: "border-l-emerald-500" },
-                    { label: "Total Words", value: userChecks.reduce((sum, c) => sum + c.wordCount, 0).toLocaleString(), icon: <FileText className="w-5 h-5" />, light: "bg-purple-50", color: "text-purple-600", border: "border-l-purple-500" },
+                    { label: "Matching Checks", value: filteredChecks.length.toLocaleString(), icon: <Activity className="w-4 h-4" />, light: "bg-blue-50", color: "text-blue-600", border: "border-l-blue-500" },
+                    { label: "Unique Users",     value: new Set(filteredChecks.map(c => c.userId)).size.toLocaleString(), icon: <Users className="w-4 h-4" />, light: "bg-emerald-50", color: "text-emerald-600", border: "border-l-emerald-500" },
+                    { label: "Total Words",      value: filteredChecks.reduce((s, c) => s + c.wordCount, 0).toLocaleString(), icon: <FileText className="w-4 h-4" />, light: "bg-purple-50", color: "text-purple-600", border: "border-l-purple-500" },
+                    { label: "Credits Used",     value: filteredChecks.reduce((s, c) => s + (c.creditsUsed ?? c.wordCount), 0).toLocaleString(), icon: <Coins className="w-4 h-4" />, light: "bg-amber-50", color: "text-amber-600", border: "border-l-amber-500" },
                   ].map(card => (
-                    <div key={card.label} className={`bg-white rounded-xl border border-gray-200 border-l-4 ${card.border} shadow-sm p-5`}>
-                      <div className="flex items-center gap-3">
-                        <div className={`${card.light} ${card.color} p-2.5 rounded-lg`}>{card.icon}</div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-500">{card.label}</p>
-                          <p className="text-2xl font-bold text-gray-900">{card.value}</p>
-                        </div>
+                    <div key={card.label} className={`bg-white rounded-xl border border-gray-200 border-l-4 ${card.border} shadow-sm p-4`}>
+                      <div className={`inline-flex items-center justify-center w-8 h-8 rounded-lg mb-2 ${card.light} ${card.color}`}>
+                        {card.icon}
                       </div>
+                      <p className="text-xs font-medium text-gray-500 leading-tight">{card.label}</p>
+                      <p className="text-xl font-bold text-gray-900 mt-0.5 tabular-nums">{card.value}</p>
                     </div>
                   ))}
                 </div>
 
+                {/* ── Search & Filters ── */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    <div className="relative flex-1 min-w-[160px]">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                      <Input placeholder="Search text or language…" value={checksSearch} onChange={(e) => setChecksSearch(e.target.value)} className="pl-9 h-9 text-sm" />
+                    </div>
+                    <div className="relative flex-1 min-w-[160px]">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                      <Input placeholder="Filter by user email…" value={checksUserSearch} onChange={(e) => setChecksUserSearch(e.target.value)} className="pl-9 h-9 text-sm" />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <Input type="date" value={checksDateFrom} onChange={(e) => setChecksDateFrom(e.target.value)} className="h-9 text-sm flex-1 min-w-[130px]" title="From date" />
+                    <span className="text-xs text-gray-400 shrink-0">to</span>
+                    <Input type="date" value={checksDateTo} onChange={(e) => setChecksDateTo(e.target.value)} className="h-9 text-sm flex-1 min-w-[130px]" title="To date" />
+                    {(checksSearch || checksUserSearch || checksDateFrom || checksDateTo) && (
+                      <>
+                        <Button variant="ghost" size="sm" className="h-9 text-xs shrink-0" onClick={() => { setChecksSearch(""); setChecksUserSearch(""); setChecksDateFrom(""); setChecksDateTo(""); }}>
+                          <RefreshCw className="w-3.5 h-3.5 mr-1" /> Reset
+                        </Button>
+                        <span className="text-xs text-gray-400 shrink-0">{filteredChecks.length} of {userChecks.length} shown</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── Content ── */}
                 {checksLoading ? (
-                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-12 text-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-3"></div>
-                    <p className="text-sm text-gray-400">Loading checks...</p>
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-16 text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-3" />
+                    <p className="text-sm text-gray-400">Loading checks…</p>
                   </div>
                 ) : !selectedUserId ? (
-                  // User List View
+                  /* ── User List ── */
                   <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                    <div className="px-6 py-4 border-b border-gray-100">
-                      <h2 className="text-base font-semibold text-gray-900">Users</h2>
-                      <p className="text-sm text-gray-400">Click on a user to view their check history</p>
+                    <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                      <div>
+                        <h2 className="text-sm font-semibold text-gray-900">Users with Checks</h2>
+                        <p className="text-xs text-gray-400 mt-0.5">Click a row to view full check history</p>
+                      </div>
+                      <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-full font-medium">
+                        {Object.keys(filteredChecks.reduce((g, c) => ({ ...g, [c.userId]: true }), {} as Record<string,boolean>)).length} users
+                      </span>
                     </div>
-                    <div className="divide-y divide-border">
+                    <div className="divide-y divide-gray-100">
                       {(() => {
-                        const userGroups = userChecks.reduce((groups, check) => {
-                          if (!groups[check.userId]) {
-                            groups[check.userId] = {
-                              userId: check.userId,
-                              userEmail: check.userEmail || "Anonymous",
-                              checks: [],
-                            };
-                          }
+                        const userGroups = filteredChecks.reduce((groups, check) => {
+                          if (!groups[check.userId]) groups[check.userId] = { userId: check.userId, userEmail: check.userEmail || "Anonymous", checks: [] };
                           groups[check.userId].checks.push(check);
                           return groups;
                         }, {} as Record<string, { userId: string; userEmail: string; checks: typeof userChecks }>);
-                        
                         const sortedUsers = Object.values(userGroups).sort((a, b) => b.checks.length - a.checks.length);
-                        
-                        return sortedUsers.length > 0 ? (
-                          sortedUsers.map((userGroup) => (
-                            <div
-                              key={userGroup.userId}
-                              onClick={() => setSelectedUserId(userGroup.userId)}
-                              className="px-6 py-4 hover:bg-muted/30 cursor-pointer transition-colors"
-                            >
-                              <div className="flex items-center justify-between">
-                                <div className="flex-1">
-                                  <div className="font-medium text-foreground">
-                                    {userGroup.userEmail}
-                                  </div>
-                                  <div className="text-xs text-muted-foreground font-mono mt-1">
-                                    ID: {userGroup.userId.slice(0, 12)}...
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-6 text-sm">
-                                  <div className="text-center">
-                                    <div className="text-2xl font-bold text-primary">{userGroup.checks.length}</div>
-                                    <div className="text-xs text-muted-foreground">checks</div>
-                                  </div>
-                                  <div className="text-center">
-                                    <div className="text-2xl font-bold text-blue-500">
-                                      {userGroup.checks.reduce((sum, c) => sum + c.wordCount, 0).toLocaleString()}
-                                    </div>
-                                    <div className="text-xs text-muted-foreground">words</div>
-                                  </div>
-                                  <div className="text-center">
-                                    <div className="text-2xl font-bold text-green-500">
-                                      {userGroup.checks.reduce((sum, c) => sum + c.suggestionsCount, 0)}
-                                    </div>
-                                    <div className="text-xs text-muted-foreground">suggestions</div>
-                                  </div>
-                                  <ChevronRight className="w-5 h-5 text-muted-foreground" />
-                                </div>
+                        return sortedUsers.length > 0 ? sortedUsers.map((ug) => (
+                          <div key={ug.userId} onClick={() => setSelectedUserId(ug.userId)}
+                            className="px-5 py-4 hover:bg-blue-50/40 cursor-pointer transition-colors group"
+                          >
+                            {/* Top row: avatar + email + chevron */}
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shrink-0">
+                                <span className="text-xs font-bold text-white">{(ug.userEmail[0] || "?").toUpperCase()}</span>
                               </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-gray-900 truncate">{ug.userEmail}</p>
+                                <p className="text-xs text-gray-400 font-mono truncate">ID: {ug.userId.slice(0, 16)}…</p>
+                              </div>
+                              <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-blue-500 shrink-0 transition-colors" />
                             </div>
-                          ))
-                        ) : (
-                          <div className="py-12 text-center text-sm text-muted-foreground">
-                            <Activity className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+                            {/* Stats row below — always horizontal, compact */}
+                            <div className="mt-2.5 ml-11 flex flex-wrap gap-3">
+                              {[
+                                { label: "checks", value: ug.checks.length, color: "text-blue-600" },
+                                { label: "words",  value: ug.checks.reduce((s, c) => s + c.wordCount, 0).toLocaleString(), color: "text-purple-600" },
+                                { label: "suggestions", value: ug.checks.reduce((s, c) => s + c.suggestionsCount, 0), color: "text-emerald-600" },
+                                { label: "credits", value: ug.checks.reduce((s, c) => s + (c.creditsUsed ?? c.wordCount), 0).toLocaleString(), color: "text-amber-600" },
+                              ].map(s => (
+                                <span key={s.label} className="inline-flex items-baseline gap-1 text-xs text-gray-500">
+                                  <span className={`text-sm font-bold tabular-nums ${s.color}`}>{s.value}</span>
+                                  {s.label}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )) : (
+                          <div className="py-16 text-center text-sm text-gray-400">
+                            <Activity className="w-10 h-10 text-gray-200 mx-auto mb-3" />
                             <p>No grammar checks yet.</p>
                           </div>
                         );
@@ -4249,70 +4749,150 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                     </div>
                   </div>
                 ) : (
-                  // User Detail View
+                  /* ── User Detail View ── */
                   <div className="space-y-4">
                     {(() => {
                       const userChecksFiltered = userChecks.filter(c => c.userId === selectedUserId);
                       const userEmail = userChecksFiltered[0]?.userEmail || "Unknown User";
-                      
                       return (
                         <>
-                          <div className="bg-card rounded-xl border border-border p-6">
-                            <div className="flex items-center justify-between mb-4">
-                              <div>
-                                <h2 className="text-xl font-semibold text-foreground">{userEmail}</h2>
-                                <p className="text-sm text-muted-foreground font-mono">ID: {selectedUserId}</p>
-                              </div>
-                              <div className="flex gap-4 text-center">
-                                <div>
-                                  <div className="text-2xl font-bold text-primary">{userChecksFiltered.length}</div>
-                                  <div className="text-xs text-muted-foreground">Total Checks</div>
+                          {/* User summary card */}
+                          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+                            <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shrink-0">
+                                  <span className="text-sm font-bold text-white">{(userEmail[0] || "?").toUpperCase()}</span>
                                 </div>
+                                <div className="min-w-0">
+                                  <h2 className="text-base font-semibold text-gray-900 truncate">{userEmail}</h2>
+                                  <p className="text-xs text-gray-400 font-mono truncate">ID: {selectedUserId}</p>
+                                </div>
+                              </div>
+                              {/* Summary stats grid */}
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:shrink-0">
+                                {[
+                                  { label: "Checks",      value: userChecksFiltered.length, color: "text-blue-600", bg: "bg-blue-50" },
+                                  { label: "Words",       value: userChecksFiltered.reduce((s, c) => s + c.wordCount, 0).toLocaleString(), color: "text-purple-600", bg: "bg-purple-50" },
+                                  { label: "Credits",     value: userChecksFiltered.reduce((s, c) => s + (c.creditsUsed ?? c.wordCount), 0).toLocaleString(), color: "text-amber-600", bg: "bg-amber-50" },
+                                  { label: "Suggestions", value: userChecksFiltered.reduce((s, c) => s + c.suggestionsCount, 0), color: "text-emerald-600", bg: "bg-emerald-50" },
+                                ].map(s => (
+                                  <div key={s.label} className={`${s.bg} rounded-lg px-3 py-2 text-center min-w-[70px]`}>
+                                    <p className={`text-lg font-bold tabular-nums ${s.color}`}>{s.value}</p>
+                                    <p className="text-[10px] font-medium text-gray-500 mt-0.5">{s.label}</p>
+                                  </div>
+                                ))}
                               </div>
                             </div>
                           </div>
-                          
+
+                          {/* Check list */}
                           <div className="space-y-3">
                             {userChecksFiltered.map((check) => (
-                              <div key={check.id} className="bg-card rounded-xl border border-border overflow-hidden">
+                              <div key={check.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                                {/* Check row header */}
                                 <div
                                   onClick={() => setExpandedCheckId(expandedCheckId === check.id ? null : check.id)}
-                                  className="px-6 py-4 cursor-pointer hover:bg-muted/30 transition-colors"
+                                  className="px-5 py-4 cursor-pointer hover:bg-gray-50 transition-colors"
                                 >
-                                  <div className="flex items-start justify-between gap-4">
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-3 mb-2">
-                                        <Badge variant="outline">{check.language}</Badge>
-                                        <span className="text-xs text-muted-foreground">
-                                          {new Date(check.timestamp).toLocaleString()}
-                                        </span>
-                                      </div>
-                                      <p className="text-sm text-foreground line-clamp-2">
-                                        {check.text}
-                                      </p>
-                                    </div>
-                                    <div className="flex items-center gap-4 shrink-0">
-                                      <div className="text-center">
-                                        <div className="text-lg font-semibold text-blue-500">{check.wordCount}</div>
-                                        <div className="text-xs text-muted-foreground">words</div>
-                                      </div>
-                                      {expandedCheckId === check.id ? (
-                                        <ChevronDown className="w-5 h-5 text-muted-foreground" />
-                                      ) : (
-                                        <ChevronRight className="w-5 h-5 text-muted-foreground" />
-                                      )}
-                                    </div>
+                                  {/* Top line: badge + date + expand icon */}
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <Badge variant="outline" className="text-xs shrink-0">{check.language}</Badge>
+                                    <span className="text-xs text-gray-400 flex-1 truncate">
+                                      {new Date(check.timestamp).toLocaleString()}
+                                    </span>
+                                    {expandedCheckId === check.id
+                                      ? <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+                                      : <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
+                                    }
+                                  </div>
+                                  {/* Text preview */}
+                                  <p className="text-sm text-gray-700 line-clamp-2 mb-3">{check.text}</p>
+                                  {/* Inline stats chips — always fit on one wrapped row */}
+                                  <div className="flex flex-wrap gap-2">
+                                    {[
+                                      { label: "words",       value: check.wordCount.toLocaleString(),                           color: "text-blue-700",   bg: "bg-blue-50"   },
+                                      { label: "credits",     value: (check.creditsUsed ?? check.wordCount).toLocaleString(),    color: "text-amber-700",  bg: "bg-amber-50"  },
+                                      { label: "suggestions", value: check.suggestionsCount,                                      color: "text-purple-700", bg: "bg-purple-50" },
+                                    ].map(s => (
+                                      <span key={s.label} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${s.bg} ${s.color}`}>
+                                        <span className="font-bold tabular-nums">{s.value}</span> {s.label}
+                                      </span>
+                                    ))}
                                   </div>
                                 </div>
-                                
+
+                                {/* Expanded detail panel */}
                                 {expandedCheckId === check.id && (
-                                  <div className="border-t border-border px-6 py-4 bg-muted/20">
+                                  <div className="border-t border-gray-100 px-5 py-5 bg-gray-50/60 space-y-5">
+                                    {/* Stats grid */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                      {[
+                                        { label: "Words",       value: check.wordCount.toLocaleString(),                        color: "text-blue-600",   bg: "bg-blue-50"   },
+                                        { label: "Credits Used",value: (check.creditsUsed ?? check.wordCount).toLocaleString(), color: "text-amber-600",  bg: "bg-amber-50"  },
+                                        { label: "Suggestions", value: check.suggestionsCount,                                   color: "text-purple-600", bg: "bg-purple-50" },
+                                        { label: "Language",    value: check.language,                                           color: "text-emerald-600",bg: "bg-emerald-50"},
+                                      ].map(s => (
+                                        <div key={s.label} className={`${s.bg} rounded-lg px-3 py-2.5 text-center`}>
+                                          <p className={`text-base font-bold tabular-nums ${s.color}`}>{s.value}</p>
+                                          <p className="text-[11px] text-gray-500 mt-0.5">{s.label}</p>
+                                        </div>
+                                      ))}
+                                    </div>
+
+                                    {/* User Input */}
                                     <div>
-                                      <h4 className="text-sm font-semibold text-foreground mb-2">User Input:</h4>
-                                      <div className="bg-background rounded-lg p-4 text-sm text-foreground whitespace-pre-wrap border border-border">
+                                      <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">User Input</h4>
+                                      <div className="bg-white rounded-lg border border-gray-200 p-4 text-sm text-gray-800 whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">
                                         {check.text}
                                       </div>
                                     </div>
+
+                                    {/* Suggestions list */}
+                                    {check.suggestions && check.suggestions.length > 0 ? (
+                                      <div>
+                                        <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
+                                          Suggestions ({check.suggestions.length})
+                                        </h4>
+                                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                                          {check.suggestions.map((s, i) => (
+                                            <div key={i} className="bg-white rounded-lg border border-gray-200 px-4 py-3 text-sm">
+                                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                                <span className="font-mono text-red-500 line-through break-all">{s.original}</span>
+                                                <span className="text-gray-400 shrink-0">→</span>
+                                                <span className="font-mono text-emerald-600 font-semibold break-all">{s.corrected}</span>
+                                                {s.status && (
+                                                  <Badge variant="outline" className={`text-xs shrink-0 ${
+                                                    s.status === "accepted" ? "border-emerald-300 text-emerald-600 bg-emerald-50"
+                                                    : s.status === "ignored" ? "border-gray-300 text-gray-500"
+                                                    : "border-amber-300 text-amber-600 bg-amber-50"
+                                                  }`}>
+                                                    {s.status}
+                                                  </Badge>
+                                                )}
+                                              </div>
+                                              {s.explanation && <p className="text-xs text-gray-400 mt-1">{s.explanation}</p>}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <p className="text-xs text-gray-400 italic">No suggestions recorded for this check.</p>
+                                    )}
+
+                                    {/* Corrected text */}
+                                    {(() => {
+                                      const corrected = check.correctedText
+                                        || (check.suggestions?.length ? applyAllSuggestions(check.text, check.suggestions) : null);
+                                      if (!corrected || corrected === check.text) return null;
+                                      return (
+                                        <div>
+                                          <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Final Text in User Input Box</h4>
+                                          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-sm text-gray-800 whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">
+                                            {corrected}
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 )}
                               </div>
@@ -4330,17 +4910,38 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
               <div className="space-y-8">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Blog</h1>
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Blog</h1>
                     <p className="text-gray-500 text-sm mt-0.5">Create, edit, and publish blog posts</p>
                   </div>
                   <div className="flex items-center gap-3">
+                    {blogDraftSaved && (
+                      <span className="text-xs text-muted-foreground">
+                        Draft autosaved {blogDraftSaved.toLocaleTimeString()}
+                        {" · "}
+                        <button
+                          className="underline hover:text-foreground"
+                          onClick={() => {
+                            const draft = loadBlogDraft();
+                            if (draft) {
+                              setBlogTitle(draft.title);
+                              setBlogCustomSlug(draft.slug);
+                              setBlogContentHtml(draft.contentHtml);
+                              setBlogEditingId(draft.editingId);
+                              toast.success("Draft restored");
+                            }
+                          }}
+                        >restore</button>
+                        {" · "}
+                        <button className="underline hover:text-destructive" onClick={() => { clearBlogDraft(); toast.success("Draft cleared"); }}>clear</button>
+                      </span>
+                    )}
                     <Button className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg" onClick={resetBlogForm}>
                       New Post
                     </Button>
                   </div>
                 </div>
 
-                <div className="grid lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <div className="bg-card rounded-xl border border-border p-6 space-y-4">
                     <div>
                       <label className="block text-sm font-medium mb-2">Title</label>
@@ -4945,12 +5546,12 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
               <div className="space-y-8">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Languages Management</h1>
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Languages Management</h1>
                     <p className="text-gray-500 text-sm mt-0.5">Add and manage custom languages for your grammar checker</p>
                   </div>
                 </div>
 
-                <div className="grid lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {/* Single Language Form */}
                   <div className="bg-card rounded-xl border border-border p-6 space-y-4">
                     <h3 className="text-lg font-semibold text-foreground">Add Single Language</h3>
@@ -5216,19 +5817,19 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
               });
               return (
               <div className="space-y-6">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Billing & Plans</h1>
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Billing & Plans</h1>
                     <p className="text-gray-500 text-sm mt-0.5">Revenue, subscriptions, discounts, and payment activity</p>
                   </div>
-                  <Button variant="outline" size="sm" className="border-gray-200 rounded-lg" onClick={handleExportBilling}>
+                  <Button variant="outline" size="sm" className="border-gray-200 rounded-lg shrink-0" onClick={handleExportBilling}>
                     <Download className="w-4 h-4 mr-2" />
                     Export CSV
                   </Button>
                 </div>
 
                 {/* KPI row */}
-                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
                   {[
                     { label: "MRR", value: `₹${monthlyRevenue.toLocaleString("en-IN")}`, sub: "Monthly recurring", color: "text-teal-600", bg: "bg-teal-50", border: "border-l-teal-500", icon: <CreditCard className="w-4 h-4" /> },
                     { label: "Active Subs", value: proUsers.toLocaleString(), sub: "Pro plans", color: "text-blue-600", bg: "bg-blue-50", border: "border-l-blue-500", icon: <Users className="w-4 h-4" /> },
@@ -5271,7 +5872,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                   </div>
                 )}
 
-                <div className="grid lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
                   {/* Coupon System */}
                   <div className="bg-card rounded-xl border border-border p-6 space-y-5">
@@ -5482,10 +6083,10 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
               <div className="space-y-8">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h1 className="text-2xl font-bold text-gray-900">SEO Language Pages</h1>
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900">SEO Language Pages</h1>
                     <p className="text-gray-500 text-sm mt-0.5">Create SEO-optimized landing pages for each language</p>
                   </div>
-                  <div className="flex gap-3">
+                  <div className="flex flex-wrap gap-2">
                     <Button variant="outline" onClick={() => {
                       setBulkSeoDialogOpen(true);
                       setBulkLangCode("");
@@ -5512,10 +6113,10 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                 </div>
               </div>
 
-                <div className="grid lg:grid-cols-2 gap-6">
-                  {/* Form */}
-                  <div className="bg-card rounded-xl border border-border p-6 space-y-4">
-                    <h3 className="text-lg font-semibold text-foreground">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                  {/* ── Left: Form ── */}
+                  <div className="bg-card rounded-xl border border-border p-5 sm:p-6 space-y-4">
+                    <h3 className="text-base font-semibold text-foreground">
                       {seoEditingId ? "Edit SEO Page" : "Create New SEO Page"}
                     </h3>
 
@@ -5534,9 +6135,14 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                         placeholder="tamil-grammar" 
                         disabled={!!seoEditingId}
                       />
-                      {seoUrlSlug && (
+                      {seoUrlSlug && !slugAlreadyExists && (
                         <p className="text-xs text-green-600 dark:text-green-400 mt-1">
                           ✓ URL: correctnow.app/{seoUrlSlug}
+                        </p>
+                      )}
+                      {slugAlreadyExists && (
+                        <p className="text-xs text-red-500 mt-1 font-medium">
+                          ⚠ Slug "{seoUrlSlug}" already exists — choose a different slug or edit the existing page.
                         </p>
                       )}
                       {!seoUrlSlug && (
@@ -5647,110 +6253,126 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                     </div>
 
                     {/* ─── AI Content Generator ─────────────────────── */}
-                    <div className="rounded-xl border-2 border-purple-400/40 bg-purple-50/40 dark:bg-purple-950/20 p-4 space-y-3">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-lg">✨</span>
-                        <h4 className="text-sm font-semibold text-purple-700 dark:text-purple-300">
+                    <div className="rounded-xl border border-purple-200 bg-purple-50 dark:bg-purple-950/20 dark:border-purple-800 overflow-hidden">
+                      {/* Header bar */}
+                      <div className="flex items-center gap-2.5 px-4 py-3 bg-purple-100/70 dark:bg-purple-900/30 border-b border-purple-200 dark:border-purple-800">
+                        <div className="w-6 h-6 rounded-md bg-purple-600 flex items-center justify-center shrink-0">
+                          <Zap className="w-3.5 h-3.5 text-white" />
+                        </div>
+                        <h4 className="text-sm font-semibold text-purple-800 dark:text-purple-200 flex-1 min-w-0">
                           AI Content Generator
                         </h4>
-                        <span className="ml-auto text-xs text-muted-foreground">Powered by Gemini</span>
+                        <span className="text-[10px] font-medium text-purple-500 dark:text-purple-400 bg-purple-200/60 dark:bg-purple-800/60 px-2 py-0.5 rounded-full shrink-0">
+                          Gemini
+                        </span>
                       </div>
 
-                      <div>
-                        <label className="block text-xs font-medium mb-1 text-muted-foreground">Focus Keywords (optional)</label>
-                        <Input
-                          value={seoAiKeywords}
-                          onChange={(e) => setSeoAiKeywords(e.target.value)}
-                          placeholder="e.g. Tamil grammar checker, Tamil spell check, free Tamil proofreader"
-                          className="text-sm"
-                        />
-                        <p className="text-xs text-muted-foreground mt-1">Leave blank to auto-generate from slug + language</p>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="p-4 space-y-3">
                         <div>
-                          <label className="block text-xs font-medium mb-1 text-muted-foreground">Tone</label>
-                          <select
-                            value={seoAiTone}
-                            onChange={(e) => setSeoAiTone(e.target.value as any)}
-                            className="w-full px-2 py-1.5 text-sm rounded-lg border border-border bg-background text-foreground"
-                          >
-                            <option value="professional">Professional</option>
-                            <option value="friendly">Friendly</option>
-                            <option value="technical">Technical</option>
-                            <option value="simple">Simple (Beginner)</option>
-                          </select>
+                          <label className="block text-xs font-medium mb-1 text-purple-700 dark:text-purple-300">Focus Keywords <span className="font-normal text-muted-foreground">(optional)</span></label>
+                          <Input
+                            value={seoAiKeywords}
+                            onChange={(e) => setSeoAiKeywords(e.target.value)}
+                            placeholder="Tamil grammar checker, spell check…"
+                            className="text-sm bg-white dark:bg-background"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">Leave blank to auto-generate from slug + language</p>
                         </div>
-                        <div>
-                          <label className="block text-xs font-medium mb-1 text-muted-foreground">Target Audience</label>
-                          <select
-                            value={seoAiAudience}
-                            onChange={(e) => setSeoAiAudience(e.target.value)}
-                            className="w-full px-2 py-1.5 text-sm rounded-lg border border-border bg-background text-foreground"
-                          >
-                            <option value="everyone">Everyone</option>
-                            <option value="students">Students</option>
-                            <option value="professionals">Professionals</option>
-                            <option value="writers">Writers / Bloggers</option>
-                            <option value="teachers">Teachers / Educators</option>
-                            <option value="non-native speakers">Non-native Speakers</option>
-                          </select>
-                        </div>
-                      </div>
 
-                      <div>
-                        <label className="block text-xs font-medium mb-1 text-muted-foreground">Extra Context (optional)</label>
-                        <Input
-                          value={seoAiExtraContext}
-                          onChange={(e) => setSeoAiExtraContext(e.target.value)}
-                          placeholder="e.g. Mention it supports formal Tamil, works offline, fast..."
-                          className="text-sm"
-                        />
-                      </div>
-
-                      <Button
-                        onClick={handleSeoAiGenerate}
-                        disabled={seoAiGenerating || !seoUrlSlug || !seoLanguageCode}
-                        className="w-full bg-purple-600 hover:bg-purple-700 text-white"
-                      >
-                        {seoAiGenerating ? (
-                          <><span className="animate-spin mr-2">⟳</span>Generating…</>
-                        ) : (
-                          <>✨ Generate SEO Content with AI</>
-                        )}
-                      </Button>
-
-                      {!seoUrlSlug || !seoLanguageCode ? (
-                        <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
-                          ⚠ Fill in URL Slug and Language first to enable generation
-                        </p>
-                      ) : null}
-
-                      {/* Variant switcher — shown after generation */}
-                      {seoAiResult && (
-                        <div className="pt-2 border-t border-purple-200 dark:border-purple-800 space-y-2">
-                          <p className="text-xs font-medium text-purple-700 dark:text-purple-300">Generated Variants:</p>
-                          <div className="flex gap-2">
-                            {seoAiResult.variants.map((v, i) => (
-                              <button
-                                key={i}
-                                onClick={() => applySeoAiVariant(i)}
-                                className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                                  seoAiVariantIdx === i
-                                    ? "bg-purple-600 text-white border-purple-600"
-                                    : "bg-background border-border text-foreground hover:border-purple-400"
-                                }`}
-                              >
-                                {i === 0 ? "📌 Variant 1 (Accuracy)" : "⚡ Variant 2 (Speed)"}
-                                {seoAiVariantIdx === i && " ✓"}
-                              </button>
-                            ))}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium mb-1 text-purple-700 dark:text-purple-300">Tone</label>
+                            <select
+                              value={seoAiTone}
+                              onChange={(e) => setSeoAiTone(e.target.value as any)}
+                              className="w-full h-9 px-2.5 text-sm rounded-lg border border-border bg-white dark:bg-background text-foreground"
+                            >
+                              <option value="professional">Professional</option>
+                              <option value="friendly">Friendly</option>
+                              <option value="technical">Technical</option>
+                              <option value="simple">Simple (Beginner)</option>
+                            </select>
                           </div>
-                          <p className="text-xs text-muted-foreground">Click a variant to apply it to the form fields below. You can still edit after applying.</p>
+                          <div>
+                            <label className="block text-xs font-medium mb-1 text-purple-700 dark:text-purple-300">Audience</label>
+                            <select
+                              value={seoAiAudience}
+                              onChange={(e) => setSeoAiAudience(e.target.value)}
+                              className="w-full h-9 px-2.5 text-sm rounded-lg border border-border bg-white dark:bg-background text-foreground"
+                            >
+                              <option value="everyone">Everyone</option>
+                              <option value="students">Students</option>
+                              <option value="professionals">Professionals</option>
+                              <option value="writers">Writers / Bloggers</option>
+                              <option value="teachers">Teachers / Educators</option>
+                              <option value="non-native speakers">Non-native Speakers</option>
+                            </select>
+                          </div>
                         </div>
-                      )}
+
+                        <div>
+                          <label className="block text-xs font-medium mb-1 text-purple-700 dark:text-purple-300">Extra Context <span className="font-normal text-muted-foreground">(optional)</span></label>
+                          <Input
+                            value={seoAiExtraContext}
+                            onChange={(e) => setSeoAiExtraContext(e.target.value)}
+                            placeholder="Supports formal Tamil, works offline, fast…"
+                            className="text-sm bg-white dark:bg-background"
+                          />
+                        </div>
+
+                        {(!seoUrlSlug || !seoLanguageCode) && (
+                          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                            Fill in URL Slug and Language first
+                          </div>
+                        )}
+
+                        <Button
+                          onClick={handleSeoAiGenerate}
+                          disabled={seoAiGenerating || !seoUrlSlug || !seoLanguageCode}
+                          className="w-full bg-purple-600 hover:bg-purple-700 text-white gap-2"
+                        >
+                          {seoAiGenerating ? (
+                            <>
+                              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" />
+                              Generating…
+                            </>
+                          ) : (
+                            <>
+                              <Zap className="w-4 h-4 shrink-0" />
+                              Generate SEO Content with AI
+                            </>
+                          )}
+                        </Button>
+
+                        {/* Variant switcher */}
+                        {seoAiResult && (
+                          <div className="pt-3 border-t border-purple-200 dark:border-purple-800 space-y-2">
+                            <p className="text-xs font-medium text-purple-700 dark:text-purple-300">Generated Variants</p>
+                            <div className="grid grid-cols-2 gap-2">
+                              {seoAiResult.variants.map((v, i) => (
+                                <button
+                                  key={i}
+                                  onClick={() => applySeoAiVariant(i)}
+                                  className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
+                                    seoAiVariantIdx === i
+                                      ? "bg-purple-600 text-white border-purple-600"
+                                      : "bg-white dark:bg-background border-border text-foreground hover:border-purple-400"
+                                  }`}
+                                >
+                                  {i === 0
+                                    ? <><Star className="w-3 h-3 shrink-0" /> Variant 1</>
+                                    : <><Zap className="w-3 h-3 shrink-0" /> Variant 2</>
+                                  }
+                                  {seoAiVariantIdx === i && <CheckCircle className="w-3 h-3 shrink-0 ml-auto" />}
+                                </button>
+                              ))}
+                            </div>
+                            <p className="text-xs text-muted-foreground">Click to apply — you can still edit after.</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    {/* ───────────────────────────────────────────────── */}
 
                     <div className="flex items-center gap-2">
                       <input
@@ -5765,7 +6387,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                       </label>
                     </div>
 
-                    <div className="flex gap-3 pt-2">
+                    <div className="flex flex-wrap gap-2 pt-2">
                       <Button
                         onClick={async () => {
                           if (!seoUrlSlug || !seoLanguageCode || !seoTitle) {
@@ -5843,10 +6465,26 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                             setSeoSaving(false);
                           }
                         }}
-                        disabled={seoSaving || !seoUrlSlug || !seoLanguageCode || !seoTitle}
+                        disabled={seoSaving || !seoUrlSlug || !seoLanguageCode || !seoTitle || slugAlreadyExists}
                         className="flex-1"
                       >
                         {seoSaving ? "Saving..." : seoEditingId ? "Update Page" : "Create Page"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setSeoOgPreviewOpen((v) => !v)}
+                        title="Toggle SERP / OG preview"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setSeoJsonLdOpen((v) => !v)}
+                        title="Generate JSON-LD schema"
+                      >
+                        {"{ }"}
                       </Button>
                       {seoEditingId && (
                         <Button
@@ -5872,15 +6510,41 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                     </div>
                   </div>
 
+                  {/* ── Right: Preview panels + List ── */}
+                  <div className="space-y-4">
+
+                  {/* OG / SERP Preview */}
+                  {seoOgPreviewOpen && (
+                    <div className="bg-card rounded-xl border border-border p-5 space-y-3">
+                      <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <Eye className="w-4 h-4" /> SERP & OG Preview
+                      </h3>
+                      <OgPreview title={seoTitle} metaDescription={seoMetaDescription} slug={seoUrlSlug} />
+                    </div>
+                  )}
+
+                  {/* JSON-LD Panel */}
+                  {seoJsonLdOpen && (
+                    <div className="bg-card rounded-xl border border-border p-5">
+                      <JsonLdPanel
+                        title={seoTitle}
+                        slug={seoUrlSlug}
+                        description={seoDescription}
+                        faqItems={seoAiResult?.faqItems}
+                      />
+                    </div>
+                  )}
+
                   {/* List */}
-                  <div className="bg-card rounded-xl border border-border p-6">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-lg font-semibold text-foreground">
-                        Existing SEO Pages ({seoPages.length})
+                  <div className="bg-card rounded-xl border border-border p-5 sm:p-6">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                      <h3 className="text-sm font-semibold text-foreground">
+                        SEO Pages <span className="text-muted-foreground font-normal">({seoPages.length})</span>
                       </h3>
                       <Button
                         variant="outline"
                         size="sm"
+                        className="h-8 text-xs"
                         onClick={async () => {
                           const db = getFirebaseDb();
                           if (!db) return;
@@ -5945,32 +6609,34 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                                   key={page.id}
                                   className="p-4 rounded-lg border border-border hover:border-accent/50 transition-colors"
                                 >
-                                  <div className="flex items-start justify-between mb-2">
-                                    <div className="flex-1">
-                                      <div className="flex items-center gap-2 mb-1">
-                                        <h4 className="font-medium text-foreground">
+                                  {/* Top row: name + badge + actions */}
+                                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                                        <h4 className="font-medium text-foreground text-sm truncate">
                                           {page.languageName}
                                         </h4>
-                                        <Badge variant={page.active ? "default" : "secondary"}>
+                                        <Badge variant={page.active ? "default" : "secondary"} className="text-xs shrink-0">
                                           {page.active ? "Active" : "Inactive"}
                                         </Badge>
                                       </div>
-                                      <p className="text-sm text-muted-foreground">
+                                      <p className="text-xs text-muted-foreground font-mono truncate">
                                         /{page.urlSlug || page.languageCode}
                                       </p>
                                     </div>
-                                    <div className="flex gap-2">
+                                    <div className="flex gap-1 shrink-0">
                                       <Button
-                                        variant="ghost"
-                                        size="sm"
+                                        variant="ghost" size="sm"
+                                        className="h-7 w-7 p-0"
                                         onClick={() => window.open(`/${page.urlSlug || page.languageCode}`, '_blank')}
                                         title="Open in new tab"
                                       >
-                                        <ExternalLink className="w-4 h-4" />
+                                        <ExternalLink className="w-3.5 h-3.5" />
                                       </Button>
                                       <Button
-                                        variant="ghost"
-                                        size="sm"
+                                        variant="ghost" size="sm"
+                                        className="h-7 w-7 p-0"
+                                        title="Edit"
                                         onClick={() => {
                                           setSeoEditingId(page.id);
                                           setSeoUrlSlug(page.urlSlug || page.languageCode);
@@ -5983,11 +6649,12 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                                           setSeoActive(page.active);
                                         }}
                                       >
-                                        <Edit className="w-4 h-4" />
+                                        <Edit className="w-3.5 h-3.5" />
                                       </Button>
                                       <Button
-                                        variant="ghost"
-                                        size="sm"
+                                        variant="ghost" size="sm"
+                                        className="h-7 w-7 p-0"
+                                        title="Delete"
                                         onClick={async () => {
                                           if (!confirm(`Delete SEO page for ${page.languageName}?`)) return;
                                           const db = getFirebaseDb();
@@ -6002,11 +6669,11 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                                           }
                                         }}
                                       >
-                                        <Trash2 className="w-4 h-4 text-destructive" />
+                                        <Trash2 className="w-3.5 h-3.5 text-destructive" />
                                       </Button>
                                     </div>
                                   </div>
-                                  <p className="text-sm text-muted-foreground line-clamp-2">
+                                  <p className="text-xs text-muted-foreground line-clamp-2">
                                     {page.metaDescription}
                                   </p>
                                 </div>
@@ -6023,11 +6690,11 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
 
                           {/* Pagination */}
                           {totalPages > 1 && (
-                            <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
+                            <div className="flex flex-wrap items-center justify-between gap-3 mt-4 pt-4 border-t border-border">
                               <p className="text-xs text-muted-foreground">
-                                Showing {(seoPage - 1) * SEO_PAGE_SIZE + 1}–{Math.min(seoPage * SEO_PAGE_SIZE, filtered.length)} of {filtered.length}
+                                {(seoPage - 1) * SEO_PAGE_SIZE + 1}–{Math.min(seoPage * SEO_PAGE_SIZE, filtered.length)} of {filtered.length}
                               </p>
-                              <div className="flex items-center gap-1">
+                              <div className="flex items-center gap-1 flex-wrap">
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -6102,12 +6769,13 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                         </ul>
                       </div>
                     </div>
-                  </div>
-                </div>
+                  </div>{/* end List card */}
+                  </div>{/* end right column wrapper */}
+                </div>{/* end 2-col grid */}
 
                 {/* AI Generated FAQ & Suggestions — shown after generation */}
                 {seoAiResult && (
-                  <div className="grid lg:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* FAQ Items */}
                     <div className="bg-card rounded-xl border border-purple-300/50 dark:border-purple-700/40 p-6 space-y-3">
                       <div className="flex items-center justify-between">
@@ -6220,7 +6888,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                     <p className="text-xs text-muted-foreground mt-1">Submit up to 200 URLs per day directly to Google for fast indexing. Requires a Google Cloud service account with Search Console owner access.</p>
                   </div>
 
-                  <div className="grid lg:grid-cols-2 gap-5">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                     {/* Service Account JSON */}
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-foreground block">Service Account JSON</label>
@@ -6578,27 +7246,26 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
               </div>
             )}
 
+            {activeTab === "auditlog" && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Audit Log</h1>
+                    <p className="text-gray-500 text-sm mt-0.5">All admin actions in this session</p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={clearAuditLog}>Clear log</Button>
+                </div>
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                  <AuditTimeline entries={auditEntries} />
+                </div>
+              </div>
+            )}
+
             {activeTab === "settings" && (
               <div className="space-y-6">
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+                  <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Settings</h1>
                   <p className="text-gray-500 text-sm mt-0.5">Platform configuration and preferences</p>
-                </div>
-
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-                  <h2 className="text-base font-semibold text-gray-900 mb-4">API Configuration</h2>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-sm text-gray-500">Gemini API Status</label>
-                      <div className="flex items-center gap-2 mt-1.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                        <span className="text-gray-800 font-medium">Connected</span>
-                      </div>
-                    </div>
-                    <Button variant="outline" size="sm" className="border-gray-200">
-                      Update API Key
-                    </Button>
-                  </div>
                 </div>
 
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
@@ -6739,6 +7406,21 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
             </DialogFooter>
           </DialogContent>
         </Dialog>
+      <BulkReasonDialog
+        open={bulkReasonOpen}
+        title={pendingBulkTitle}
+        description={pendingBulkDesc}
+        destructive={pendingBulkDestructive}
+        onConfirm={async (note) => {
+          setBulkReasonOpen(false);
+          if (pendingBulkFn) await pendingBulkFn(note);
+          setPendingBulkFn(null);
+        }}
+        onCancel={() => {
+          setBulkReasonOpen(false);
+          setPendingBulkFn(null);
+        }}
+      />
     </div>
   );
 };
