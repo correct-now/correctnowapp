@@ -89,8 +89,8 @@ const Index = () => {
   const [miniEditorTitle, setMiniEditorTitle] = useState("Untitled Document");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editingTitleValue, setEditingTitleValue] = useState("");
-  const [miniEditorLanguage, setMiniEditorLanguage] = useState("auto");
-  const [miniEditorLanguageMode, setMiniEditorLanguageMode] = useState<"auto" | "manual">("auto");
+  const [miniEditorLanguage, setMiniEditorLanguage] = useState("any");
+  const [miniEditorLanguageMode, setMiniEditorLanguageMode] = useState<"auto" | "manual">("manual");
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [miniIsLoading, setMiniIsLoading] = useState(false);
   const [miniHasResults, setMiniHasResults] = useState(false);
@@ -488,8 +488,8 @@ const Index = () => {
     setMiniHasResults(false);
     setMiniChanges([]);
     setMiniCorrectedText("");
-    setMiniEditorLanguage("auto");
-    setMiniEditorLanguageMode("auto");
+    setMiniEditorLanguage("any");
+    setMiniEditorLanguageMode("manual");
   };
 
   const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -1581,8 +1581,6 @@ const Index = () => {
                         {/* Language detection pill — auto-detects, no manual selector */}
                         {(() => {
                           const displayCode = miniEditorLanguage !== "auto" ? miniEditorLanguage : miniDetectedLanguage;
-                          const allLangs = [...(Array.isArray([]) ? [] : [])];
-                          // Inline language name lookup from LANGUAGE_OPTIONS
                           const LANG_MAP: Record<string, string> = {
                             en:"English",ta:"Tamil",hi:"Hindi",te:"Telugu",kn:"Kannada",
                             ml:"Malayalam",bn:"Bengali",gu:"Gujarati",pa:"Punjabi",mr:"Marathi",
@@ -1592,7 +1590,7 @@ const Index = () => {
                             no:"Norwegian",da:"Danish",fi:"Finnish",ur:"Urdu",fa:"Persian",
                             he:"Hebrew",th:"Thai",id:"Indonesian",ms:"Malay",tl:"Tagalog",
                           };
-                          const langName = LANG_MAP[displayCode] ?? null;
+                          const langName = displayCode === "any" ? "Any language" : LANG_MAP[displayCode] ?? null;
                           const pct = miniDetectedConfidence > 0 ? Math.round(miniDetectedConfidence * 100) : null;
                           const isDetected = !!(miniDetectedLanguage && miniDetectedLanguage !== "auto" && pct);
                           if (!langName) {
