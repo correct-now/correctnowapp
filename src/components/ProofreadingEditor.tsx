@@ -319,7 +319,7 @@ const LanguageDetectionPill = React.memo(({
 }) => {
   const displayCode = (language && language !== "auto") ? language : detectedLanguage;
   const langObj = languageOptions.find((l) => l.code === displayCode);
-  const langName = langObj ? langObj.name.split(" ")[0] : null;
+  const langName = displayCode === "any" ? "Any" : (langObj ? langObj.name.split(" ")[0] : null);
   const pct = detectedConfidence > 0 ? Math.round(detectedConfidence * 100) : null;
   const isDetected = !!(detectedLanguage && detectedLanguage !== "auto" && pct);
 
@@ -364,8 +364,8 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
   const [correctedText, setCorrectedText] = useState("");
   const [changes, setChanges] = useState<Change[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [language, setLanguage] = useState("auto");  // "auto" = Gemini will detect
-  const [languageMode, setLanguageMode] = useState<"auto" | "manual">("auto");
+  const [language, setLanguage] = useState("any");
+  const [languageMode, setLanguageMode] = useState<"auto" | "manual">("manual");
   const [shouldBlinkInput, setShouldBlinkInput] = useState(false);
   const [shouldBlinkLanguage, setShouldBlinkLanguage] = useState(false);
   const [shouldBlinkCheck, setShouldBlinkCheck] = useState(false);
@@ -438,10 +438,9 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
         window.setTimeout(() => setShouldBlinkLanguage(false), 12000);
         return;
       }
-      // New user / auto mode — Gemini will detect once they start typing.
-      // Do NOT show blocking dialog; language defaults to "auto".
-      setLanguage("auto");
-      setLanguageMode("auto");
+      // Default: manual "any" (no detection)
+      setLanguage("any");
+      setLanguageMode("manual");
     }
   }, [initialLanguage]);
 
