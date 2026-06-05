@@ -319,7 +319,7 @@ const LanguageDetectionPill = React.memo(({
 }) => {
   const displayCode = (language && language !== "auto") ? language : detectedLanguage;
   const langObj = languageOptions.find((l) => l.code === displayCode);
-  const langName = displayCode === "any" ? "Any" : (langObj ? langObj.name.split(" ")[0] : null);
+  const langName = displayCode === "any" ? "ANY" : (langObj ? langObj.name.split(" ")[0] : null);
   const pct = detectedConfidence > 0 ? Math.round(detectedConfidence * 100) : null;
   const isDetected = !!(detectedLanguage && detectedLanguage !== "auto" && pct);
 
@@ -337,12 +337,14 @@ const LanguageDetectionPill = React.memo(({
     return null;
   }
 
-  return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-100 text-xs font-medium text-emerald-700 select-none">
-      <span className={`w-1.5 h-1.5 rounded-full ${isDetected ? "bg-emerald-500 animate-pulse" : "bg-emerald-400"}`} />
-      {isDetected ? "Detected:" : ""} {langName}
+      return (
+    <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-none bg-gradient-to-r from-emerald-50 via-white to-cyan-50 border border-emerald-100 shadow-sm select-none">
+      <span className={`w-1.5 h-1.5 rounded-full ${isDetected ? "bg-emerald-500" : "bg-emerald-300"}`} />
+      <span className="text-[11px] font-semibold text-emerald-800">LANGUAGE</span>
+      <span className="text-[10px] text-emerald-700">|</span>
+      <span className="text-[11px] font-semibold text-emerald-900">{langName}</span>
       {isDetected && pct !== null && (
-        <span className="text-[10px] text-emerald-500 font-semibold">{pct}%</span>
+        <span className="text-[10px] text-emerald-700 font-semibold">{pct}%</span>
       )}
     </span>
   );
@@ -421,24 +423,8 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      // SEO landing pages pass a specific language â€” always honour it
-      if (initialLanguage) {
-        setLanguage(initialLanguage);
-        setLanguageMode(initialLanguage === "auto" ? "auto" : "manual");
-        setShouldBlinkLanguage(true);
-        window.setTimeout(() => setShouldBlinkLanguage(false), 12000);
-        return;
-      }
-      // Restore last manually-selected language from localStorage
-      const storedLanguage = window.localStorage.getItem("correctnow:language");
-      if (storedLanguage && storedLanguage !== "auto") {
-        setLanguage(storedLanguage);
-        setLanguageMode("manual");
-        setShouldBlinkLanguage(true);
-        window.setTimeout(() => setShouldBlinkLanguage(false), 12000);
-        return;
-      }
-      // Default: manual "any" (no detection)
+      // Always start at "any" in manual mode; ignore passed or stored values
+      window.localStorage.removeItem("correctnow:language");
       setLanguage("any");
       setLanguageMode("manual");
     }
@@ -456,12 +442,8 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
     setLanguage(value);
     setLanguageMode(value === "auto" ? "auto" : "manual");
     if (typeof window !== "undefined") {
-      if (value !== "auto") {
-        // Persist manual selections; don't persist "auto" so detection re-runs on next visit
-        window.localStorage.setItem("correctnow:language", value);
-      } else {
-        window.localStorage.removeItem("correctnow:language");
-      }
+      // Do not persist language; always reset to "any" on next load
+      window.localStorage.removeItem("correctnow:language");
     }
     setIsLanguageOpen(false);
     setShowLanguageDialog(false);
@@ -1540,7 +1522,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                     Your Text
                   </CardTitle>
                   <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
-                    {/* Language detection pill â€” read-only, no manual selector */}
+                    {/* Language detection pill — read-only, shows current language (Any default) */}
                     <LanguageDetectionPill
                       language={language}
                       detectedLanguage={detectedLanguage}
@@ -1552,8 +1534,8 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                       <WordCounter count={wordCount} limit={wordLimit} />
                       {planName === "Free" && currentUserId && (
                         <div className="text-[10px] sm:text-xs text-muted-foreground">
-                          Dialy 300 words per day for free users
-                          {dailyRemaining !== null ? ` â€¢ Remaining: ${dailyRemaining}` : ""}
+                          Daily 300 words for free users
+                          {dailyRemaining !== null ? ` • Remaining: ${dailyRemaining}` : ""}
                         </div>
                       )}
                       {creditsLimitEnabled && (
@@ -1582,7 +1564,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                     <Button
                       variant="accent"
                       size="sm"
-                      className={`w-full sm:w-auto text-sm${isLoading ? " is-checking" : ""}${shouldBlinkCheck ? " blink-green-slow" : ""}`}
+                      className={`w-full sm:w-auto text-sm rounded-none${isLoading ? " is-checking" : ""}${shouldBlinkCheck ? " blink-green-slow" : ""}`}
                       onClick={() => handleCheck()}
                       disabled={isLoading || !inputText.trim() || isOverLimit || isOverCredits || isOutOfCredits}
                     >

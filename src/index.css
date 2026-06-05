@@ -224,8 +224,8 @@
   /* Textarea styling */
   .editor-textarea {
     @apply w-full min-h-[620px] p-4 text-base leading-relaxed resize-none;
-    @apply bg-card border border-gray-200 rounded-none;
-    @apply focus:outline-none focus:ring-0 focus:border-gray-300;
+    @apply bg-transparent border-0 rounded-none;
+    @apply focus:outline-none focus:ring-0 focus:border-0;
     @apply transition-all duration-200;
     word-break: break-word;
     overflow-wrap: anywhere;
