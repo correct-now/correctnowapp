@@ -21,8 +21,8 @@ import {
 } from "@/lib/languageDetection";
 
 export interface LanguageDetectionState {
-  /** Detected ISO-639-1 code, or "auto" if undetected */
-  detectedLanguage: string;
+  /** Full English language name (e.g. "Pashto"), or null if undetected */
+  detectedLanguage: string | null;
   /** 0–1 confidence score */
   detectedConfidence: number;
   /** True while the Gemini API call is in-flight */
@@ -47,7 +47,7 @@ interface UseLanguageDetectionOptions {
 }
 
 const INITIAL_STATE: LanguageDetectionState = {
-  detectedLanguage: "auto",
+  detectedLanguage: null,
   detectedConfidence: 0,
   isDetecting: false,
   detectionResult: null,
@@ -88,7 +88,7 @@ export const useLanguageDetection = ({
         detectionResult: result,
       });
 
-      if (result.isReliable && result.language !== "auto") {
+      if (result.isReliable && result.language) {
         onDetectedRef.current?.(result);
       }
     } catch {

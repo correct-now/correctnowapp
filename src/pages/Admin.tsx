@@ -129,14 +129,51 @@ type AdminUser = {
   adminCreditsExpiryAt?: string;
   subscriptionStatus?: string;
   subscriptionUpdatedAt?: string;
+  subscriptionCreatedAt?: string;
   subscriptionCurrentPeriodEnd?: string | null;
+  subscriptionPeriodStart?: string | null;
   razorpaySubscriptionId?: string;
   stripeSubscriptionId?: string;
+  paymentGateway?: string;
+  lastPaymentAmount?: number | null;
+  razorpayPaidCount?: number | null;
+  razorpayTotalCount?: number | null;
   adminPlanExpiresAt?: string | null;
   adminPlanDurationDays?: number | null;
   updatedAt?: string;
   createdAt?: string;
   status?: string;
+};
+
+type LiveSubscription = {
+  userId: string;
+  email: string;
+  name: string;
+  plan: string;
+  paymentGateway: string | null;
+  subscriptionStatus: string | null;
+  subscriptionCreatedAt: string | null;
+  subscriptionUpdatedAt: string | null;
+  subscriptionCurrentPeriodEnd: string | null;
+  subscriptionPeriodStart: string | null;
+  lastPaymentAmount: number | null;
+  stripeSubscriptionId: string | null;
+  razorpaySubscriptionId: string | null;
+  razorpayPaidCount: number | null;
+  razorpayTotalCount: number | null;
+  createdAt: string | null;
+  liveStatus: string | null;
+  liveAmount: number | null;
+  liveCurrency: string | null;
+  livePeriodStart: string | null;
+  livePeriodEnd: string | null;
+  liveCreatedAt: string | null;
+  livePaidCount: number | null;
+  liveTotalCount: number | null;
+  livePlanName: string | null;
+  liveNextChargeAt: string | null;
+  livePaymentMethod: string | null;
+  liveError: string | null;
 };
 
 type BulkPreviewRow = {
@@ -256,6 +293,9 @@ const Admin = () => {
   const [couponSaving, setCouponSaving] = useState(false);
   const [couponLoading, setCouponLoading] = useState(false);
   const [billingSearch, setBillingSearch] = useState("");
+  const [liveSubscriptions, setLiveSubscriptions] = useState<LiveSubscription[]>([]);
+  const [isLoadingSubscriptions, setIsLoadingSubscriptions] = useState(false);
+  const [subscriptionsError, setSubscriptionsError] = useState<string | null>(null);
 
   // SEO Pages management
   const [seoPages, setSeoPages] = useState<Array<{
@@ -771,6 +811,26 @@ const Admin = () => {
     );
   };
 
+  const fetchLiveSubscriptions = async () => {
+    setIsLoadingSubscriptions(true);
+    setSubscriptionsError(null);
+    try {
+      const auth = getFirebaseAuth();
+      const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
+      if (!token) throw new Error("Not authenticated");
+      const res = await fetch("/api/admin/subscriptions", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to fetch subscriptions");
+      setLiveSubscriptions(data.subscriptions || []);
+    } catch (err) {
+      setSubscriptionsError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setIsLoadingSubscriptions(false);
+    }
+  };
+
   const toLocalInputValue = (iso?: string) => {
     if (!iso) return "";
     const date = new Date(iso);
@@ -1267,6 +1327,17 @@ const Admin = () => {
           addonCreditsExpiryAt: data?.addonCreditsExpiryAt,
           subscriptionStatus: data?.subscriptionStatus,
           subscriptionUpdatedAt: data?.subscriptionUpdatedAt,
+          subscriptionCreatedAt: data?.subscriptionCreatedAt,
+          subscriptionCurrentPeriodEnd: data?.subscriptionCurrentPeriodEnd,
+          subscriptionPeriodStart: data?.subscriptionPeriodStart,
+          razorpaySubscriptionId: data?.razorpaySubscriptionId,
+          stripeSubscriptionId: data?.stripeSubscriptionId,
+          paymentGateway: data?.paymentGateway,
+          lastPaymentAmount: data?.lastPaymentAmount ?? null,
+          razorpayPaidCount: data?.razorpayPaidCount ?? null,
+          razorpayTotalCount: data?.razorpayTotalCount ?? null,
+          adminPlanExpiresAt: data?.adminPlanExpiresAt ?? null,
+          adminPlanDurationDays: data?.adminPlanDurationDays ?? null,
           updatedAt: data?.updatedAt,
           createdAt: data?.createdAt,
           status: data?.status || "active",
@@ -5999,78 +6070,200 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                   </div>
                 </div>
 
-                {/* Subscriptions / Payments table */}
-                <div className="bg-card rounded-xl border border-border">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-6 border-b border-border">
-                    <div>
-                      <h2 className="text-base font-semibold text-foreground">Recent Subscriptions</h2>
-                      <p className="text-xs text-muted-foreground mt-0.5">Showing latest Pro &amp; subscription activity</p>
-                    </div>
-                    <div className="flex gap-2 items-center">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                        <Input
-                          placeholder="Search name or ID..."
-                          value={billingSearch}
-                          onChange={e => setBillingSearch(e.target.value)}
-                          className="pl-9 h-8 text-sm w-48"
-                        />
+                {/* Live Subscriptions table — fetched from Razorpay + Stripe */}
+                {(() => {
+                  const fmt = (iso: string | null | undefined, includeTime = false) => {
+                    if (!iso) return "—";
+                    const d = new Date(iso);
+                    if (isNaN(d.getTime())) return "—";
+                    const datePart = d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+                    if (!includeTime) return datePart;
+                    const timePart = d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+                    return `${datePart}, ${timePart}`;
+                  };
+                  const fmtAmt = (amt: number | null, currency: string | null) => {
+                    if (amt == null) return "—";
+                    const sym = (currency || "INR") === "INR" ? "₹" : (currency === "USD" ? "$" : (currency || "") + " ");
+                    return `${sym}${amt.toLocaleString("en-IN")}`;
+                  };
+                  const statusColor = (s: string | null) => {
+                    if (!s) return "outline";
+                    const sl = s.toLowerCase();
+                    if (sl === "active") return "secondary";
+                    if (sl === "past_due" || sl === "incomplete") return "destructive";
+                    if (sl === "cancelled" || sl === "canceled" || sl === "halted" || sl === "inactive") return "outline";
+                    return "outline";
+                  };
+                  const gatewayBadge = (gw: string | null) => {
+                    if (!gw) return null;
+                    if (gw === "razorpay") return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">Razorpay</span>;
+                    if (gw === "stripe") return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">Stripe</span>;
+                    return <span className="text-xs text-muted-foreground">{gw}</span>;
+                  };
+
+                  // Determine which data to show: live (if loaded) or fallback to Firestore
+                  const displayRows = liveSubscriptions.length > 0
+                    ? liveSubscriptions
+                        .filter(s => {
+                          const q = billingSearch.toLowerCase();
+                          return !q || s.email.toLowerCase().includes(q) || s.userId.toLowerCase().includes(q) || (s.stripeSubscriptionId || "").toLowerCase().includes(q) || (s.razorpaySubscriptionId || "").toLowerCase().includes(q);
+                        })
+                        .sort((a, b) => {
+                          const dateA = new Date(a.liveCreatedAt || a.subscriptionCreatedAt || a.subscriptionUpdatedAt || a.createdAt || 0).getTime();
+                          const dateB = new Date(b.liveCreatedAt || b.subscriptionCreatedAt || b.subscriptionUpdatedAt || b.createdAt || 0).getTime();
+                          return dateB - dateA;
+                        })
+                    : filteredBilling;
+
+                  return (
+                  <div className="bg-card rounded-xl border border-border">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-6 border-b border-border">
+                      <div>
+                        <h2 className="text-base font-semibold text-foreground">Payment Subscriptions</h2>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {liveSubscriptions.length > 0
+                            ? `Live data from Razorpay & Stripe · ${liveSubscriptions.length} subscribers`
+                            : "Firestore data · click \"Load Live\" to fetch from Razorpay & Stripe"}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 items-center flex-wrap">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                          <Input
+                            placeholder="Search email or sub ID..."
+                            value={billingSearch}
+                            onChange={e => setBillingSearch(e.target.value)}
+                            className="pl-9 h-8 text-sm w-52"
+                          />
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs gap-1.5"
+                          onClick={fetchLiveSubscriptions}
+                          disabled={isLoadingSubscriptions}
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isLoadingSubscriptions ? "animate-spin" : ""}`} />
+                          {isLoadingSubscriptions ? "Loading…" : "Load Live"}
+                        </Button>
                       </div>
                     </div>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b border-border bg-muted/40">
-                          <th className="text-left py-3 px-5 text-xs font-medium text-muted-foreground">Customer</th>
-                          <th className="text-left py-3 px-5 text-xs font-medium text-muted-foreground">Plan</th>
-                          <th className="text-left py-3 px-5 text-xs font-medium text-muted-foreground">Amount</th>
-                          <th className="text-left py-3 px-5 text-xs font-medium text-muted-foreground">Status</th>
-                          <th className="text-left py-3 px-5 text-xs font-medium text-muted-foreground">Sub Date</th>
-                          <th className="text-left py-3 px-5 text-xs font-medium text-muted-foreground">Last Updated</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredBilling.length ? (
-                          filteredBilling.map((payment) => (
-                            <tr key={`${payment.name}-${payment.date}`} className="border-b border-border last:border-0 hover:bg-muted/30">
-                              <td className="py-3 px-5 text-sm text-foreground font-medium max-w-[200px] truncate">{payment.name}</td>
-                              <td className="py-3 px-5">
-                                <Badge variant={payment.plan === "Pro" ? "default" : "outline"}>
-                                  {payment.plan}
-                                </Badge>
-                              </td>
-                              <td className="py-3 px-5 text-sm font-semibold text-foreground">{payment.amount}</td>
-                              <td className="py-3 px-5">
-                                <Badge variant={
-                                  payment.status === "Paid" ? "secondary" :
-                                  payment.status === "Past Due" ? "destructive" :
-                                  "outline"
-                                }>
-                                  {payment.status}
-                                </Badge>
-                              </td>
-                              <td className="py-3 px-5 text-sm text-muted-foreground">
-                                {payment.subscriptionUpdatedAt
-                                  ? new Date(payment.subscriptionUpdatedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
-                                  : "—"}
-                              </td>
-                              <td className="py-3 px-5 text-sm text-muted-foreground">
-                                {new Date(payment.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td className="py-8 text-center text-sm text-muted-foreground" colSpan={6}>
-                              {billingSearch ? `No results for "${billingSearch}"` : "No billing activity yet."}
-                            </td>
+
+                    {subscriptionsError && (
+                      <div className="px-6 py-3 bg-red-50 border-b border-red-100 text-sm text-red-600 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                        {subscriptionsError}
+                      </div>
+                    )}
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/40">
+                            <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground whitespace-nowrap">Customer</th>
+                            <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground whitespace-nowrap">Gateway</th>
+                            <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground whitespace-nowrap">Plan</th>
+                            <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground whitespace-nowrap">Amount</th>
+                            <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground whitespace-nowrap">Status</th>
+                            <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground whitespace-nowrap">Sub ID</th>
+                            <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground whitespace-nowrap">Started</th>
+                            <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground whitespace-nowrap">Period Start</th>
+                            <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground whitespace-nowrap">Period End</th>
+                            <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground whitespace-nowrap">Next Charge</th>
+                            <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground whitespace-nowrap">Paid / Total</th>
+                            <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground whitespace-nowrap">Last Updated</th>
                           </tr>
-                        )}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {liveSubscriptions.length > 0 ? (
+                            displayRows.length ? (
+                              (displayRows as LiveSubscription[]).map((sub) => {
+                                const subId = sub.stripeSubscriptionId || sub.razorpaySubscriptionId || "";
+                                const status = sub.liveStatus || sub.subscriptionStatus || "—";
+                                const amount = sub.liveAmount ?? sub.lastPaymentAmount;
+                                const currency = sub.liveCurrency || "INR";
+                                const paidCount = sub.livePaidCount ?? sub.razorpayPaidCount;
+                                const totalCount = sub.liveTotalCount ?? sub.razorpayTotalCount;
+                                const createdAt = sub.liveCreatedAt || sub.subscriptionCreatedAt;
+                                const periodStart = sub.livePeriodStart || sub.subscriptionPeriodStart;
+                                const periodEnd = sub.livePeriodEnd || sub.subscriptionCurrentPeriodEnd;
+                                return (
+                                  <tr key={sub.userId} className="border-b border-border last:border-0 hover:bg-muted/20">
+                                    <td className="py-3 px-4 font-medium text-foreground max-w-[180px]">
+                                      <div className="truncate" title={sub.email}>{sub.email || sub.name || sub.userId}</div>
+                                      {sub.name && sub.email && <div className="text-xs text-muted-foreground truncate">{sub.name}</div>}
+                                    </td>
+                                    <td className="py-3 px-4">{gatewayBadge(sub.paymentGateway)}</td>
+                                    <td className="py-3 px-4">
+                                      <Badge variant={sub.plan?.toLowerCase() === "pro" ? "default" : "outline"}>
+                                        {sub.plan || "Free"}
+                                      </Badge>
+                                    </td>
+                                    <td className="py-3 px-4 font-semibold text-foreground whitespace-nowrap">
+                                      {fmtAmt(amount, currency)}
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      <Badge variant={statusColor(status)}>
+                                        {status}
+                                      </Badge>
+                                      {sub.liveError && <span className="ml-1 text-[10px] text-red-400" title={sub.liveError}>⚠</span>}
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      <span className="font-mono text-xs text-muted-foreground" title={subId}>
+                                        {subId ? subId.slice(0, 20) + (subId.length > 20 ? "…" : "") : "—"}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">{fmt(createdAt, true)}</td>
+                                    <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">{fmt(periodStart)}</td>
+                                    <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">{fmt(periodEnd)}</td>
+                                    <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">{fmt(sub.liveNextChargeAt)}</td>
+                                    <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">
+                                      {paidCount != null ? `${paidCount} / ${totalCount ?? "?"}` : "—"}
+                                    </td>
+                                    <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">{fmt(sub.subscriptionUpdatedAt, true)}</td>
+                                  </tr>
+                                );
+                              })
+                            ) : (
+                              <tr><td className="py-8 text-center text-sm text-muted-foreground" colSpan={12}>No results for "{billingSearch}"</td></tr>
+                            )
+                          ) : (
+                            // Fallback: show Firestore data while live hasn't been loaded
+                            filteredBilling.length ? (
+                              filteredBilling.map((payment) => (
+                                <tr key={`${payment.name}-${payment.date}`} className="border-b border-border last:border-0 hover:bg-muted/20">
+                                  <td className="py-3 px-4 font-medium text-foreground max-w-[180px] truncate">{payment.name}</td>
+                                  <td className="py-3 px-4 text-xs text-muted-foreground">—</td>
+                                  <td className="py-3 px-4">
+                                    <Badge variant={payment.plan === "Pro" ? "default" : "outline"}>{payment.plan}</Badge>
+                                  </td>
+                                  <td className="py-3 px-4 font-semibold text-foreground">{payment.amount}</td>
+                                  <td className="py-3 px-4">
+                                    <Badge variant={payment.status === "Paid" ? "secondary" : payment.status === "Past Due" ? "destructive" : "outline"}>
+                                      {payment.status}
+                                    </Badge>
+                                  </td>
+                                  <td className="py-3 px-4 text-xs text-muted-foreground">—</td>
+                                  <td className="py-3 px-4 text-muted-foreground">{fmt(payment.subscriptionUpdatedAt)}</td>
+                                  <td className="py-3 px-4 text-muted-foreground">—</td>
+                                  <td className="py-3 px-4 text-muted-foreground">—</td>
+                                  <td className="py-3 px-4 text-muted-foreground">—</td>
+                                  <td className="py-3 px-4 text-muted-foreground">—</td>
+                                  <td className="py-3 px-4 text-muted-foreground">{fmt(payment.date)}</td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr><td className="py-8 text-center text-sm text-muted-foreground" colSpan={12}>
+                                {billingSearch ? `No results for "${billingSearch}"` : 'No billing activity yet. Click "Load Live" to fetch from Razorpay & Stripe.'}
+                              </td></tr>
+                            )
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                </div>
+                  );
+                })()}
               </div>
               );
             })()}

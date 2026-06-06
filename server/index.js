@@ -473,6 +473,24 @@ app.post(
                 periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null;
               }
             } catch (e) { console.warn("Could not fetch subscription period end:", e.message); }
+            // Fetch subscription creation date and amount from Stripe
+            let subscriptionCreatedAt = nowIso;
+            let lastPaymentAmount = null;
+            let stripePeriodStart = null;
+            try {
+              const stripeSdk = getStripe();
+              if (stripeSdk && subscriptionId) {
+                const sub = await stripeSdk.subscriptions.retrieve(subscriptionId, {
+                  expand: ["latest_invoice"],
+                });
+                if (sub.created) subscriptionCreatedAt = new Date(sub.created * 1000).toISOString();
+                if (sub.current_period_start) stripePeriodStart = new Date(sub.current_period_start * 1000).toISOString();
+                const inv = sub.latest_invoice;
+                if (inv && typeof inv === "object" && inv.amount_paid != null) {
+                  lastPaymentAmount = inv.amount_paid / 100; // cents → dollars/rupees
+                }
+              }
+            } catch (e) { console.warn("Could not fetch subscription details:", e.message); }
             const updateData = {
               plan: "pro",
               wordLimit: 5000,
@@ -481,6 +499,10 @@ app.post(
               creditsResetDate: nowIso,
               stripeCustomerId: customerId,
               stripeSubscriptionId: subscriptionId,
+              paymentGateway: "stripe",
+              subscriptionCreatedAt,
+              ...(stripePeriodStart ? { subscriptionPeriodStart: stripePeriodStart } : {}),
+              ...(lastPaymentAmount !== null ? { lastPaymentAmount } : {}),
               subscriptionStatus: "active",
               subscriptionCurrentPeriodEnd: periodEnd,
               subscriptionUpdatedAt: nowIso,
@@ -702,8 +724,15 @@ app.post("/api/razorpay/webhook", express.raw({ type: "application/json" }), asy
     if (adminDb && subscriptionId) {
       const nowIso = new Date().toISOString();
       if (eventName === "subscription.charged") {
-        const chargeAt = event?.payload?.subscription?.entity?.charge_at;
+        const subEntity = event?.payload?.subscription?.entity || {};
+        const chargeAt = subEntity.charge_at;
         const periodEndIso = chargeAt ? new Date(chargeAt * 1000).toISOString() : null;
+        const startAt = subEntity.start_at;
+        const subscriptionCreatedAt = startAt ? new Date(startAt * 1000).toISOString() : nowIso;
+        const paidCount = subEntity.paid_count ?? null;
+        const totalCount = subEntity.total_count ?? null;
+        const amountPaise = subEntity.amount ?? null;
+        const amountInr = amountPaise !== null ? (amountPaise / 100) : null;
         await updateUsersBySubscriptionId(subscriptionId, {
           plan: "pro",
           wordLimit: 5000,
@@ -711,7 +740,13 @@ app.post("/api/razorpay/webhook", express.raw({ type: "application/json" }), asy
           creditsUsed: 0,
           creditsResetDate: nowIso,
           subscriptionStatus: "active",
+          razorpaySubscriptionId: subscriptionId,
+          paymentGateway: "razorpay",
+          subscriptionCreatedAt,
           ...(periodEndIso ? { subscriptionCurrentPeriodEnd: periodEndIso } : {}),
+          ...(paidCount !== null ? { razorpayPaidCount: paidCount } : {}),
+          ...(totalCount !== null ? { razorpayTotalCount: totalCount } : {}),
+          ...(amountInr !== null ? { lastPaymentAmount: amountInr } : {}),
           subscriptionUpdatedAt: nowIso,
           updatedAt: nowIso,
         });
@@ -1456,6 +1491,141 @@ app.post("/api/admin/bulk-action", async (req, res) => {
   }
 });
 
+// Admin: fetch enriched subscription data live from Razorpay + Stripe
+app.get("/api/admin/subscriptions", async (req, res) => {
+  try {
+    // Verify admin token
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const idToken = authHeader.split("Bearer ")[1];
+    let decodedToken;
+    try {
+      decodedToken = await admin.auth().verifyIdToken(idToken);
+    } catch {
+      return res.status(401).json({ error: "Invalid token" });
+    }
+    const isAdmin =
+      decodedToken.admin === true ||
+      decodedToken.email === "correctnowapp@gmail.com" ||
+      (decodedToken.email && decodedToken.email.endsWith("@correctnow.app")) ||
+      (decodedToken.email && decodedToken.email.includes("admin"));
+    if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
+
+    if (!adminDb) return res.status(500).json({ error: "DB not ready" });
+
+    // Fetch all users from Firestore
+    const snap = await adminDb.collection("users").get();
+    const users = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+    const stripe = getStripe();
+    const razorpay = getRazorpay();
+
+    const results = await Promise.all(
+      users.map(async (u) => {
+        const base = {
+          userId: u.id,
+          email: u.email || "",
+          name: u.name || "",
+          plan: u.plan || "free",
+          paymentGateway: u.paymentGateway || null,
+          subscriptionStatus: u.subscriptionStatus || null,
+          subscriptionCreatedAt: u.subscriptionCreatedAt || null,
+          subscriptionUpdatedAt: u.subscriptionUpdatedAt || null,
+          subscriptionCurrentPeriodEnd: u.subscriptionCurrentPeriodEnd || null,
+          subscriptionPeriodStart: u.subscriptionPeriodStart || null,
+          lastPaymentAmount: u.lastPaymentAmount ?? null,
+          stripeSubscriptionId: u.stripeSubscriptionId || null,
+          razorpaySubscriptionId: u.razorpaySubscriptionId || null,
+          razorpayPaidCount: u.razorpayPaidCount ?? null,
+          razorpayTotalCount: u.razorpayTotalCount ?? null,
+          createdAt: u.createdAt || null,
+          // Live-fetched fields (filled below)
+          liveStatus: null,
+          liveAmount: null,
+          liveCurrency: null,
+          livePeriodStart: null,
+          livePeriodEnd: null,
+          liveCreatedAt: null,
+          livePaidCount: null,
+          liveTotalCount: null,
+          livePlanName: null,
+          liveNextChargeAt: null,
+          livePaymentMethod: null,
+          liveError: null,
+        };
+
+        // Enrich with Stripe live data
+        if (stripe && u.stripeSubscriptionId) {
+          try {
+            const sub = await stripe.subscriptions.retrieve(u.stripeSubscriptionId, {
+              expand: ["latest_invoice.payment_intent", "customer"],
+            });
+            const price = sub.items?.data?.[0]?.price;
+            const invoice = sub.latest_invoice;
+            const customer = sub.customer;
+            base.liveStatus = sub.status;
+            base.liveCreatedAt = sub.created ? new Date(sub.created * 1000).toISOString() : null;
+            base.livePeriodStart = sub.current_period_start ? new Date(sub.current_period_start * 1000).toISOString() : null;
+            base.livePeriodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null;
+            base.liveCurrency = price?.currency?.toUpperCase() || null;
+            base.liveAmount = price?.unit_amount != null ? price.unit_amount / 100 : null;
+            base.livePlanName = price?.nickname || price?.product || "Pro";
+            if (invoice && typeof invoice === "object") {
+              if (invoice.amount_paid != null) base.liveAmount = invoice.amount_paid / 100;
+              const pm = invoice.payment_intent?.payment_method_details?.card?.brand;
+              if (pm) base.livePaymentMethod = pm;
+            }
+            base.paymentGateway = "stripe";
+            if (customer && typeof customer === "object") {
+              base.email = base.email || customer.email || "";
+            }
+          } catch (e) {
+            base.liveError = e.message;
+          }
+        }
+
+        // Enrich with Razorpay live data
+        if (razorpay && u.razorpaySubscriptionId) {
+          try {
+            const sub = await razorpay.subscriptions.fetch(u.razorpaySubscriptionId);
+            base.liveStatus = sub.status;
+            base.liveCreatedAt = sub.created_at ? new Date(sub.created_at * 1000).toISOString() : null;
+            base.livePeriodStart = sub.current_start ? new Date(sub.current_start * 1000).toISOString() : null;
+            base.livePeriodEnd = sub.current_end ? new Date(sub.current_end * 1000).toISOString() : null;
+            base.liveNextChargeAt = sub.charge_at ? new Date(sub.charge_at * 1000).toISOString() : null;
+            base.livePaidCount = sub.paid_count ?? null;
+            base.liveTotalCount = sub.total_count ?? null;
+            base.liveAmount = sub.amount != null ? sub.amount / 100 : null;
+            base.liveCurrency = "INR";
+            base.livePlanName = "Pro";
+            base.paymentGateway = "razorpay";
+          } catch (e) {
+            base.liveError = e.message;
+          }
+        }
+
+        return base;
+      })
+    );
+
+    // Return only users with any subscription activity
+    const active = results.filter(
+      (r) =>
+        r.stripeSubscriptionId ||
+        r.razorpaySubscriptionId ||
+        r.subscriptionStatus ||
+        r.plan === "pro"
+    );
+
+    return res.json({ subscriptions: active, total: active.length });
+  } catch (err) {
+    console.error("Admin subscriptions error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // Ping Google to notify sitemap update (optional - called after blog publish)
 app.post("/api/ping-sitemap", async (req, res) => {
   try {
@@ -1939,13 +2109,15 @@ app.post("/api/detect-language", async (req, res) => {
     const model = process.env.GEMINI_DETECT_MODEL || "gemini-2.5-flash";
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-    const allowed = ["en","hi","ta","te","bn","mr","gu","kn","ml","pa","ur","fa","es","fr","de","pt","it","nl","sv","no","da","fi","pl","ro","tr","el","he","id","ms","th","vi","tl","sw","ru","uk","ja","ko","zh","ar","af","cs","hu","auto"];
-    const prompt = `Detect language and return ONLY JSON: {"code":"<code>"}.
-Allowed codes: ${allowed.join(", ")}.
-Return closest code; if unsure, "auto".
-Text:\n"""${text}"""`;
+    const prompt = `What language is the following text written in? Reply with ONLY a JSON object: {"language":"<full English language name>"}.
+Examples: {"language":"Tamil"}, {"language":"Pashto"}, {"language":"English"}, {"language":"Hindi"}.
+If you cannot determine the language, reply: {"language":"Unknown"}.
+Do NOT return a language code — return the full English name only.
 
-    const detectKey = crypto.createHash("sha256").update(prompt).digest("hex");
+Text:
+"""${text}"""`;
+
+    const detectKey = crypto.createHash("sha256").update(text.slice(0, 500)).digest("hex");
     const cachedDetect = getCache(`detect:${detectKey}`);
     if (cachedDetect) {
       return res.json(cachedDetect);
@@ -1963,13 +2135,9 @@ Text:\n"""${text}"""`;
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Detect-language error:", errorText);
-      
-      // If location not supported, return auto as fallback
       if (errorText.includes("User location is not supported") || errorText.includes("FAILED_PRECONDITION")) {
-        console.warn("Gemini API not available in this region, returning 'auto' as fallback");
-        return res.json({ code: "auto" });
+        return res.json({ language: null });
       }
-      
       return res.status(500).json({ message: "Detect-language error", details: errorText });
     }
 
@@ -1986,8 +2154,10 @@ Text:\n"""${text}"""`;
       return res.status(500).json({ message: "Failed to parse detect-language response" });
     }
 
-    const code = typeof parsed?.code === "string" ? parsed.code : "auto";
-    const result = { code: allowed.includes(code) ? code : "auto" };
+    const language = typeof parsed?.language === "string" && parsed.language !== "Unknown"
+      ? parsed.language.trim()
+      : null;
+    const result = { language };
     setCache(`detect:${detectKey}`, result);
     return res.json(result);
   } catch (err) {

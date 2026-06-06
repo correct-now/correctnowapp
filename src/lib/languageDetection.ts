@@ -15,11 +15,11 @@
 // ─── Public types ─────────────────────────────────────────────────────────────
 
 export interface DetectionResult {
-  /** ISO-639-1 language code, or "auto" if detection failed/unconfident */
-  language: string;
+  /** Full English language name (e.g. "Pashto", "Tamil"), or null if undetected */
+  language: string | null;
   /** 0–1 confidence score */
   confidence: number;
-  /** Whether result is reliable enough for auto-applying */
+  /** Whether result is reliable enough for display */
   isReliable: boolean;
   /** Detection method used */
   source: "gemini" | "fallback";
@@ -36,7 +36,7 @@ export const DETECTION_DEBOUNCE_MS = 600;
 // ─── Fallback result ──────────────────────────────────────────────────────────
 
 const FALLBACK: DetectionResult = {
-  language: "auto",
+  language: null,
   confidence: 0,
   isReliable: false,
   source: "fallback",
@@ -59,14 +59,14 @@ export const detectLanguageViaGemini = async (text: string): Promise<DetectionRe
 
     if (!res.ok) return FALLBACK;
 
-    const data = await res.json() as { code?: string };
-    const code = typeof data?.code === "string" ? data.code.trim() : "auto";
+    const data = await res.json() as { language?: string | null };
+    const language = typeof data?.language === "string" ? data.language.trim() : null;
 
-    if (!code || code === "auto") return FALLBACK;
+    if (!language) return FALLBACK;
 
     return {
-      language: code,
-      confidence: 0.92,   // Gemini is authoritative; use a stable high-confidence value
+      language,
+      confidence: 0.92,
       isReliable: true,
       source: "gemini",
     };
@@ -85,6 +85,9 @@ export const detectLanguage = async (text: string): Promise<DetectionResult> => 
   if (!text || text.trim().length < DETECTION_MIN_CHARS) return FALLBACK;
   return detectLanguageViaGemini(text);
 };
+
+export const isDetected = (result: DetectionResult): result is DetectionResult & { language: string } =>
+  result.isReliable && typeof result.language === "string" && result.language.length > 0;
 
 /**
  * "Fast" detection — kept for API compatibility.

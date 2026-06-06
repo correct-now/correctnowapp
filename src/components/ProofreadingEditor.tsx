@@ -305,28 +305,17 @@ SuggestionCard.displayName = 'SuggestionCard';
  * No dropdown, no interaction â€” purely informational.
  */
 const LanguageDetectionPill = React.memo(({
-  language,
   detectedLanguage,
   detectedConfidence,
   isDetecting,
-  languageOptions,
 }: {
-  language: string;
-  detectedLanguage: string;
+  detectedLanguage: string | null;
   detectedConfidence: number;
   isDetecting: boolean;
-  languageOptions: Array<{ code: string; name: string }>;
 }) => {
-  // Show detected language when no explicit selection, otherwise show selected language
-  const isAutoDetected = (!language || language === "any" || language === "auto") &&
-    detectedLanguage && detectedLanguage !== "auto";
-  const displayCode = isAutoDetected ? detectedLanguage : language;
-  const langObj = languageOptions.find((l) => l.code === displayCode);
-  const langName = displayCode === "any" ? null : (langObj ? langObj.name.split(" ")[0] : null);
   const pct = detectedConfidence > 0 ? Math.round(detectedConfidence * 100) : null;
 
-  // In-flight: Gemini API call running (only show spinner when no language selected)
-  if (isDetecting && !langName && (!language || language === "any")) {
+  if (isDetecting && !detectedLanguage) {
     return (
       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 text-xs text-blue-500 select-none">
         <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
@@ -335,19 +324,15 @@ const LanguageDetectionPill = React.memo(({
     );
   }
 
-  if (!langName) {
-    return null;
-  }
+  if (!detectedLanguage) return null;
 
   return (
     <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-none bg-gradient-to-r from-emerald-50 via-white to-cyan-50 border border-emerald-100 shadow-sm select-none">
       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-      <span className="text-[11px] font-semibold text-emerald-700">
-        {isAutoDetected ? "Detected" : "Language"}
-      </span>
+      <span className="text-[11px] font-semibold text-emerald-700">Detected</span>
       <span className="text-[10px] text-emerald-600">:</span>
-      <span className="text-[11px] font-semibold text-emerald-900">{langName}</span>
-      {isAutoDetected && pct !== null && (
+      <span className="text-[11px] font-semibold text-emerald-900">{detectedLanguage}</span>
+      {pct !== null && (
         <span className="text-[10px] text-emerald-600 font-medium">{pct}%</span>
       )}
     </span>
@@ -1527,11 +1512,9 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                   <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
                     {/* Language detection pill — read-only, shows current language (Any default) */}
                     <LanguageDetectionPill
-                      language={language}
                       detectedLanguage={detectedLanguage}
                       detectedConfidence={detectedConfidence}
                       isDetecting={isDetectingLanguage}
-                      languageOptions={uniqueLanguageOptions}
                     />
                     <div className="flex flex-col items-start gap-0.5 sm:gap-1 w-full sm:w-auto">
                       <WordCounter count={wordCount} limit={wordLimit} />
