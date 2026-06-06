@@ -920,8 +920,8 @@ const Index = () => {
               <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex-shrink-0">
                 <div className="ds-container">
                   <div className="flex items-center justify-between h-[72px]">
-                    <div className="flex w-full md:w-auto items-center justify-center md:justify-start md:pl-6">
-                      <Link to="/" className="flex items-center">
+                    <div className="flex items-center">
+                      <Link to="/" className="flex items-center lg:pl-6">
                         <img
                           src="/Icon/correctnow logo final2.png"
                           alt="CorrectNow"
@@ -931,7 +931,7 @@ const Index = () => {
                       </Link>
                     </div>
 
-                    <nav className="hidden md:flex items-center justify-center gap-4 lg:gap-6">
+                    <nav className="hidden lg:flex items-center justify-center gap-4 xl:gap-6">
                       {[
                         { label: "Dashboard", to: "/" },
                         { label: "Features", to: "/features" },
@@ -954,12 +954,12 @@ const Index = () => {
                       ))}
                     </nav>
 
-                    <div className="flex w-full md:w-auto items-center justify-center md:justify-end gap-2">
+                    <div className="flex items-center gap-2">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-semibold">
+                        <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-semibold flex-shrink-0">
                           {userName.charAt(0).toUpperCase()}
                         </div>
-                        <span className="text-sm font-medium text-foreground hidden md:block">{userName}</span>
+                        <span className="text-sm font-medium text-foreground hidden md:block truncate max-w-[120px]">{userName}</span>
                       </div>
                     </div>
                   </div>

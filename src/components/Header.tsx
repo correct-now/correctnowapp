@@ -78,8 +78,8 @@ const Header = () => {
             />
           </Link>
 
-          {/* Desktop nav — 32px gap between links */}
-          <nav className="hidden md:flex items-center gap-1">
+          {/* Desktop nav — visible at lg (1024px+) only */}
+          <nav className="hidden lg:flex items-center gap-1">
             {navItems.map(({ to, label }) => {
               const active = location.pathname === to || (to !== "/" && location.pathname.startsWith(to));
               return (
@@ -98,8 +98,8 @@ const Header = () => {
             })}
           </nav>
 
-          {/* Desktop CTAs — 44px height */}
-          <div className="hidden md:flex items-center gap-2">
+          {/* Desktop CTAs — visible at lg (1024px+) only */}
+          <div className="hidden lg:flex items-center gap-2">
             {!isAuthenticated ? (
               <>
                 <Link to="/auth">
@@ -122,9 +122,9 @@ const Header = () => {
             )}
           </div>
 
-          {/* Mobile hamburger */}
+          {/* Hamburger — shown below lg (tablet + mobile) */}
           <button
-            className="md:hidden p-2 rounded-[8px] text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+            className="lg:hidden p-2 rounded-[8px] text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
             onClick={() => setIsMobileOpen((v) => !v)}
             aria-label="Toggle menu"
           >
@@ -133,9 +133,9 @@ const Header = () => {
         </div>
       </div>
 
-      {/* Mobile menu */}
+      {/* Mobile/tablet menu */}
       <div
-        className={`md:hidden overflow-hidden transition-all duration-300 ease-in-out ${
+        className={`lg:hidden overflow-hidden transition-all duration-300 ease-in-out ${
           isMobileOpen ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
         }`}
       >
