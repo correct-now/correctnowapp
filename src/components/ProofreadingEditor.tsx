@@ -317,18 +317,20 @@ const LanguageDetectionPill = React.memo(({
   isDetecting: boolean;
   languageOptions: Array<{ code: string; name: string }>;
 }) => {
-  const displayCode = (language && language !== "auto") ? language : detectedLanguage;
+  // Show detected language when no explicit selection, otherwise show selected language
+  const isAutoDetected = (!language || language === "any" || language === "auto") &&
+    detectedLanguage && detectedLanguage !== "auto";
+  const displayCode = isAutoDetected ? detectedLanguage : language;
   const langObj = languageOptions.find((l) => l.code === displayCode);
-  const langName = displayCode === "any" ? "ANY" : (langObj ? langObj.name.split(" ")[0] : null);
+  const langName = displayCode === "any" ? null : (langObj ? langObj.name.split(" ")[0] : null);
   const pct = detectedConfidence > 0 ? Math.round(detectedConfidence * 100) : null;
-  const isDetected = !!(detectedLanguage && detectedLanguage !== "auto" && pct);
 
-  // In-flight: Gemini API call running
-  if (isDetecting && !langName) {
+  // In-flight: Gemini API call running (only show spinner when no language selected)
+  if (isDetecting && !langName && (!language || language === "any")) {
     return (
       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 text-xs text-blue-500 select-none">
         <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-        Detecting language…
+        Detecting…
       </span>
     );
   }
@@ -337,14 +339,16 @@ const LanguageDetectionPill = React.memo(({
     return null;
   }
 
-      return (
+  return (
     <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-none bg-gradient-to-r from-emerald-50 via-white to-cyan-50 border border-emerald-100 shadow-sm select-none">
-      <span className={`w-1.5 h-1.5 rounded-full ${isDetected ? "bg-emerald-500" : "bg-emerald-300"}`} />
-      <span className="text-[11px] font-semibold text-emerald-800">LANGUAGE</span>
-      <span className="text-[10px] text-emerald-700">|</span>
+      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+      <span className="text-[11px] font-semibold text-emerald-700">
+        {isAutoDetected ? "Detected" : "Language"}
+      </span>
+      <span className="text-[10px] text-emerald-600">:</span>
       <span className="text-[11px] font-semibold text-emerald-900">{langName}</span>
-      {isDetected && pct !== null && (
-        <span className="text-[10px] text-emerald-700 font-semibold">{pct}%</span>
+      {isAutoDetected && pct !== null && (
+        <span className="text-[10px] text-emerald-600 font-medium">{pct}%</span>
       )}
     </span>
   );
@@ -400,18 +404,17 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
   const speechInterimRef = useRef<string>("");
   const suggestionsRef = useRef<HTMLDivElement>(null);
   // ── Gemini Auto-detection ──────────────────────────────────────────────
+  // Always detect (isManualMode: false) so the pill can show the result even
+  // when the user hasn't explicitly chosen a language. onDetected only applies
+  // the result to the language state when in auto mode.
   const { detectedLanguage, detectedConfidence, isDetecting: isDetectingLanguage } = useLanguageDetection({
     text: inputText,
-    isManualMode: languageMode === "manual",
+    isManualMode: false,
     onDetected: (result) => {
       // Only auto-apply in auto mode — never override a manual selection
       if (languageMode === "manual") return;
       if (result.isReliable && result.language !== "auto" && result.language !== language) {
         setLanguage(result.language);
-        // NOTE: do NOT persist here — auto-detected langs must not set languageMode="manual" on next load.
-
-
-
       }
     },
   });
