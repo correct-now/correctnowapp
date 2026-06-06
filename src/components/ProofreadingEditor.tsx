@@ -1633,7 +1633,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                         highlightRef.current.scrollLeft = e.currentTarget.scrollLeft;
                       }
                     }}
-                    placeholder="Welcome! Paste or type your text here, and weâ€™ll proofread it professionally while preserving your meaning and tone."
+                    placeholder="Welcome! Paste or type your text here, and we'll proofread it professionally while preserving your meaning and tone."
                     className={`editor-textarea editor-input ${shouldBlinkInput ? 'blink-green' : ''}`}
                     disabled={isLoading}
                   />
