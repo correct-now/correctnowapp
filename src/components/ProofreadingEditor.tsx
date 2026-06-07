@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import LanguageSelector, { LANGUAGE_OPTIONS } from "./LanguageSelector";
-import { useLanguageDetection } from "@/hooks/use-language-detection";
 import { detectLanguageViaGemini, DETECTION_MIN_CHARS } from "@/lib/languageDetection";
 import WordCounter from "./WordCounter";
 import LoadingDots from "./LoadingDots";
@@ -367,7 +366,6 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
   const [editorDraft, setEditorDraft] = useState("");
   const [editorHtml, setEditorHtml] = useState("");
   const [acceptedTextHashes, setAcceptedTextHashes] = useState<string[]>([]);
-  const [lastDetectText, setLastDetectText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isLanguageOpen, setIsLanguageOpen] = useState(false);
@@ -388,22 +386,10 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
   const speechPulseRef = useRef<number | null>(null);
   const speechInterimRef = useRef<string>("");
   const suggestionsRef = useRef<HTMLDivElement>(null);
-  // ── Gemini Auto-detection ──────────────────────────────────────────────
-  // Always detect (isManualMode: false) so the pill can show the result even
-  // when the user hasn't explicitly chosen a language. onDetected only applies
-  // the result to the language state when in auto mode.
-  const { detectedLanguage, detectedConfidence, isDetecting: isDetectingLanguage } = useLanguageDetection({
-    text: inputText,
-    isManualMode: false,
-    onDetected: (result) => {
-      // Only auto-apply in auto mode — never override a manual selection
-      if (languageMode === "manual") return;
-      if (result.isReliable && result.language !== "auto" && result.language !== language) {
-        setLanguage(result.language);
-      }
-    },
-  });
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Language detection — shown ONLY after Check Text is clicked ──────────
+  const [detectedLanguageName, setDetectedLanguageName] = useState<string | null>(null);
+  const [isDetectingLanguage, setIsDetectingLanguage] = useState(false);
+  // ────────────────────────────────────────────────────────────────────────
 
   const uniqueLanguageOptions = Array.from(
     new Map(LANGUAGE_OPTIONS.map((lang) => [lang.code, lang])).values()
@@ -929,22 +915,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
       return;
     }
 
-    // ── Gemini language detection before proofread ──────────────────────────
-    // If language is still "auto" at click time (e.g. user clicked before the
-    // debounce fired, or first visit), call detect-language now so the proofread
-    // runs in the correct explicit language and the pill updates immediately.
-    let effectiveLanguage = language || "auto";
-    if (effectiveLanguage === "auto" && languageMode !== "manual" && textToCheck.length >= DETECTION_MIN_CHARS) {
-      const detected = await detectLanguageViaGemini(textToCheck);
-      if (detected.isReliable && detected.language !== "auto") {
-        effectiveLanguage = detected.language;
-        setLanguage(detected.language);
-        // Update detection state so the pill shows the result immediately
-        // (the hook will also settle on this value on next render)
-      }
-    }
-    // ───────────────────────────────────────────────────────────────────────
-
+    const effectiveLanguage = language || "any";
     setIsLoading(true);
     setHasResults(false);
     const normalizedInput = textToCheck.normalize("NFC");
@@ -1099,6 +1070,19 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
         }, 120);
       }
       toast.success("Text checked successfully!");
+
+      // ── Detect language AFTER successful check — fire & forget ────────────
+      if (textToCheck.length >= DETECTION_MIN_CHARS) {
+        setIsDetectingLanguage(true);
+        detectLanguageViaGemini(textToCheck).then((result) => {
+          if (result.isReliable && result.language) {
+            setDetectedLanguageName(result.language);
+          }
+        }).finally(() => {
+          setIsDetectingLanguage(false);
+        });
+      }
+      // ─────────────────────────────────────────────────────────────────────
     } catch (error) {
       const message = error instanceof Error ? error.message : "Something went wrong";
       toast.error(message);
@@ -1121,6 +1105,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
     setChanges([]);
     setHasResults(false);
     setDocId(undefined);
+    setDetectedLanguageName(null);
     checkPromptedRef.current = false;
     newDocPromptedRef.current = false;
     setShouldBlinkCheck(false);
@@ -1512,8 +1497,8 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                   <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
                     {/* Language detection pill — read-only, shows current language (Any default) */}
                     <LanguageDetectionPill
-                      detectedLanguage={detectedLanguage}
-                      detectedConfidence={detectedConfidence}
+                      detectedLanguage={detectedLanguageName}
+                      detectedConfidence={0.92}
                       isDetecting={isDetectingLanguage}
                     />
                     <div className="flex flex-col items-start gap-0.5 sm:gap-1 w-full sm:w-auto">
