@@ -83,8 +83,8 @@ const Index = () => {
   const [selectedArchivedIds, setSelectedArchivedIds] = useState<Set<string>>(new Set());
   const [docFilter, setDocFilter] = useState<"all" | "today" | "week" | "month">("all");
   const [regionalPricing, setRegionalPricing] = useState<RegionalPricing>(() => resolvePricing(""));
-  const getInlineEditorVisible = () => false;
-  const [isInlineEditorVisible, setIsInlineEditorVisible] = useState(getInlineEditorVisible);
+  const [isInlineEditorVisible, setIsInlineEditorVisible] = useState(false);
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [miniEditorText, setMiniEditorText] = useState("");
   const [miniEditorTitle, setMiniEditorTitle] = useState("Untitled Document");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -108,9 +108,7 @@ const Index = () => {
     open: boolean; top: number; left: number; changeIdx?: number; original: string;
   }>({ open: false, top: 0, left: 0, original: "" });
 
-  useEffect(() => {
-    setIsInlineEditorVisible(false);
-  }, []);
+  // isInlineEditorVisible starts false; set to true when a doc is opened on desktop
 
   // ── Gemini auto-detection for dashboard mini-editor ─────────────────────
   const {
@@ -472,13 +470,14 @@ const Index = () => {
       return;
     }
 
-    // On mobile/smaller screens the inline editor is hidden — open the full editor route instead
-    if (!isInlineEditorVisible) {
+    // Below xl (1280px) the right panel cannot fit — open the full editor instead
+    if (typeof window !== "undefined" && window.innerWidth < 1280) {
       navigate("/editor", { state: { id } });
       return;
     }
 
-    // Desktop/XL: keep inline editor behavior
+    // Desktop XL+: open in the inline right-panel editor
+    setIsInlineEditorVisible(true);
     setSelectedDocId(id);
     setMiniEditorTitle(doc.title || "Untitled Document");
     setMiniEditorText(doc.text || "");
@@ -793,105 +792,113 @@ const Index = () => {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-white">
-      {/* Upgrade to Premium Card — placed at top for visibility */}
-      {userProfile?.plan === "free" && (
-        <div className="px-3 pt-5 pb-2">
-          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-3 border border-blue-100">
-            <div className="flex items-center gap-2 mb-1.5">
-              <Crown className="w-4 h-4 text-amber-500" />
-              <span className="text-sm font-semibold text-gray-900">Upgrade to Premium</span>
-            </div>
-            <p className="text-xs text-gray-600 mb-2">
-              Unlock more words, advanced suggestions and premium features.
-            </p>
-            <Button
-              size="sm"
-              className="w-full bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg"
-              onClick={() => navigate("/pricing")}
-            >
-              Upgrade Now
-            </Button>
+      {/* User Profile Block */}
+      <div className="px-4 pt-5 pb-4 border-b border-gray-100">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-blue-500 text-white flex items-center justify-center text-base font-bold flex-shrink-0 shadow-sm">
+            {userName.charAt(0).toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gray-900 truncate">{userName}</p>
+            <p className="text-[11px] text-gray-400 truncate">{userEmail}</p>
           </div>
         </div>
-      )}
+        <div className="flex items-center gap-2">
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+            userProfile?.plan === "pro"
+              ? "bg-amber-50 text-amber-700 border border-amber-200"
+              : "bg-gray-100 text-gray-500 border border-gray-200"
+          }`}>
+            {userProfile?.plan === "pro" ? <Crown className="w-3 h-3" /> : null}
+            {userProfile?.plan === "pro" ? "Pro" : "Free"}
+          </span>
+          {userProfile?.plan === "free" && (
+            <button
+              onClick={() => navigate("/pricing")}
+              className="text-[11px] font-semibold text-primary hover:underline"
+            >
+              Upgrade →
+            </button>
+          )}
+        </div>
+      </div>
 
-      {/* Sidebar Navigation */}
-      <div className="py-4 flex-1">
-        <nav className="space-y-1 px-3">
-          <button
-            onClick={() => {
-              setSidebarView("docs");
-              setIsMobileSidebarOpen(false);
-            }}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-              sidebarView === "docs"
-                ? "bg-primary/10 text-primary border border-primary/20"
-                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-            }`}
-          >
-            <FileText className="w-[18px] h-[18px]" />
-            Documents
-          </button>
+      {/* Navigation */}
+      <div className="py-3 flex-1">
+        <p className="px-4 mb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Workspace</p>
+        <nav className="space-y-0.5 px-2">
+          {[
+            { label: "Documents", icon: FileText, view: "docs" as const, onClick: () => { setSidebarView("docs"); setIsMobileSidebarOpen(false); } },
+            { label: "Editor", icon: Pencil, view: null, onClick: () => { navigate("/editor"); setIsMobileSidebarOpen(false); } },
+            { label: "Archived", icon: Archive, view: "archived" as const, onClick: () => { setSidebarView("archived"); setIsMobileSidebarOpen(false); } },
+          ].map(({ label, icon: Icon, view, onClick }) => (
+            <button
+              key={label}
+              onClick={onClick}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                view && sidebarView === view
+                  ? "bg-primary/8 text-primary"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+              }`}
+            >
+              <Icon className={`w-4 h-4 flex-shrink-0 ${view && sidebarView === view ? "text-primary" : "text-gray-400"}`} />
+              {label}
+              {label === "Documents" && activeDocs.length > 0 && (
+                <span className="ml-auto text-[11px] font-semibold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">
+                  {activeDocs.length}
+                </span>
+              )}
+            </button>
+          ))}
+
+          <div className="h-3" />
+          <p className="px-3 mb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Account</p>
 
           <button
-            onClick={() => {
-              navigate("/editor");
-              setIsMobileSidebarOpen(false);
-            }}
-            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-all"
-          >
-            <Pencil className="w-[18px] h-[18px]" />
-            Editor
-          </button>
-
-          <button
-            onClick={() => {
-              setSidebarView("archived");
-              setIsMobileSidebarOpen(false);
-            }}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-              sidebarView === "archived"
-                ? "bg-primary/10 text-primary border border-primary/20"
-                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-            }`}
-          >
-            <Archive className="w-[18px] h-[18px]" />
-            Archived
-          </button>
-          
-          <button
-            onClick={() => {
-              setSidebarView("account");
-              setIsMobileSidebarOpen(false);
-            }}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+            onClick={() => { setSidebarView("account"); setIsMobileSidebarOpen(false); }}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
               sidebarView === "account"
-                ? "bg-primary/10 text-primary border border-primary/20"
+                ? "bg-primary/8 text-primary"
                 : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
             }`}
           >
-            <User className="w-[18px] h-[18px]" />
-            Account
+            <User className={`w-4 h-4 flex-shrink-0 ${sidebarView === "account" ? "text-primary" : "text-gray-400"}`} />
+            My Account
           </button>
 
-          <div className="h-2" />
-
           <button
-            onClick={() => {
-              handleSignOut();
-              setIsMobileSidebarOpen(false);
-            }}
-            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-all"
+            onClick={() => { handleSignOut(); setIsMobileSidebarOpen(false); }}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-red-50 hover:text-red-600 transition-all"
           >
-            <LogOut className="w-[18px] h-[18px]" />
+            <LogOut className="w-4 h-4 flex-shrink-0 text-gray-400" />
             Sign out
           </button>
         </nav>
       </div>
 
-      {/* Footer */}
-      <div className="px-4 pb-4">
-        <p className="text-[10px] text-gray-400">&copy; 2026 CorrectNow. All rights reserved.</p>
+      {/* Upgrade CTA for free users */}
+      {userProfile?.plan === "free" && (
+        <div className="px-3 pb-4">
+          <div className="bg-gradient-to-br from-indigo-500 to-blue-600 rounded-xl p-4 text-white">
+            <div className="flex items-center gap-2 mb-1">
+              <Zap className="w-4 h-4 text-yellow-300" />
+              <span className="text-sm font-bold">Go Pro</span>
+            </div>
+            <p className="text-[11px] text-blue-100 mb-3 leading-relaxed">
+              5,000 words per check, 25,000 credits/month, priority support.
+            </p>
+            <button
+              onClick={() => navigate("/pricing")}
+              className="w-full bg-white text-indigo-600 text-xs font-bold py-2 rounded-lg hover:bg-blue-50 transition-colors"
+            >
+              See Plans
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="px-4 pb-3">
+        <p className="text-[10px] text-gray-300">&copy; 2026 CorrectNow</p>
       </div>
     </div>
   );
@@ -916,65 +923,75 @@ const Index = () => {
           {isAuthenticated ? (
             // Authenticated Dashboard Layout
             <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Dashboard Top Nav - matches old Header sizing */}
-              <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex-shrink-0">
-                <div className="ds-container">
-                  <div className="flex items-center justify-between h-[72px]">
-                    <div className="flex items-center">
-                      <Link to="/" className="flex items-center lg:pl-6">
-                        <img
-                          src="/Icon/correctnow logo final2.png"
-                          alt="CorrectNow"
-                          className="brand-logo"
-                          loading="eager"
-                        />
+              {/* Dashboard Top Nav — clean logged-in header */}
+              <header className="sticky top-0 z-50 w-full border-b border-gray-100 bg-white/95 backdrop-blur flex-shrink-0">
+                <div className="flex items-center justify-between h-14 px-4 lg:px-6">
+                  {/* Left: Logo + collapse toggle */}
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setLeftCollapsed(v => !v)}
+                      className="hidden lg:flex w-8 h-8 items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-700"
+                      title={leftCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                    >
+                      <Menu className="w-4 h-4" />
+                    </button>
+                    <Link to="/" className="flex items-center">
+                      <img src="/Icon/correctnow logo final2.png" alt="CorrectNow" className="brand-logo" loading="eager" />
+                    </Link>
+                  </div>
+
+                  {/* Center: New doc + quick links */}
+                  <div className="hidden lg:flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      className="h-8 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg px-3 gap-1.5"
+                      onClick={() => navigate("/editor")}
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      New Doc
+                    </Button>
+                    {[
+                      { label: "Pricing", to: "/pricing" },
+                      { label: "Blog", to: "/blog" },
+                    ].map(item => (
+                      <Link key={item.label} to={item.to} className="text-sm text-gray-500 hover:text-gray-900 transition-colors px-2">
+                        {item.label}
                       </Link>
-                    </div>
+                    ))}
+                  </div>
 
-                    <nav className="hidden lg:flex items-center justify-center gap-4 xl:gap-6">
-                      {[
-                        { label: "Dashboard", to: "/" },
-                        { label: "Features", to: "/features" },
-                        { label: "Pricing", to: "/pricing" },
-                        { label: "Languages", to: "/languages" },
-                        { label: "Blog", to: "/blog" },
-                        { label: "Contact", to: "/contact" },
-                      ].map((item) => (
-                        <Link
-                          key={item.label}
-                          to={item.to}
-                          className={`text-sm font-medium transition-colors ${
-                            (item.to === "/" && location.pathname === "/") || (item.to !== "/" && location.pathname.startsWith(item.to))
-                              ? "text-foreground"
-                              : "text-muted-foreground hover:text-foreground"
-                          }`}
-                        >
-                          {item.label}
-                        </Link>
-                      ))}
-                    </nav>
-
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-semibold flex-shrink-0">
-                          {userName.charAt(0).toUpperCase()}
-                        </div>
-                        <span className="text-sm font-medium text-foreground hidden md:block truncate max-w-[120px]">{userName}</span>
+                  {/* Right: Plan badge + user avatar */}
+                  <div className="flex items-center gap-3">
+                    <span className={`hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                      userProfile?.plan === "pro"
+                        ? "bg-amber-50 text-amber-700 border border-amber-200"
+                        : "bg-gray-100 text-gray-500"
+                    }`}>
+                      {userProfile?.plan === "pro" && <Crown className="w-3 h-3" />}
+                      {userProfile?.plan === "pro" ? "Pro" : "Free"}
+                    </span>
+                    <button
+                      onClick={() => { setSidebarView("account"); }}
+                      className="flex items-center gap-2 group"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-blue-500 text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
+                        {userName.charAt(0).toUpperCase()}
                       </div>
-                    </div>
+                      <span className="text-sm font-medium text-gray-700 hidden md:block group-hover:text-primary transition-colors truncate max-w-[100px]">{userName}</span>
+                    </button>
                   </div>
                 </div>
               </header>
 
               {/* Three Column Layout */}
-              <div className="flex-1 flex overflow-hidden">
-              {/* Desktop Left Sidebar */}
-              <div className="hidden lg:flex w-[200px] border-r border-gray-100 flex-col flex-shrink-0">
+              <div className="flex-1 flex overflow-hidden bg-[#F8FAFC]">
+              {/* Desktop Left Sidebar — collapsible */}
+              <div className={`hidden lg:flex border-r border-gray-100 flex-col flex-shrink-0 bg-white transition-all duration-200 ${leftCollapsed ? "w-0 overflow-hidden border-0" : "w-[220px]"}`}>
                 <SidebarContent />
               </div>
 
               {/* Center Panel - Documents */}
-              <div className="flex-1 xl:max-w-[420px] 2xl:max-w-[460px] xl:border-r border-gray-100 flex flex-col overflow-hidden">
+              <div className="flex-1 xl:w-[280px] xl:flex-none xl:border-r border-gray-100 flex flex-col overflow-hidden bg-white">
                 {/* Mobile Header with Hamburger */}
                 <div className="lg:hidden border-b border-gray-100 bg-white p-3 flex items-center gap-3">
                   <Sheet open={isMobileSidebarOpen} onOpenChange={setIsMobileSidebarOpen}>
@@ -994,25 +1011,28 @@ const Index = () => {
 
                 {(sidebarView === "docs" || sidebarView === "archived") && (
                   <>
-                    <div className="px-5 pt-5 pb-3">
-                      <div className="flex items-center justify-between gap-3 mb-4">
-                        <h1 className="text-xl font-bold text-gray-900">
+                    <div className="px-3 pt-3 pb-2">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <h1 className="text-sm font-bold text-gray-900">
                           {sidebarView === "docs" ? "Documents" : "Archived"}
+                          {sidebarView === "docs" && activeDocs.length > 0 && (
+                            <span className="ml-1.5 text-[11px] font-semibold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">{activeDocs.length}</span>
+                          )}
                         </h1>
                       </div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="relative flex-1">
-                          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <div className="relative flex-1 min-w-0">
+                          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                           <Input
-                            className="pl-9 h-9 bg-gray-50 border-gray-200 text-sm rounded-lg"
-                            placeholder="Search documents..."
+                            className="pl-8 h-8 bg-gray-50 border-gray-100 text-xs rounded-lg"
+                            placeholder="Search…"
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
                           />
                         </div>
                         {sidebarView === "docs" && (
-                          <Button size="sm" className="h-9 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg whitespace-nowrap" onClick={() => navigate("/editor")}>
-                            + New Document
+                          <Button size="sm" className="h-8 w-8 p-0 bg-primary hover:bg-primary/90 text-white rounded-lg flex-shrink-0" onClick={() => navigate("/editor")} title="New document">
+                            <span className="text-base leading-none">+</span>
                           </Button>
                         )}
                       </div>
@@ -1167,70 +1187,68 @@ const Index = () => {
                         <div>
                           {sections.map((section) => (
                             <div key={section}>
-                              <div className="px-5 pt-4 pb-2 text-sm font-semibold text-gray-400 uppercase tracking-wider">{section}</div>
+                              <div className="px-3 pt-3 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">{section}</div>
                               <div className="divide-y divide-gray-50">
                                 {filtered
                                   .filter((docItem) => docItem.section === section)
-                                  .map((docItem) => (
+                                  .map((docItem) => {
+                                    const isSelected = selectedDocId === docItem.id;
+                                    const wordCount = docItem.text?.split(/\s+/).filter(Boolean).length || 0;
+                                    return (
                                     <div
                                       key={docItem.id}
-                                      className={`group flex items-center gap-3 px-4 py-3 sm:px-5 sm:py-3 rounded-xl border border-gray-100 bg-white shadow-sm hover:shadow transition-all sm:border-0 sm:rounded-none sm:shadow-none cursor-pointer ${
-                                        selectedDocId === docItem.id
-                                          ? "bg-primary/5 border-l-[3px] border-l-primary"
-                                          : "hover:bg-blue-50/50 border-l-[3px] border-l-transparent"
+                                      className={`group relative flex items-center gap-2.5 px-3 py-3 cursor-pointer transition-all ${
+                                        isSelected ? "bg-primary/5" : "hover:bg-gray-50"
                                       }`}
                                       onClick={() => openDoc(docItem.id)}
                                     >
-                                      <button
-                                        type="button"
-                                        aria-label={selectedDocIds.has(docItem.id) ? "Deselect" : "Select"}
-                                        onClick={(e) => { e.stopPropagation(); toggleDocSelected(docItem.id, !selectedDocIds.has(docItem.id)); }}
-                                        className={`hidden sm:flex flex-shrink-0 h-4 w-4 rounded-full border transition-colors items-center justify-center text-[10px] font-semibold ${selectedDocIds.has(docItem.id)
-                                          ? "border-primary bg-primary/10 text-primary"
-                                          : "border-gray-300 bg-white text-transparent"}
-                                        `}
-                                      >
-                                        ✓
-                                      </button>
-                                      <div className="w-14 h-14 sm:w-9 sm:h-9 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
-                                        <FileText className="w-5 h-5 sm:w-4 sm:h-4 text-primary" />
+                                      {/* Active indicator bar — absolutely positioned, no border conflicts */}
+                                      <div className={`absolute left-0 top-1 bottom-1 w-[3px] rounded-r-full transition-all duration-150 ${
+                                        isSelected ? "bg-primary" : "bg-transparent group-hover:bg-primary/20"
+                                      }`} />
+
+                                      {/* Doc icon */}
+                                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+                                        isSelected ? "bg-primary text-white" : "bg-blue-50 text-primary"
+                                      }`}>
+                                        <FileText className="w-3.5 h-3.5" />
                                       </div>
+
+                                      {/* Text content */}
                                       <div className="flex-1 min-w-0">
-                                        <p className="text-base sm:text-base font-semibold text-gray-900 line-clamp-2 sm:line-clamp-1 leading-tight group-hover:text-primary transition-colors">
+                                        <p className={`text-sm font-semibold leading-snug truncate transition-colors ${
+                                          isSelected ? "text-primary" : "text-gray-900 group-hover:text-primary"
+                                        }`}>
                                           {docItem.title}
                                         </p>
-                                        <p className="text-xs sm:text-sm text-gray-500 line-clamp-1 mt-0.5">{docItem.preview}</p>
-                                        <p className="text-xs text-gray-400 mt-0.5">
-                                          {docItem.updated} &bull; {docItem.text?.split(/\s+/).filter(Boolean).length || 0} words
+                                        <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                                          {wordCount} word{wordCount !== 1 ? "s" : ""} &bull; {docItem.updated}
                                         </p>
                                       </div>
-                                      <div className="flex items-center gap-2 flex-shrink-0">
-                                        <span className="text-sm font-bold text-emerald-600 bg-emerald-50 rounded-full px-2 py-0.5">
-                                          {(() => {
-                                            let h = 0;
-                                            for (let i = 0; i < docItem.id.length; i++) h = ((h << 5) - h + docItem.id.charCodeAt(i)) | 0;
-                                            return 85 + Math.abs(h % 15);
-                                          })()}
-                                        </span>
-                                        <DropdownMenu>
-                                          <DropdownMenuTrigger asChild>
-                                            <button className="p-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                                              <MoreVertical className="w-4 h-4 text-gray-400" />
-                                            </button>
-                                          </DropdownMenuTrigger>
-                                          <DropdownMenuContent align="end">
-                                            <DropdownMenuItem onClick={async (e) => {
-                                              e.stopPropagation();
-                                              await archiveDocById(docItem.id);
-                                              toast.success("Moved to Archived");
-                                            }}>
-                                              <Archive className="w-4 h-4 mr-2" /> Archive
-                                            </DropdownMenuItem>
-                                          </DropdownMenuContent>
-                                        </DropdownMenu>
-                                      </div>
+
+                                      {/* Menu — visible on hover only */}
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <button
+                                            className="p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-100 flex-shrink-0"
+                                            onClick={(e) => e.stopPropagation()}
+                                          >
+                                            <MoreVertical className="w-3.5 h-3.5 text-gray-400" />
+                                          </button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                          <DropdownMenuItem onClick={async (e) => {
+                                            e.stopPropagation();
+                                            await archiveDocById(docItem.id);
+                                            toast.success("Moved to Archived");
+                                          }}>
+                                            <Archive className="w-4 h-4 mr-2" /> Archive
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
                                     </div>
-                                  ))}
+                                    );
+                                  })}
                               </div>
                             </div>
                           ))}
@@ -1248,67 +1266,114 @@ const Index = () => {
                         <div className="w-6 h-6 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                       </div>
                     ) : (
-                      <div className="max-w-2xl space-y-6">
+                      <div className="max-w-2xl space-y-5">
+
+                        {/* Profile Hero Card */}
+                        <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-5 text-white">
+                          <div className="flex items-center gap-4 mb-4">
+                            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center text-2xl font-bold shadow-lg flex-shrink-0">
+                              {userName.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-base font-bold text-white">{userName}</p>
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                                  userProfile?.plan === "pro"
+                                    ? "bg-amber-400/20 text-amber-300 border border-amber-400/30"
+                                    : "bg-white/10 text-white/70 border border-white/20"
+                                }`}>
+                                  {userProfile?.plan === "pro" && <Crown className="w-3 h-3" />}
+                                  {userProfile?.plan === "pro" ? "Pro" : "Free"}
+                                </span>
+                              </div>
+                              <p className="text-sm text-slate-300 truncate mt-0.5">{userEmail}</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-3 gap-3 pt-3 border-t border-white/10">
+                            <div>
+                              <p className="text-[11px] text-slate-400 mb-0.5">Documents</p>
+                              <p className="text-lg font-bold text-white">{activeDocs.length}</p>
+                            </div>
+                            <div>
+                              <p className="text-[11px] text-slate-400 mb-0.5">Word Limit</p>
+                              <p className="text-lg font-bold text-white">{(userProfile?.wordLimit || 200).toLocaleString()}</p>
+                            </div>
+                            <div>
+                              <p className="text-[11px] text-slate-400 mb-0.5">Credits Left</p>
+                              <p className="text-lg font-bold text-white">
+                                {Math.max(0, (userProfile?.credits || 0) - (userProfile?.creditsUsed || 0)).toLocaleString()}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Free daily limit notice */}
                         {(() => {
                           const effective = getEffectivePlan(userProfile);
                           return isAuthenticated && effective.planKey === "free";
                         })() && (
-                          <Card>
-                            <CardContent className="p-6">
-                              <h3 className="text-base font-semibold text-foreground mb-2">Free daily limit</h3>
-                              <p className="text-sm text-muted-foreground">
-                                Free users can check up to 300 words per day. You can continue tomorrow.
-                              </p>
-                            </CardContent>
-                          </Card>
+                          <div className="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-xl p-4">
+                            <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                              <Zap className="w-4 h-4 text-blue-600" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-blue-900">Daily limit: 300 words</p>
+                              <p className="text-xs text-blue-600 mt-0.5">Free users can check up to 300 words per day. Resets at midnight.</p>
+                            </div>
+                          </div>
                         )}
-                        <Card>
-                          <CardContent className="p-6">
-                            <h3 className="text-base font-semibold text-foreground mb-4">Profile Information</h3>
-                            <div className="space-y-4">
-                              <div className="flex items-center justify-between">
-                                <span className="text-sm text-muted-foreground">Email</span>
-                                <span className="text-sm font-medium text-foreground">{userEmail}</span>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
 
-                        <Card>
-                          <CardContent className="p-6">
-                            <h3 className="text-base font-semibold text-foreground mb-4">Usage Statistics</h3>
-                            <div className="space-y-4">
-                              <div className="flex items-center justify-between">
-                                <span className="text-sm text-muted-foreground">Word Limit</span>
-                                <span className="text-sm font-medium text-foreground">{userProfile?.wordLimit?.toLocaleString() || "1,000"}</span>
-                              </div>
-                              <div className="flex items-center justify-between">
-                                <span className="text-sm text-muted-foreground">Credits Used</span>
-                                <span className="text-sm font-medium text-foreground">{userProfile?.creditsUsed?.toLocaleString() || "0"}</span>
-                              </div>
-                              <div>
-                                <div className="flex items-center justify-between mb-2">
-                                  <span className="text-sm text-muted-foreground">Usage</span>
-                                  <span className="text-sm font-medium text-foreground">
-                                    {Math.min(100, ((userProfile?.creditsUsed || 0) / (userProfile?.wordLimit || 1000)) * 100).toFixed(1)}%
-                                  </span>
-                                </div>
-                                <div className="w-full bg-secondary rounded-full h-2">
-                                  <div 
-                                    className="bg-primary h-2 rounded-full transition-all" 
-                                    style={{ 
-                                      width: `${Math.min(100, ((userProfile?.creditsUsed || 0) / (userProfile?.wordLimit || 1000)) * 100)}%` 
-                                    }}
-                                  />
-                                </div>
-                              </div>
+                        {/* Usage Card */}
+                        <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                          <div className="flex items-center gap-2 mb-4">
+                            <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center">
+                              <TrendingUp className="w-4 h-4 text-emerald-600" />
                             </div>
-                          </CardContent>
-                        </Card>
+                            <h3 className="text-sm font-bold text-gray-900">Usage Statistics</h3>
+                          </div>
+                          <div className="space-y-4">
+                            {(() => {
+                              const used = userProfile?.creditsUsed || 0;
+                              const limit = userProfile?.wordLimit || 200;
+                              const pct = Math.min(100, Math.round((used / limit) * 100));
+                              return (
+                                <>
+                                  <div>
+                                    <div className="flex items-center justify-between mb-1.5">
+                                      <span className="text-xs font-medium text-gray-500">Credits used</span>
+                                      <span className="text-xs font-bold text-gray-900">{used.toLocaleString()} / {limit.toLocaleString()}</span>
+                                    </div>
+                                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                                      <div
+                                        className={`h-full rounded-full transition-all ${pct > 80 ? "bg-red-500" : pct > 50 ? "bg-amber-500" : "bg-emerald-500"}`}
+                                        style={{ width: `${pct}%` }}
+                                      />
+                                    </div>
+                                    <p className="text-[11px] text-gray-400 mt-1">{pct}% used</p>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div className="bg-gray-50 rounded-xl p-3">
+                                      <p className="text-[11px] text-gray-400 mb-0.5">Word limit</p>
+                                      <p className="text-base font-bold text-gray-900">{limit.toLocaleString()}</p>
+                                    </div>
+                                    <div className="bg-gray-50 rounded-xl p-3">
+                                      <p className="text-[11px] text-gray-400 mb-0.5">Credits used</p>
+                                      <p className="text-base font-bold text-gray-900">{used.toLocaleString()}</p>
+                                    </div>
+                                  </div>
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </div>
 
-                        <Card>
-                          <CardContent className="p-6">
-                            <h3 className="text-base font-semibold text-foreground mb-4">Subscription</h3>
+                        <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                          <div className="flex items-center gap-2 mb-4">
+                            <div className="w-7 h-7 rounded-lg bg-violet-50 flex items-center justify-center">
+                              <CreditCard className="w-4 h-4 text-violet-600" />
+                            </div>
+                            <h3 className="text-sm font-bold text-gray-900">Subscription</h3>
+                          </div>
                             <div className="space-y-3">
                               <div className="space-y-2 text-sm">
                                 {(() => {
@@ -1461,12 +1526,15 @@ const Index = () => {
                                 Add-on credits are valid for 30 days.
                               </p>
                             </div>
-                          </CardContent>
-                        </Card>
+                        </div>
 
-                        <Card>
-                          <CardContent className="p-6">
-                            <h3 className="text-base font-semibold text-foreground mb-4">Account Security</h3>
+                        <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                          <div className="flex items-center gap-2 mb-4">
+                            <div className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center">
+                              <Shield className="w-4 h-4 text-red-500" />
+                            </div>
+                            <h3 className="text-sm font-bold text-gray-900">Account Security</h3>
+                          </div>
                             <div className="space-y-3">
                               <Button
                                 variant="destructive"
@@ -1476,17 +1544,17 @@ const Index = () => {
                                 Delete Account Permanently
                               </Button>
                             </div>
-                          </CardContent>
-                        </Card>
+                        </div>
 
                         {userProfile?.plan === "free" && (
-                          <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
-                            <CardContent className="p-6">
-                              <h4 className="text-base font-semibold text-foreground mb-2">Upgrade to Pro</h4>
-                              <p className="text-sm text-muted-foreground mb-4">Get unlimited checks and advanced features</p>
-                              <Button onClick={() => navigate("/pricing")}>View Plans</Button>
-                            </CardContent>
-                          </Card>
+                          <div className="bg-gradient-to-br from-indigo-500 to-blue-600 rounded-2xl p-5 text-white">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Zap className="w-4 h-4 text-yellow-300" />
+                              <span className="text-sm font-bold">Upgrade to Pro</span>
+                            </div>
+                            <p className="text-[13px] text-blue-100 mb-4 leading-relaxed">Get 5,000 words per check, 25,000 credits/month and priority support.</p>
+                            <Button onClick={() => navigate("/pricing")} className="w-full bg-white text-indigo-700 hover:bg-blue-50 font-bold">View Plans</Button>
+                          </div>
                         )}
 
                         <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
@@ -1523,11 +1591,11 @@ const Index = () => {
               </div>
 
               {/* Right Panel - Editor + Suggestions (hidden on smaller screens) */}
-              <div className={`flex-1 flex-row bg-white ${isInlineEditorVisible ? "hidden xl:flex" : "hidden"}`}>
+              <div className={`flex-1 flex-row bg-[#F8FAFC] ${isInlineEditorVisible ? "hidden xl:flex" : "hidden"}`}>
                 {/* Editor Area */}
-                <div className="flex-1 flex flex-col min-w-0">
+                <div className="flex-1 flex flex-col min-w-0 m-3 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                   {/* Editor Header */}
-                  <div className="px-5 py-3 border-b border-gray-100">
+                  <div className="px-5 py-3 border-b border-gray-100 bg-white">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         {isEditingTitle ? (
@@ -1657,162 +1725,171 @@ const Index = () => {
                     </div>
                   </div>
 
-                  {/* Editor Bottom Bar */}
-                  <div className="px-5 py-2.5 border-t border-gray-100 flex items-center justify-between text-sm text-gray-500">
-                    
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm">{miniWordCount} words</span>
-                      <span className="text-sm">{miniEditorText.length} characters</span>
-                      <button
-                        className="text-primary hover:text-primary/80 font-medium transition-colors"
-                        onClick={() => navigate("/editor", { state: selectedDocId ? { id: selectedDocId } : { text: miniEditorText } })}
-                      >
-                        Open in Editor
-                      </button>
+                  {/* Editor Bottom Stats Bar */}
+                  <div className="px-5 py-2 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between">
+                    <div className="flex items-center gap-4 text-[11px] text-gray-400 font-medium">
+                      <span><span className="text-gray-700 font-semibold">{miniWordCount}</span> words</span>
+                      <span className="text-gray-200">|</span>
+                      <span><span className="text-gray-700 font-semibold">{miniEditorText.length}</span> chars</span>
+                      <span className="text-gray-200">|</span>
+                      <span><span className="text-gray-700 font-semibold">{Math.max(1, Math.ceil(miniWordCount / 200))}</span> min read</span>
                     </div>
+                    <button
+                      className="text-[11px] text-primary hover:text-primary/80 font-semibold transition-colors flex items-center gap-1"
+                      onClick={() => navigate("/editor", { state: selectedDocId ? { id: selectedDocId } : { text: miniEditorText } })}
+                    >
+                      Open Full Editor →
+                    </button>
                   </div>
                 </div>
 
-                {/* Suggestions Sidebar */}
-                <div className={`w-[260px] 2xl:w-[280px] border-l border-gray-100 flex-shrink-0 overflow-auto bg-gray-50/50 ${isInlineEditorVisible ? "block" : "hidden"}`}>
-                  <div className="p-5">
-                    {/* Suggestions Header */}
-                    <div className="flex items-center gap-2 mb-5">
-                      <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <BookOpen className="w-4 h-4 text-primary" />
+                {/* Suggestions Panel */}
+                <div className={`w-[270px] flex-shrink-0 overflow-auto bg-white m-3 ml-0 rounded-2xl border border-gray-100 shadow-sm ${isInlineEditorVisible ? "block" : "hidden"}`}>
+                  {/* Header */}
+                  <div className="px-4 pt-4 pb-3 border-b border-gray-100">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-primary" />
+                        <h3 className="text-sm font-bold text-gray-900">Suggestions</h3>
                       </div>
-                      <h3 className="text-base font-bold text-gray-900">Suggestions</h3>
+                      {miniPendingChanges.length > 0 && (
+                        <button
+                          className="text-[11px] font-bold text-white bg-emerald-500 hover:bg-emerald-600 px-2.5 py-1 rounded-lg transition-colors"
+                          onClick={handleMiniAcceptAll}
+                        >
+                          Accept All
+                        </button>
+                      )}
                     </div>
+                  </div>
 
+                  <div className="p-4">
                     {miniIsLoading ? (
-                      <div className="flex flex-col items-center justify-center py-10 gap-3">
-                        <div className="w-6 h-6 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-                        <p className="text-xs text-gray-500">Checking your text...</p>
+                      <div className="flex flex-col items-center justify-center py-12 gap-3">
+                        <div className="w-8 h-8 border-[3px] border-primary border-t-transparent rounded-full animate-spin" />
+                        <p className="text-xs text-gray-400 font-medium">Analysing your text…</p>
                       </div>
                     ) : (
                       <>
-                        {/* Accuracy Score */}
-                        <div className="mb-5">
-                          <p className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Accuracy Score</p>
-                          <div className="flex items-center gap-4">
-                            <div className="relative w-16 h-16">
-                              <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
-                                <circle cx="18" cy="18" r="15.5" fill="none" stroke="#e5e7eb" strokeWidth="3" />
-                                <circle
-                                  cx="18" cy="18" r="15.5" fill="none"
-                                  stroke={miniAccuracyScore >= 80 ? "#22c55e" : miniAccuracyScore >= 50 ? "#f59e0b" : "#ef4444"}
-                                  strokeWidth="3"
-                                  strokeDasharray="97.4"
-                                  strokeDashoffset={97.4 - (97.4 * miniAccuracyScore) / 100}
-                                  strokeLinecap="round"
-                                />
-                              </svg>
-                              <div className="absolute inset-0 flex items-center justify-center">
-                                <span className="text-sm font-bold text-gray-900">{miniHasResults ? `${miniAccuracyScore}%` : "—"}</span>
-                              </div>
-                            </div>
-                            <div>
-                              <p className="text-base font-semibold text-gray-900">
-                                {!miniHasResults ? "Ready" : miniPendingChanges.length === 0 ? "Looks good!" : `${miniPendingChanges.length} issue${miniPendingChanges.length === 1 ? "" : "s"}`}
-                              </p>
-                              <p className="text-sm text-emerald-600">
-                                {!miniHasResults ? "Paste text & click Check" : miniPendingChanges.length === 0 ? "No issues found" : "Review suggestions below"}
-                              </p>
+                        {/* Large Circular Score */}
+                        <div className="flex flex-col items-center py-4 mb-4">
+                          <div className="relative w-28 h-28 mb-3">
+                            <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                              <circle cx="50" cy="50" r="42" fill="none" stroke="#F1F5F9" strokeWidth="8" />
+                              <circle
+                                cx="50" cy="50" r="42" fill="none"
+                                stroke={miniAccuracyScore >= 80 ? "#22c55e" : miniAccuracyScore >= 50 ? "#f59e0b" : "#ef4444"}
+                                strokeWidth="8"
+                                strokeDasharray="263.9"
+                                strokeDashoffset={miniHasResults ? 263.9 - (263.9 * miniAccuracyScore) / 100 : 263.9}
+                                strokeLinecap="round"
+                                style={{ transition: "stroke-dashoffset 0.6s ease" }}
+                              />
+                            </svg>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center">
+                              <span className="text-2xl font-black text-gray-900 leading-none">
+                                {miniHasResults ? miniAccuracyScore : "—"}
+                              </span>
+                              {miniHasResults && <span className="text-[10px] font-semibold text-gray-400 mt-0.5">/ 100</span>}
                             </div>
                           </div>
+                          <p className={`text-sm font-bold ${miniAccuracyScore >= 90 ? "text-emerald-600" : miniAccuracyScore >= 70 ? "text-amber-600" : miniHasResults ? "text-red-500" : "text-gray-400"}`}>
+                            {!miniHasResults ? "Ready to check" : miniAccuracyScore >= 90 ? "Excellent ✨" : miniAccuracyScore >= 70 ? "Good 👍" : "Needs work"}
+                          </p>
+                          <p className="text-[11px] text-gray-400 mt-0.5">
+                            {!miniHasResults ? "Click Check Text to analyse" : miniPendingChanges.length === 0 ? "No issues found!" : `${miniPendingChanges.length} suggestion${miniPendingChanges.length === 1 ? "" : "s"} remaining`}
+                          </p>
                         </div>
 
-                        {/* Suggestion Count */}
-                        <div className="flex items-center justify-between mb-5 pb-4 border-b border-gray-200">
-                          <span className="text-sm text-gray-500">
-                            {miniChanges.filter((c) => c.status !== "pending").length} of {miniChanges.length} suggestions
-                          </span>
-                          <div className="flex items-center gap-2">
-                            {miniPendingChanges.length > 0 && (
-                              <button
-                                className="text-xs font-semibold text-white bg-emerald-500 hover:bg-emerald-600 px-3 py-1 rounded-md transition-colors"
-                                onClick={handleMiniAcceptAll}
-                              >
-                                Accept All
-                              </button>
-                            )}
-                            {miniPendingChanges.length === 0 && miniHasResults && (
-                              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Categories */}
-                        <div className="space-y-3 mb-6">
+                        {/* Category breakdown chips */}
+                        <div className="grid grid-cols-2 gap-2 mb-4">
                           {[
-                            { icon: Type, label: "Grammar", key: "grammar" },
-                            { icon: BookOpen, label: "Spelling", key: "spelling" },
-                            { icon: CheckCircle2, label: "Punctuation", key: "punctuation" },
-                            { icon: Eye, label: "Clarity", key: "clarity" },
-                            { icon: Sparkles, label: "Style", key: "style" },
-                            { icon: MessageSquare, label: "Other", key: "other" },
-                          ].map(({ icon: Icon, label, key }) => {
+                            { label: "Grammar", key: "grammar", color: "bg-blue-50 text-blue-700 border-blue-100" },
+                            { label: "Spelling", key: "spelling", color: "bg-red-50 text-red-600 border-red-100" },
+                            { label: "Clarity", key: "clarity", color: "bg-violet-50 text-violet-700 border-violet-100" },
+                            { label: "Style", key: "style", color: "bg-amber-50 text-amber-700 border-amber-100" },
+                          ].map(({ label, key, color }) => {
                             const count = miniPendingChanges.filter((c) => (c.type || "grammar").toLowerCase().includes(key)).length;
                             return (
-                              <div key={label} className="flex items-center justify-between">
-                                <div className="flex items-center gap-2.5">
-                                  <Icon className="w-4 h-4 text-gray-400" />
-                                  <span className="text-base text-gray-700">{label}</span>
-                                </div>
-                                <span className={`text-base font-semibold ${count > 0 ? "text-amber-600" : "text-gray-900"}`}>{count}</span>
+                              <div key={label} className={`flex items-center justify-between px-2.5 py-2 rounded-xl border text-[11px] font-semibold ${color}`}>
+                                <span>{label}</span>
+                                <span className="font-black">{count}</span>
                               </div>
                             );
                           })}
                         </div>
 
-                        {/* Individual Suggestions */}
-                        {miniPendingChanges.length > 0 && (
-                          <div className="space-y-3 mb-6">
-                            <p className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Changes</p>
-                            {miniChanges.map((change, originalIdx) => {
-                              if (change.status !== "pending") return null;
-                              return (
-                              <div key={originalIdx} className="bg-white rounded-lg border border-gray-200 p-3 space-y-2">
-                                <div className="flex items-start justify-between gap-2">
-                                  <div className="flex-1 min-w-0">
-                                    <span className="text-sm font-medium text-red-500 line-through">{change.original}</span>
-                                    <span className="text-sm text-gray-400 mx-1">→</span>
-                                    <span className="text-sm font-medium text-emerald-600">{change.corrected}</span>
-                                  </div>
-                                </div>
-                                {change.explanation && (
-                                  <p className="text-xs text-gray-500 leading-relaxed">{change.explanation}</p>
-                                )}
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    className="text-xs font-medium text-emerald-600 hover:text-emerald-700 px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 transition-colors"
-                                    onClick={() => handleMiniAccept(originalIdx)}
-                                  >
-                                    Accept
-                                  </button>
-                                  <button
-                                    className="text-xs font-medium text-gray-500 hover:text-gray-700 px-2 py-1 rounded bg-gray-50 hover:bg-gray-100 transition-colors"
-                                    onClick={() => handleMiniIgnore(originalIdx)}
-                                  >
-                                    Ignore
-                                  </button>
-                                </div>
-                              </div>
-                              );
-                            })}
+                        {/* Empty state when results clean */}
+                        {miniHasResults && miniPendingChanges.length === 0 && (
+                          <div className="flex flex-col items-center text-center py-6 px-2">
+                            <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center mb-3">
+                              <CheckCircle2 className="w-6 h-6 text-emerald-500" />
+                            </div>
+                            <p className="text-sm font-bold text-gray-900 mb-1">Great work!</p>
+                            <p className="text-xs text-gray-400 leading-relaxed">Your text is clear and grammatically correct.</p>
+                            <button
+                              onClick={() => navigate("/editor", { state: selectedDocId ? { id: selectedDocId } : { text: miniEditorText } })}
+                              className="mt-4 text-xs font-semibold text-primary hover:underline"
+                            >
+                              Continue Writing →
+                            </button>
                           </div>
                         )}
 
-                        {/* Pro Tip */}
-                        {miniPendingChanges.length === 0 && (
-                          <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
-                            <div className="flex items-center gap-2 mb-2">
-                              <Lightbulb className="w-4 h-4 text-primary" />
-                              <span className="text-xs font-bold text-primary">Pro Tip</span>
+                        {/* Not yet checked state */}
+                        {!miniHasResults && (
+                          <div className="flex flex-col items-center text-center py-4 px-2">
+                            <div className="w-10 h-10 bg-primary/5 rounded-xl flex items-center justify-center mb-2">
+                              <BookOpen className="w-5 h-5 text-primary/50" />
                             </div>
-                            <p className="text-xs text-gray-600 leading-relaxed">
-                              Clear, concise writing makes the strongest impact.
-                            </p>
+                            <p className="text-xs text-gray-400 leading-relaxed">Paste or type your text in the editor, then click <span className="font-semibold text-primary">Check Text</span>.</p>
+                          </div>
+                        )}
+
+                        {/* Individual Suggestions */}
+                        {miniPendingChanges.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Changes</p>
+                            {miniChanges.map((change, originalIdx) => {
+                              if (change.status !== "pending") return null;
+                              const typeColor: Record<string, string> = {
+                                grammar: "bg-blue-50 text-blue-600",
+                                spelling: "bg-red-50 text-red-500",
+                                clarity: "bg-violet-50 text-violet-600",
+                                style: "bg-amber-50 text-amber-600",
+                              };
+                              const tkey = (change.type || "grammar").toLowerCase();
+                              const chip = Object.keys(typeColor).find(k => tkey.includes(k)) || "grammar";
+                              return (
+                                <div key={originalIdx} className="bg-gray-50 rounded-xl border border-gray-100 p-3 space-y-2">
+                                  <div className="flex items-start gap-2">
+                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md flex-shrink-0 mt-0.5 capitalize ${typeColor[chip]}`}>{chip}</span>
+                                    <div className="flex-1 min-w-0">
+                                      <span className="text-xs font-medium text-red-400 line-through">{change.original}</span>
+                                      <span className="text-xs text-gray-300 mx-1">→</span>
+                                      <span className="text-xs font-semibold text-emerald-600">{change.corrected}</span>
+                                    </div>
+                                  </div>
+                                  {change.explanation && (
+                                    <p className="text-[11px] text-gray-400 leading-relaxed line-clamp-2">{change.explanation}</p>
+                                  )}
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-colors"
+                                      onClick={() => handleMiniAccept(originalIdx)}
+                                    >
+                                      Accept
+                                    </button>
+                                    <button
+                                      className="text-[11px] font-medium text-gray-400 hover:text-gray-600 px-2.5 py-1 rounded-lg hover:bg-gray-100 transition-colors"
+                                      onClick={() => handleMiniIgnore(originalIdx)}
+                                    >
+                                      Ignore
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </>
