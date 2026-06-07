@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CorrectNow - Grammar Checker",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Check grammar and spelling on any webpage with CorrectNow",
   "permissions": [
     "activeTab",
@@ -28,7 +28,8 @@
         "content.js"
       ],
       "run_at": "document_start",
-      "all_frames": false
+      "all_frames": true,
+      "match_about_blank": true
     }
   ],
   "web_accessible_resources": [

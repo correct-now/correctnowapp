@@ -4,9 +4,10 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { getFirebaseAuth, getFirebaseDb } from "@/lib/firebase";
 import { doc as firestoreDoc, onSnapshot } from "firebase/firestore";
-import { Menu, X } from "lucide-react";
+import { Menu, X, Pencil } from "lucide-react";
 
-const navItems = [
+/** Full marketing nav — shown only to guests */
+const publicNavItems = [
   { to: "/about", label: "About" },
   { to: "/features", label: "Features" },
   { to: "/blog", label: "Blog" },
@@ -15,9 +16,23 @@ const navItems = [
   { to: "/contact", label: "Contact" },
 ];
 
+/** Minimal nav — shown to authenticated users on every page (matches dashboard header) */
+const authNavItems = [
+  { to: "/pricing", label: "Pricing" },
+  { to: "/blog", label: "Blog" },
+];
+
 const Header = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userName, setUserName] = useState("");
+  // Initialize auth synchronously from the cached Firebase user so navigating
+  // from the dashboard to Pricing/Blog never flashes the guest nav.
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    const a = getFirebaseAuth();
+    return !!a?.currentUser;
+  });
+  const [userName, setUserName] = useState<string>(() => {
+    const a = getFirebaseAuth();
+    return (a?.currentUser as any)?.displayName || "";
+  });
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const navigate = useNavigate();
@@ -68,37 +83,64 @@ const Header = () => {
       <div className="ds-container">
         <div className="flex items-center justify-between h-[72px]">
 
-          {/* Logo — always 40px, always left */}
+          {/* Logo — brand-logo class: 36px mobile, 40px sm+ */}
           <Link to="/" className="flex items-center flex-shrink-0">
             <img
               src="/Icon/correctnow logo final2.png"
               alt="CorrectNow"
-              className="h-10 w-auto object-contain"
+              className="brand-logo"
               loading="eager"
             />
           </Link>
 
-          {/* Desktop nav — visible at lg (1024px+) only */}
+          {/* Desktop nav */}
           <nav className="hidden lg:flex items-center gap-1">
-            {navItems.map(({ to, label }) => {
-              const active = location.pathname === to || (to !== "/" && location.pathname.startsWith(to));
-              return (
-                <Link
-                  key={to}
-                  to={to}
-                  className={`relative px-3 py-2 text-[14px] font-medium rounded-[8px] transition-all duration-150 focus:outline-none ${
-                    active
-                      ? "text-gray-900 bg-gray-100"
-                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
-                  }`}
+            {isAuthenticated ? (
+              /* Authenticated: compact nav matching the dashboard header */
+              <>
+                <Button
+                  size="sm"
+                  className="h-9 bg-blue-600 hover:bg-blue-700 text-white text-[13px] font-semibold rounded-[8px] px-4 gap-1.5"
+                  onClick={() => navigate("/")}
                 >
-                  {label}
-                </Link>
-              );
-            })}
+                  <Pencil className="w-3.5 h-3.5" />
+                  New Doc
+                </Button>
+                {authNavItems.map(({ to, label }) => {
+                  const active = location.pathname === to || location.pathname.startsWith(to);
+                  return (
+                    <Link
+                      key={to}
+                      to={to}
+                      className={`px-3 py-2 text-[14px] font-medium rounded-[8px] transition-all duration-150 ${
+                        active ? "text-gray-900 bg-gray-100" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                      }`}
+                    >
+                      {label}
+                    </Link>
+                  );
+                })}
+              </>
+            ) : (
+              /* Guest: full marketing nav */
+              publicNavItems.map(({ to, label }) => {
+                const active = location.pathname === to || (to !== "/" && location.pathname.startsWith(to));
+                return (
+                  <Link
+                    key={to}
+                    to={to}
+                    className={`px-3 py-2 text-[14px] font-medium rounded-[8px] transition-all duration-150 ${
+                      active ? "text-gray-900 bg-gray-100" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                    }`}
+                  >
+                    {label}
+                  </Link>
+                );
+              })
+            )}
           </nav>
 
-          {/* Desktop CTAs — visible at lg (1024px+) only */}
+          {/* Desktop CTAs / avatar */}
           <div className="hidden lg:flex items-center gap-2">
             {!isAuthenticated ? (
               <>
@@ -114,15 +156,22 @@ const Header = () => {
                 </Link>
               </>
             ) : (
-              <Link to="/">
-                <Button size="sm" className="h-11 px-5 text-[14px] font-semibold rounded-[10px] bg-blue-600 hover:bg-blue-700 text-white">
-                  Dashboard
-                </Button>
-              </Link>
+              /* Avatar chip — consistent with dashboard header's right zone */
+              <button
+                onClick={() => navigate("/")}
+                className="flex items-center gap-2 group"
+              >
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-blue-500 text-white flex items-center justify-center text-[13px] font-bold">
+                  {userName.charAt(0).toUpperCase()}
+                </div>
+                <span className="text-[14px] font-medium text-gray-600 hidden md:block group-hover:text-blue-600 transition-colors truncate max-w-[110px]">
+                  {userName}
+                </span>
+              </button>
             )}
           </div>
 
-          {/* Hamburger — shown below lg (tablet + mobile) */}
+          {/* Hamburger — tablet/mobile only */}
           <button
             className="lg:hidden p-2 rounded-[8px] text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
             onClick={() => setIsMobileOpen((v) => !v)}
@@ -133,14 +182,14 @@ const Header = () => {
         </div>
       </div>
 
-      {/* Mobile/tablet menu */}
+      {/* Mobile/tablet dropdown menu */}
       <div
         className={`lg:hidden overflow-hidden transition-all duration-300 ease-in-out ${
-          isMobileOpen ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
+          isMobileOpen ? "max-h-[520px] opacity-100" : "max-h-0 opacity-0"
         }`}
       >
         <div className="border-t border-gray-100 bg-white px-4 pt-3 pb-5 space-y-1">
-          {navItems.map(({ to, label }) => {
+          {(isAuthenticated ? authNavItems : publicNavItems).map(({ to, label }) => {
             const active = location.pathname === to || (to !== "/" && location.pathname.startsWith(to));
             return (
               <Link
@@ -170,8 +219,13 @@ const Header = () => {
               </>
             ) : (
               <>
-                <Link to="/" className="w-full">
+                <Link to="/editor" className="w-full">
                   <Button className="w-full h-12 text-[14px] font-semibold rounded-[10px] bg-blue-600 hover:bg-blue-700 text-white">
+                    New Doc
+                  </Button>
+                </Link>
+                <Link to="/" className="w-full">
+                  <Button variant="outline" className="w-full h-12 text-[14px] font-medium rounded-[10px]">
                     Dashboard
                   </Button>
                 </Link>

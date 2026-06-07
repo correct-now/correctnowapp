@@ -12,25 +12,22 @@
 (function injectExtensionId() {
   const hostname = window.location.hostname;
   const href = window.location.href;
-  
-  console.log('[CorrectNow Extension] ========================================');
-  console.log('[CorrectNow Extension] Content script initializing');
-  console.log('[CorrectNow Extension] Hostname:', hostname);
-  console.log('[CorrectNow Extension] Full URL:', href);
-  console.log('[CorrectNow Extension] ========================================');
-  
-  // Check if we're on the correct domain (supports localhost on any port)
-  const isCorrectDomain = hostname === 'correctnow.app' || 
-                          hostname === 'localhost' || 
+
+  // Check if we're on the correct domain (supports localhost on any port).
+  // IMPORTANT: with all_frames:true this IIFE runs in every iframe on every
+  // site, so we return SILENTLY off-domain — no logging — to avoid console
+  // spam and wasted work on third-party pages and ad frames.
+  const isCorrectDomain = hostname === 'correctnow.app' ||
+                          hostname === 'localhost' ||
                           hostname === '127.0.0.1' ||
                           hostname.endsWith('.correctnow.app');
-  
+
   if (!isCorrectDomain) {
-    console.log('[CorrectNow Extension] Not on CorrectNow domain, skipping auth injection');
     return;
   }
-  
+
   console.log('[CorrectNow Extension] ✅ On CorrectNow domain, proceeding with auth injection');
+  console.log('[CorrectNow Extension] Hostname:', hostname, '| URL:', href);
   
   try {
     const extensionId = chrome.runtime.id;
@@ -978,26 +975,23 @@ function applyAllCorrections() {
     return;
   }
 
-  // FAST PATH: If we have the API's authoritative corrected text AND the
-  // current source still matches what we checked, just use it directly.
-  // This guarantees parity with the website's Accept All button and
-  // captures any LLM-added punctuation that wasn't enumerated as a change.
-  if (lastApiCorrectedText && sourceText === lastCheckedText && lastApiCorrectedText !== sourceText) {
+  const isInputField = currentFocusedElement.value !== undefined;
+
+  // FAST PATH (inputs/textarea ONLY): if we have the API's authoritative
+  // corrected text AND the field still matches what we checked, apply it
+  // directly. This matches the website's "Accept All" and captures any
+  // LLM-added punctuation not enumerated as a change.
+  //
+  // We intentionally DO NOT use this path for contentEditable: assigning
+  // textContent would flatten all rich formatting (bold, links, line breaks)
+  // — catastrophic in Gmail/Outlook. ContentEditable falls through to the
+  // per-error Range application below, which preserves surrounding markup.
+  if (isInputField && lastApiCorrectedText && sourceText === lastCheckedText && lastApiCorrectedText !== sourceText) {
     const result = lastApiCorrectedText;
-    if (currentFocusedElement.value !== undefined) {
-      _removeInputOverlay(currentFocusedElement);
-      currentFocusedElement.value = result;
-      currentFocusedElement.dispatchEvent(new Event('input', { bubbles: true }));
-      currentFocusedElement.dispatchEvent(new Event('change', { bubbles: true }));
-    } else {
-      // contentEditable: remove overlay then replace full text
-      _removeCEOverlay(currentFocusedElement);
-      currentFocusedElement.querySelectorAll('.correctnow-error-span').forEach(s => {
-        s.parentNode.replaceChild(document.createTextNode(s.textContent), s);
-      });
-      currentFocusedElement.normalize();
-      currentFocusedElement.textContent = result;
-    }
+    _removeInputOverlay(currentFocusedElement);
+    currentFocusedElement.value = result;
+    currentFocusedElement.dispatchEvent(new Event('input', { bubbles: true }));
+    currentFocusedElement.dispatchEvent(new Event('change', { bubbles: true }));
     lastCorrectedText = result;
     const appliedN = currentErrors.length;
     currentErrors = [];
@@ -1485,6 +1479,11 @@ function handleDocumentClick(event) {
  * Handle input events to clear corrected text tracking
  */
 function handleInput(event) {
+  // Ignore input events WE dispatched while applying corrections (isTrusted=false).
+  // Only react to genuine user keystrokes — otherwise we'd tear down the overlay
+  // we're in the middle of rebuilding.
+  if (event && event.isTrusted === false) return;
+
   // Clear the last corrected text when user types
   if (lastCorrectedText) {
     console.log('🔄 User is typing, clearing lastCorrectedText');
@@ -1494,6 +1493,13 @@ function handleInput(event) {
   if (!currentFocusedElement) return;
   const target = event.target;
   if (!target || (target !== currentFocusedElement && !currentFocusedElement.contains(target))) return;
+
+  // Manual editing invalidates every cached error offset. Keeping the overlay
+  // would make underlines drift out of alignment with the text (the classic
+  // "misaligned highlight" bug). Clear them; the user re-checks when ready.
+  if (highlightedRanges.length > 0 || currentErrors.length > 0) {
+    clearHighlights();
+  }
 
   if (floatingButton) {
     positionButton(currentFocusedElement, floatingButton);
@@ -1564,14 +1570,17 @@ function _syncInputOverlay(el) {
     width: rect.width + 'px', height: rect.height + 'px',
   });
   Object.assign(inner.style, {
+    boxSizing: 'border-box',
     paddingTop:    (bT + (parseFloat(cs.paddingTop)    || 0)) + 'px',
     paddingRight:  (bR + (parseFloat(cs.paddingRight)  || 0)) + 'px',
     paddingBottom: (bB + (parseFloat(cs.paddingBottom) || 0)) + 'px',
     paddingLeft:   (bL + (parseFloat(cs.paddingLeft)   || 0)) + 'px',
     fontFamily: cs.fontFamily, fontSize: cs.fontSize,
     fontWeight: cs.fontWeight, fontStyle: cs.fontStyle,
+    fontVariant: cs.fontVariant, fontKerning: cs.fontKerning,
     lineHeight: cs.lineHeight, letterSpacing: cs.letterSpacing,
     wordSpacing: cs.wordSpacing, textAlign: cs.textAlign,
+    textTransform: cs.textTransform, textIndent: cs.textIndent,
     direction: cs.direction,
     whiteSpace:    el.tagName === 'TEXTAREA' ? 'pre-wrap' : 'pre',
     wordWrap: 'break-word', overflowWrap: 'break-word',
@@ -1638,10 +1647,13 @@ function _createInputOverlay(el, errors) {
       'pointer-events:none;box-sizing:border-box;margin:0;';
     overlay.appendChild(inner);
     document.body.appendChild(overlay);
-    data = { overlay, inner };
+    // Keep a stable handler reference so it can be removed later (prevents
+    // duplicate listeners accumulating across repeated check cycles).
+    const onScroll = () => _syncInputOverlay(el);
+    data = { overlay, inner, onScroll };
     _inputOverlayMap.set(el, data);
     if (_overlayResizeObs) _overlayResizeObs.observe(el);
-    el.addEventListener('scroll', () => _syncInputOverlay(el), { passive: true });
+    el.addEventListener('scroll', onScroll, { passive: true });
   }
   data.inner.innerHTML = _buildMirrorHTML(el.value || '', errors);
   _attachInputOverlaySpanEvents(data.inner, errors);
@@ -1652,6 +1664,7 @@ function _removeInputOverlay(el) {
   const data = _inputOverlayMap.get(el);
   if (data) {
     data.overlay.remove();
+    if (data.onScroll) try { el.removeEventListener('scroll', data.onScroll); } catch (_) {}
     _inputOverlayMap.delete(el);
     if (_overlayResizeObs) try { _overlayResizeObs.unobserve(el); } catch (_) {}
   }
@@ -1722,8 +1735,9 @@ function _createCEOverlay(el, errors) {
     items.push({ range, els, err });
   });
   document.body.appendChild(overlay);
-  _ceOverlayMap.set(el, { overlay, items });
-  el.addEventListener('scroll', () => _syncCEOverlay(el), { passive: true });
+  const onScroll = () => _syncCEOverlay(el);
+  _ceOverlayMap.set(el, { overlay, items, onScroll });
+  el.addEventListener('scroll', onScroll, { passive: true });
 }
 
 function _syncCEOverlay(el) {
@@ -1746,7 +1760,11 @@ function _syncCEOverlay(el) {
 
 function _removeCEOverlay(el) {
   const data = _ceOverlayMap.get(el);
-  if (data) { data.overlay.remove(); _ceOverlayMap.delete(el); }
+  if (data) {
+    data.overlay.remove();
+    if (data.onScroll) try { el.removeEventListener('scroll', data.onScroll); } catch (_) {}
+    _ceOverlayMap.delete(el);
+  }
 }
 
 // =============================================================================
@@ -1766,14 +1784,11 @@ function initializeContentScript() {
   // Handle clicks outside extension UI to clear highlights
   document.addEventListener('click', handleDocumentClick, true);
 
-  // Also listen for click events (helps with some websites)
-  document.addEventListener('click', function(e) {
-    const path = (e.composedPath && e.composedPath()) || [];
-    const target = path[0] || e.target;
-    if (isEditableField(target)) {
-      setTimeout(() => handleFocus({ target, composedPath: () => path }), 100);
-    }
-  }, true);
+  // NOTE: A second click→handleFocus listener used to live here. It was removed
+  // because the capture-phase 'focus' listener already covers entering a field,
+  // and re-running handleFocus on every click caused redundant work and could
+  // wrongly clear active highlights when clicking inside an already-checked
+  // contentEditable (the inner click target differs from the stored container).
 
   // Keep overlays aligned when window scrolls or resizes
   window.addEventListener('scroll', _onOverlayGlobalSync, { capture: true, passive: true });
@@ -1789,25 +1804,9 @@ if (document.readyState === 'loading') {
   initializeContentScript();
 }
 
-// Handle dynamic elements (only after body exists)
-const observer = new MutationObserver(() => {
-  // Re-attach listeners if needed
-});
-
-// Only observe if document.body exists
-if (document.body) {
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-  });
-} else {
-  // Wait for body to be available
-  document.addEventListener('DOMContentLoaded', () => {
-    if (document.body) {
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-      });
-    }
-  });
-}
+// NOTE: A page-wide MutationObserver (childList + subtree on document.body)
+// used to run here with an EMPTY callback. It fired on every DOM mutation of
+// the entire page — significant overhead on dynamic apps (Gmail, Notion, X) —
+// while doing nothing. Removed. Field detection is fully handled by the
+// capture-phase 'focus' listener, which sees dynamically-added editors the
+// moment they receive focus, so no observer is needed.

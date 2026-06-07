@@ -350,9 +350,13 @@ async function detectLanguage(text, apiBase, apiKey, authToken) {
     }
 
     const data = await response.json();
-    const detectedCode = data.code || 'auto';
-    console.log('🌍 Detected language:', detectedCode);
-    return detectedCode;
+    // Backend returns the full language NAME ({ language: "Pashto" }).
+    // Older builds returned { code: "ps" }. Support both for compatibility.
+    const detected = (typeof data.language === 'string' && data.language.trim())
+      ? data.language.trim()
+      : (typeof data.code === 'string' && data.code.trim() ? data.code.trim() : 'auto');
+    console.log('🌍 Detected language:', detected);
+    return detected;
   } catch (error) {
     console.error('❌ Language detection error:', error);
     return 'auto'; // Fallback to auto

@@ -52,8 +52,19 @@ const Index = () => {
     section: string;
     updated: string;
   }>>([]);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  // Derive initial auth state synchronously from the cached Firebase user.
+  // When the user navigates here from another page (e.g. Pricing → logo click),
+  // Firebase SDK is already initialised and currentUser is immediately available
+  // — no need to show a loading spinner.  onAuthStateChanged will correct the
+  // state asynchronously if it somehow differs (e.g. token expiry).
+  const _initAuth = (() => { const a = getFirebaseAuth(); return a?.currentUser ?? null; })();
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => !!_initAuth);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(() => {
+    const a = getFirebaseAuth();
+    // Only show loading if the SDK hasn't resolved yet (first cold load).
+    // After any prior navigation auth is already known; skip the spinner.
+    return !a || (a.currentUser === undefined);
+  });
   const [isSuggestionOpen, setIsSuggestionOpen] = useState(false);
   const [suggestionText, setSuggestionText] = useState("");
   const [isSubmittingSuggestion, setIsSubmittingSuggestion] = useState(false);
@@ -923,62 +934,81 @@ const Index = () => {
           {isAuthenticated ? (
             // Authenticated Dashboard Layout
             <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Dashboard Top Nav — clean logged-in header */}
+              {/* Dashboard Top Nav — ds-container so logo aligns with home page */}
               <header className="sticky top-0 z-50 w-full border-b border-gray-100 bg-white/95 backdrop-blur flex-shrink-0">
-                <div className="flex items-center justify-between h-14 px-4 lg:px-6">
-                  {/* Left: Logo + collapse toggle */}
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => setLeftCollapsed(v => !v)}
-                      className="hidden lg:flex w-8 h-8 items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-700"
-                      title={leftCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                    >
-                      <Menu className="w-4 h-4" />
-                    </button>
-                    <Link to="/" className="flex items-center">
+                <div className="ds-container">
+                  <div className="flex items-center justify-between h-[72px]">
+
+                    {/* Logo — same position as every other page (leftmost in ds-container) */}
+                    <Link to="/" className="flex items-center flex-shrink-0">
                       <img src="/Icon/correctnow logo final2.png" alt="CorrectNow" className="brand-logo" loading="eager" />
                     </Link>
-                  </div>
 
-                  {/* Center: New doc + quick links */}
-                  <div className="hidden lg:flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      className="h-8 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg px-3 gap-1.5"
-                      onClick={() => navigate("/editor")}
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                      New Doc
-                    </Button>
-                    {[
-                      { label: "Pricing", to: "/pricing" },
-                      { label: "Blog", to: "/blog" },
-                    ].map(item => (
-                      <Link key={item.label} to={item.to} className="text-sm text-gray-500 hover:text-gray-900 transition-colors px-2">
-                        {item.label}
-                      </Link>
-                    ))}
-                  </div>
+                    {/* Center nav: collapse toggle + New Doc + links (desktop only) */}
+                    <nav className="hidden lg:flex items-center gap-1">
+                      {/* Sidebar toggle lives in the nav row — doesn't displace the logo */}
+                      <button
+                        onClick={() => setLeftCollapsed(v => !v)}
+                        className="w-10 h-10 flex items-center justify-center rounded-[10px] border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 shadow-sm transition-all duration-150 text-gray-500 hover:text-gray-800 mr-1"
+                        title={leftCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                      >
+                        <Menu className="w-5 h-5" />
+                      </button>
+                      <Button
+                        size="sm"
+                        className="h-9 bg-primary hover:bg-primary/90 text-white text-[13px] font-semibold rounded-[8px] px-4 gap-1.5"
+                        onClick={() => navigate("/editor")}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        New Doc
+                      </Button>
+                      {[
+                        { label: "Pricing", to: "/pricing" },
+                        { label: "Blog", to: "/blog" },
+                      ].map(({ label, to }) => (
+                        <Link
+                          key={label}
+                          to={to}
+                          className="px-3 py-2 text-[14px] font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-[8px] transition-all duration-150"
+                        >
+                          {label}
+                        </Link>
+                      ))}
+                    </nav>
 
-                  {/* Right: Plan badge + user avatar */}
-                  <div className="flex items-center gap-3">
-                    <span className={`hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
-                      userProfile?.plan === "pro"
-                        ? "bg-amber-50 text-amber-700 border border-amber-200"
-                        : "bg-gray-100 text-gray-500"
-                    }`}>
-                      {userProfile?.plan === "pro" && <Crown className="w-3 h-3" />}
-                      {userProfile?.plan === "pro" ? "Pro" : "Free"}
-                    </span>
-                    <button
-                      onClick={() => { setSidebarView("account"); }}
-                      className="flex items-center gap-2 group"
-                    >
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-blue-500 text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
-                        {userName.charAt(0).toUpperCase()}
-                      </div>
-                      <span className="text-sm font-medium text-gray-700 hidden md:block group-hover:text-primary transition-colors truncate max-w-[100px]">{userName}</span>
-                    </button>
+                    {/* Right: plan badge + avatar + mobile hamburger */}
+                    <div className="flex items-center gap-2">
+                      <span className={`hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                        userProfile?.plan === "pro"
+                          ? "bg-amber-50 text-amber-700 border border-amber-200"
+                          : "bg-gray-100 text-gray-500"
+                      }`}>
+                        {userProfile?.plan === "pro" && <Crown className="w-3 h-3" />}
+                        {userProfile?.plan === "pro" ? "Pro" : "Free"}
+                      </span>
+
+                      <button
+                        onClick={() => { setSidebarView("account"); setIsMobileSidebarOpen(false); }}
+                        className="flex items-center gap-2 group"
+                      >
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-blue-500 text-white flex items-center justify-center text-[13px] font-bold flex-shrink-0 shadow-sm">
+                          {userName.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-[14px] font-medium text-gray-600 hidden md:block group-hover:text-primary transition-colors truncate max-w-[110px]">{userName}</span>
+                      </button>
+
+                      {/* Mobile hamburger — far right, only below lg */}
+                      <Sheet open={isMobileSidebarOpen} onOpenChange={setIsMobileSidebarOpen}>
+                        <SheetTrigger asChild>
+                          <button className="lg:hidden p-2 rounded-[8px] text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors" aria-label="Open menu">
+                            <Menu className="w-5 h-5" />
+                          </button>
+                        </SheetTrigger>
+                        <SheetContent side="left" className="w-64 p-0">
+                          <SidebarContent />
+                        </SheetContent>
+                      </Sheet>
+                    </div>
                   </div>
                 </div>
               </header>
@@ -992,19 +1022,9 @@ const Index = () => {
 
               {/* Center Panel - Documents */}
               <div className="flex-1 xl:w-[280px] xl:flex-none xl:border-r border-gray-100 flex flex-col overflow-hidden bg-white">
-                {/* Mobile Header with Hamburger */}
-                <div className="lg:hidden border-b border-gray-100 bg-white p-3 flex items-center gap-3">
-                  <Sheet open={isMobileSidebarOpen} onOpenChange={setIsMobileSidebarOpen}>
-                    <SheetTrigger asChild>
-                      <Button variant="ghost" size="sm" className="h-9 w-9 p-0">
-                        <Menu className="w-5 h-5" />
-                      </Button>
-                    </SheetTrigger>
-                    <SheetContent side="left" className="w-64 p-0">
-                      <SidebarContent />
-                    </SheetContent>
-                  </Sheet>
-                  <h1 className="text-lg font-semibold text-foreground">
+                {/* Mobile view title bar — no hamburger (moved to main header) */}
+                <div className="lg:hidden border-b border-gray-100 bg-white px-4 py-3">
+                  <h1 className="text-base font-semibold text-gray-900">
                     {sidebarView === "docs" ? "Documents" : sidebarView === "archived" ? "Archived" : "Account"}
                   </h1>
                 </div>
