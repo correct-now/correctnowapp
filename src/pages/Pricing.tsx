@@ -163,7 +163,7 @@ const Pricing = () => {
 
   const handleDowngrade = async () => {
     const confirmed = window.confirm(
-      "Are you sure you want to downgrade to the Free plan? This will cancel your subscription and stop all future payments immediately."
+      "Cancel your subscription? You'll keep Pro access until the end of your current billing period, and you won't be charged again."
     );
     if (!confirmed) return;
 
@@ -196,7 +196,18 @@ const Pricing = () => {
         throw new Error(data?.message || "Failed to cancel subscription");
       }
 
-      toast.success("Successfully downgraded to Free plan. Subscription cancelled.");
+      if (data?.cancelAtPeriodEnd) {
+        const until = data?.accessUntil
+          ? new Date(data.accessUntil).toLocaleDateString()
+          : null;
+        toast.success(
+          until
+            ? `Subscription cancelled. You keep Pro access until ${until}, with no further charges.`
+            : "Subscription cancelled. You keep Pro access until your current period ends, with no further charges."
+        );
+      } else {
+        toast.success("Successfully downgraded to the Free plan.");
+      }
     } catch (error: any) {
       console.error("Downgrade error:", error);
       toast.error(error?.message || "Failed to cancel subscription");
@@ -411,7 +422,7 @@ const Pricing = () => {
                 },
                 {
                   q: "What payment methods do you accept?",
-                  a: "We accept all major credit and debit cards (Visa, Mastercard, Amex, RuPay), UPI, and net banking through our secure payment partners Stripe and Razorpay. All payments are PCI-DSS compliant.",
+                  a: "We accept all major credit and debit cards (Visa, Mastercard, Amex, RuPay), UPI, and net banking through our secure payment partner Razorpay. All payments are PCI-DSS compliant.",
                 },
                 {
                   q: "How do I downgrade to the Free plan?",

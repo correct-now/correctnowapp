@@ -25,7 +25,8 @@ declare global {
 
 const Payment = () => {
   const [paymentMethod, setPaymentMethod] = useState("card");
-  const [cardProvider, setCardProvider] = useState("stripe");
+  // Razorpay is the only active gateway for now (Stripe UI is hidden).
+  const [cardProvider, setCardProvider] = useState("razorpay");
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<"Free" | "Pro">("Free");
   const [subscriptionStatus, setSubscriptionStatus] = useState("");
@@ -65,13 +66,9 @@ const Payment = () => {
       const code = await detectCountryCode();
       const pricing = resolvePricing(code);
       setRegionalPricing(pricing);
-      if (pricing.useRazorpay) {
-        setPaymentMethod("card");
-        setCardProvider("razorpay");
-      } else {
-        setPaymentMethod("card");
-        setCardProvider("stripe");
-      }
+      // Razorpay only for now — always use the card method via Razorpay.
+      setPaymentMethod("card");
+      setCardProvider("razorpay");
     };
     loadRegion();
   }, []);
@@ -453,41 +450,8 @@ const Payment = () => {
                 </RadioGroup>
               </div>
 
-              {paymentMethod === "card" ? (
-                <div className="space-y-4">
-                  <Label className="text-base font-medium">Card Provider</Label>
-                  <RadioGroup
-                    value={cardProvider}
-                    onValueChange={setCardProvider}
-                    className="grid grid-cols-1 sm:grid-cols-2 gap-4"
-                  >
-                    <Label
-                      htmlFor="stripe"
-                      className={`flex items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-lg border cursor-pointer transition-colors ${
-                        cardProvider === "stripe"
-                          ? "border-accent bg-accent/5"
-                          : "border-border hover:border-accent/50"
-                      }`}
-                    >
-                      <RadioGroupItem value="stripe" id="stripe" />
-                      <CreditCard className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground flex-shrink-0" />
-                      <span className="text-sm sm:text-base">Stripe</span>
-                    </Label>
-                    <Label
-                      htmlFor="razorpay"
-                      className={`flex items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-lg border transition-colors ${
-                        cardProvider === "razorpay"
-                          ? "border-accent bg-accent/5"
-                          : "border-border hover:border-accent/50"
-                      } ${!regionalPricing.useRazorpay ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
-                    >
-                      <RadioGroupItem value="razorpay" id="razorpay" disabled={!regionalPricing.useRazorpay} />
-                      <CreditCard className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground flex-shrink-0" />
-                      <span className="text-sm sm:text-base">Razorpay</span>
-                    </Label>
-                  </RadioGroup>
-                </div>
-              ) : null}
+              {/* Card Provider selection hidden — Razorpay is the only active
+                  gateway for now. cardProvider is forced to "razorpay". */}
 
               <Button
                 type="submit"

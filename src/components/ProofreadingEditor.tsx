@@ -305,15 +305,11 @@ SuggestionCard.displayName = 'SuggestionCard';
  */
 const LanguageDetectionPill = React.memo(({
   detectedLanguage,
-  detectedConfidence,
   isDetecting,
 }: {
   detectedLanguage: string | null;
-  detectedConfidence: number;
   isDetecting: boolean;
 }) => {
-  const pct = detectedConfidence > 0 ? Math.round(detectedConfidence * 100) : null;
-
   if (isDetecting && !detectedLanguage) {
     return (
       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 text-xs text-blue-500 select-none">
@@ -331,9 +327,6 @@ const LanguageDetectionPill = React.memo(({
       <span className="text-[11px] font-semibold text-emerald-700">Detected</span>
       <span className="text-[10px] text-emerald-600">:</span>
       <span className="text-[11px] font-semibold text-emerald-900">{detectedLanguage}</span>
-      {pct !== null && (
-        <span className="text-[10px] text-emerald-600 font-medium">{pct}%</span>
-      )}
     </span>
   );
 });
@@ -1490,7 +1483,6 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                     {/* Language detection pill — read-only, shows current language (Any default) */}
                     <LanguageDetectionPill
                       detectedLanguage={detectedLanguageName}
-                      detectedConfidence={detectedConfidence}
                       isDetecting={isDetectingLanguage}
                     />
                     <div className="flex flex-col items-start gap-0.5 sm:gap-1 w-full sm:w-auto">

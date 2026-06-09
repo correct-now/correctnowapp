@@ -1643,9 +1643,6 @@ const Index = () => {
                             Detected
                             <span className="text-emerald-300">:</span>
                             <span className="text-emerald-900">{miniDetectedLanguageName}</span>
-                            {miniDetectedConfidence != null && (
-                              <span className="text-[10px] text-emerald-600 font-medium">{Math.round(miniDetectedConfidence * 100)}%</span>
-                            )}
                           </span>
                         ) : null}
                         <span className="text-sm text-gray-500">

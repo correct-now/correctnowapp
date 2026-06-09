@@ -177,6 +177,7 @@ type LiveSubscription = {
   createdAt: string | null;
   liveStatus: string | null;
   liveAmount: number | null;
+  liveLastPaymentAmount: number | null;
   liveCurrency: string | null;
   livePeriodStart: string | null;
   livePeriodEnd: string | null;
@@ -6193,7 +6194,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                               (displayRows as LiveSubscription[]).map((sub) => {
                                 const subId = sub.stripeSubscriptionId || sub.razorpaySubscriptionId || "";
                                 const status = sub.liveStatus || sub.subscriptionStatus || "—";
-                                const amount = sub.liveAmount ?? sub.lastPaymentAmount;
+                                const amount = sub.liveAmount ?? sub.liveLastPaymentAmount ?? sub.lastPaymentAmount;
                                 const currency = sub.liveCurrency || "INR";
                                 const paidCount = sub.livePaidCount ?? sub.razorpayPaidCount;
                                 const totalCount = sub.liveTotalCount ?? sub.razorpayTotalCount;

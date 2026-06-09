@@ -1002,14 +1002,27 @@ app.post("/api/razorpay/webhook", express.raw({ type: "application/json" }), asy
       }
     }
 
-    // ---- Halt / cancel / pause / complete â†’ downgrade ----
+    // ---- Pending / halt / cancel / pause / complete → downgrade ----
+    // `subscription.pending` is fired the moment a renewal charge fails (before
+    // Razorpay's retries/halt). Treating it as an instant downgrade enforces the
+    // "no grace period" policy reliably, since this event always carries the
+    // subscription id (unlike payment.failed).
     else if (
-      ["subscription.halted", "subscription.cancelled", "subscription.paused", "subscription.completed"].includes(
-        eventName
-      )
+      [
+        "subscription.pending",
+        "subscription.halted",
+        "subscription.cancelled",
+        "subscription.paused",
+        "subscription.completed",
+      ].includes(eventName)
     ) {
       if (subscriptionId) {
-        const status = eventName === "subscription.cancelled" ? "cancelled" : "inactive";
+        const status =
+          eventName === "subscription.cancelled"
+            ? "cancelled"
+            : eventName === "subscription.pending" || eventName === "subscription.halted"
+            ? "payment_failed"
+            : "inactive";
         const count = await updateUsersBySubscriptionId(subscriptionId, {
           ...FREE_PLAN_DOWNGRADE,
           subscriptionStatus: status,
@@ -1018,13 +1031,13 @@ app.post("/api/razorpay/webhook", express.raw({ type: "application/json" }), asy
         });
         await recordPaymentEvent({
           gateway: "razorpay",
-          type: "subscription_ended",
+          type: eventName === "subscription.completed" ? "subscription_completed" : "subscription_ended",
           event: eventName,
           eventId,
           subscriptionId,
           usersUpdated: count,
         });
-        console.log(`Razorpay ${eventName} â€” downgraded ${count} user(s) to free`);
+        console.log(`Razorpay ${eventName} — downgraded ${count} user(s) to free`);
       }
     }
 
@@ -1475,6 +1488,7 @@ app.get("/api/admin/subscriptions", async (req, res) => {
           // Live-fetched fields (filled below)
           liveStatus: null,
           liveAmount: null,
+          liveLastPaymentAmount: null,
           liveCurrency: null,
           livePeriodStart: null,
           livePeriodEnd: null,
@@ -1528,10 +1542,37 @@ app.get("/api/admin/subscriptions", async (req, res) => {
             base.liveNextChargeAt = sub.charge_at ? new Date(sub.charge_at * 1000).toISOString() : null;
             base.livePaidCount = sub.paid_count ?? null;
             base.liveTotalCount = sub.total_count ?? null;
-            base.liveAmount = sub.amount != null ? sub.amount / 100 : null;
             base.liveCurrency = "INR";
             base.livePlanName = "Pro";
             base.paymentGateway = "razorpay";
+
+            // The recurring AMOUNT is on the plan, not the subscription object.
+            if (sub.plan_id) {
+              try {
+                const plan = await razorpay.plans.fetch(sub.plan_id);
+                const planAmt = Number(plan?.item?.amount);
+                if (Number.isFinite(planAmt)) base.liveAmount = planAmt / 100;
+                base.livePlanName = plan?.item?.name || "Pro";
+                base.liveCurrency = (plan?.item?.currency || "INR").toUpperCase();
+              } catch (planErr) {
+                console.warn("Razorpay plan fetch failed:", planErr.message);
+              }
+            }
+
+            // Actual last CHARGED amount comes from the most recent paid invoice.
+            try {
+              const invoices = await razorpay.invoices.all({
+                subscription_id: u.razorpaySubscriptionId,
+                count: 1,
+              });
+              const inv = invoices?.items?.[0];
+              if (inv && inv.amount_paid != null) {
+                base.liveLastPaymentAmount = inv.amount_paid / 100;
+                if (inv.currency) base.liveCurrency = String(inv.currency).toUpperCase();
+              }
+            } catch (invErr) {
+              console.warn("Razorpay invoices fetch failed:", invErr.message);
+            }
           } catch (e) {
             base.liveError = e.message;
           }
@@ -1651,23 +1692,49 @@ app.post("/api/razorpay/subscription", async (req, res) => {
     
     // Always use base amount for the plan (discount applied separately as one-time addon)
     const amountInRupees = baseAmount;
-    let planId = requestedPlanId || process.env.RAZORPAY_PLAN_ID;
 
     if (!Number.isFinite(amountInRupees) || amountInRupees <= 0) {
       return res.status(400).json({ message: "Invalid subscription amount" });
     }
 
-    // Create new plan only if no planId and no existing standard plan
-    if (!planId) {
-      console.log("Creating new Razorpay plan");
+    const targetAmountPaise = Math.round(amountInRupees * 100);
+    let planId = requestedPlanId || process.env.RAZORPAY_PLAN_ID;
+
+    // Verify the configured/requested plan actually matches the price + period
+    // the customer is being charged. Razorpay plans are immutable, so a stale
+    // RAZORPAY_PLAN_ID (e.g. an old ₹500 plan) would otherwise silently charge
+    // the wrong amount and show wrong data everywhere. If it doesn't match, we
+    // create a fresh plan with the correct amount.
+    let planMatches = false;
+    if (planId) {
+      try {
+        const existingPlan = await razorpay.plans.fetch(planId);
+        const existingAmt = Number(existingPlan?.item?.amount);
+        planMatches =
+          existingAmt === targetAmountPaise &&
+          existingPlan?.period === period &&
+          Number(existingPlan?.interval) === interval;
+        if (!planMatches) {
+          console.warn(
+            `Configured Razorpay plan ${planId} does not match (plan=${existingAmt} paise/${existingPlan?.period}, ` +
+            `requested=${targetAmountPaise} paise/${period}). Creating a matching plan.`
+          );
+        }
+      } catch (e) {
+        console.warn("Could not fetch configured Razorpay plan, creating a new one:", e.message);
+      }
+    }
+
+    if (!planId || !planMatches) {
+      console.log("Creating new Razorpay plan for amount (paise):", targetAmountPaise);
       const plan = await razorpay.plans.create({
         period,
         interval,
         item: {
           name: "CorrectNow Pro",
-          amount: Math.round(amountInRupees * 100),  // Full price
+          amount: targetAmountPaise,  // Full price the customer agreed to
           currency: "INR",
-          description: "Monthly Pro subscription - 2000 word limit, 25,000 credits",
+          description: "CorrectNow Pro subscription",
         },
       });
       planId = plan.id;
@@ -1803,6 +1870,7 @@ app.post("/api/razorpay/verify", async (req, res) => {
           razorpaySubscriptionId: razorpay_subscription_id,
           paymentGateway: "razorpay",
           subscriptionStatus: "active",
+          cancelAtPeriodEnd: false,
           subscriptionCreatedAt: nowIso,
           lastPaymentId: razorpay_payment_id,
           subscriptionUpdatedAt: nowIso,
@@ -1882,11 +1950,12 @@ app.post("/api/razorpay/verify", async (req, res) => {
 });
 
 /**
- * Cancel the authenticated user's subscription. This BOTH cancels the
- * subscription at the payment gateway (so no further charges occur) AND
- * downgrades the user to Free. Previously cancellation happened only client-side
- * in Firestore, which left the gateway subscription active — the customer kept
- * being charged. Requires a valid Firebase ID token; a user can only cancel
+ * Cancel the authenticated user's subscription AT THE END OF THE CURRENT
+ * BILLING CYCLE. The customer keeps the Pro access they already paid for until
+ * the period ends, but no further charge is taken. When the gateway actually
+ * ends the subscription at cycle end, the webhook downgrades the account to
+ * Free. If there is no gateway subscription (e.g. an admin-granted plan), we
+ * downgrade immediately. Requires a Firebase ID token; a user can only cancel
  * their OWN subscription.
  */
 app.post("/api/subscription/cancel", async (req, res) => {
@@ -1906,66 +1975,96 @@ app.post("/api/subscription/cancel", async (req, res) => {
     const nowIso = new Date().toISOString();
     const razorpaySubId = data.razorpaySubscriptionId || data.subscriptionId || null;
     const stripeSubId = data.stripeSubscriptionId || null;
-    let gatewayCancelled = false;
+    let gatewayScheduled = false;
+    let periodEndIso = data.subscriptionCurrentPeriodEnd || null;
     const errors = [];
 
-    // Cancel at Razorpay (cancel_at_cycle_end=false → stop immediately).
+    // Razorpay: cancel_at_cycle_end = true (1) → stays active until period end,
+    // no next charge. Second arg `true` schedules cancellation at cycle end.
     if (razorpaySubId) {
       try {
         const razorpay = getRazorpay();
         if (razorpay) {
-          await razorpay.subscriptions.cancel(razorpaySubId, false);
-          gatewayCancelled = true;
+          await razorpay.subscriptions.cancel(razorpaySubId, true);
+          gatewayScheduled = true;
+          // Refresh the real period end so we show the correct access-until date.
+          try {
+            const sub = await razorpay.subscriptions.fetch(razorpaySubId);
+            if (sub?.current_end) periodEndIso = new Date(sub.current_end * 1000).toISOString();
+          } catch (_) { /* non-fatal */ }
         }
       } catch (e) {
-        // "already cancelled" style errors are fine — treat as success.
         const msg = e?.error?.description || e?.message || "";
-        if (/cancel|not.*active|already/i.test(msg)) gatewayCancelled = true;
+        // Already cancelled / not active → nothing more to schedule.
+        if (/cancel|not.*active|already/i.test(msg)) gatewayScheduled = true;
         else errors.push(`razorpay: ${msg}`);
       }
     }
 
-    // Cancel at Stripe.
+    // Stripe: set cancel_at_period_end so access continues to the period end.
     if (stripeSubId) {
       try {
         const stripe = getStripe();
         if (stripe) {
-          await stripe.subscriptions.cancel(stripeSubId);
-          gatewayCancelled = true;
+          const sub = await stripe.subscriptions.update(stripeSubId, { cancel_at_period_end: true });
+          gatewayScheduled = true;
+          if (sub?.current_period_end) periodEndIso = new Date(sub.current_period_end * 1000).toISOString();
         }
       } catch (e) {
         const msg = e?.message || "";
-        if (/cancel|no such|already/i.test(msg)) gatewayCancelled = true;
+        if (/cancel|no such|already/i.test(msg)) gatewayScheduled = true;
         else errors.push(`stripe: ${msg}`);
       }
     }
 
     // If a gateway cancel was attempted and genuinely failed, surface the error
-    // and DO NOT downgrade — otherwise the user loses access but keeps paying.
-    if ((razorpaySubId || stripeSubId) && !gatewayCancelled && errors.length) {
+    // and change nothing — otherwise we'd mislead the user about their billing.
+    if ((razorpaySubId || stripeSubId) && !gatewayScheduled && errors.length) {
       return res.status(502).json({ message: "Could not cancel at payment gateway", errors });
     }
 
-    // Downgrade locally (server-owned write).
+    if (razorpaySubId || stripeSubId) {
+      // Keep Pro ACTIVE until the period ends; just flag the pending cancel.
+      // The webhook (subscription.cancelled/completed/deleted) performs the
+      // actual downgrade when the gateway ends the subscription at cycle end.
+      await userRef.set(
+        {
+          subscriptionStatus: "active",
+          cancelAtPeriodEnd: true,
+          ...(periodEndIso ? { subscriptionCurrentPeriodEnd: periodEndIso } : {}),
+          subscriptionUpdatedAt: nowIso,
+          updatedAt: nowIso,
+        },
+        { merge: true }
+      );
+      await recordPaymentEvent({
+        gateway: razorpaySubId ? "razorpay" : "stripe",
+        type: "user_cancel_scheduled",
+        userId: decoded.uid,
+        subscriptionId: razorpaySubId || stripeSubId || null,
+        accessUntil: periodEndIso || null,
+      });
+      return res.json({ success: true, cancelAtPeriodEnd: true, accessUntil: periodEndIso || null });
+    }
+
+    // No gateway subscription (e.g. admin-granted Pro): downgrade immediately.
     await userRef.set(
       {
         ...FREE_PLAN_DOWNGRADE,
         subscriptionStatus: "cancelled",
+        cancelAtPeriodEnd: false,
         subscriptionUpdatedAt: nowIso,
         updatedAt: nowIso,
       },
       { merge: true }
     );
-
     await recordPaymentEvent({
-      gateway: razorpaySubId ? "razorpay" : stripeSubId ? "stripe" : "none",
-      type: "user_cancelled",
+      gateway: "none",
+      type: "user_cancelled_immediate",
       userId: decoded.uid,
-      subscriptionId: razorpaySubId || stripeSubId || null,
-      gatewayCancelled,
+      subscriptionId: null,
     });
-
-    return res.json({ success: true, gatewayCancelled });
+    return res.json({ success: true, cancelAtPeriodEnd: false });
   } catch (err) {
     console.error("Subscription cancel error:", err);
     return res.status(500).json({ message: "Cancellation failed" });
@@ -2300,33 +2399,33 @@ app.post("/api/detect-language", async (req, res) => {
     // (including same-script disambiguation) without sending huge payloads.
     const sample = text.slice(0, 1200);
 
-    const prompt = `You are an expert computational linguist performing precise language identification.
+    const prompt = `You are an expert computational linguist. Identify the language of the TEXT, then return ONLY JSON.
 
-Identify the language of the TEXT below and return the FULL English language name.
+Work in this exact order and FILL the evidence fields HONESTLY before deciding — the decision MUST follow the evidence:
+1) "script": the writing system (e.g. Devanagari, Arabic, Cyrillic, Latin, Tamil, ...).
+2) "markers": list the actual function words / grammatical endings you SEE in the text (copy real tokens from it).
+3) "language": the single most likely language (full English name).
+4) "confidence": integer 0-100.
 
-CRITICAL — disambiguate languages that SHARE a writing system. Decide by VOCABULARY, GRAMMAR and MORPHOLOGY, never by script alone:
+Decide by VOCABULARY, GRAMMAR and MORPHOLOGY — NEVER by script alone. Same-script languages are the common trap:
 
-• Devanagari (Sanskrit / Hindi / Marathi / Nepali / Konkani):
-  - Sanskrit: heavy sandhi; case endings -aḥ/-aṃ/-ena/-asya/-āya; verbs ending -ति/-न्ति/-ते; particles च, वा, एव, हि, तु, इति; words अस्ति, भवति, सर्वम्, तत्, यत्. Often śloka/verse, no postpositions.
-  - Hindi: postpositions है/हैं/को/में/से/का/की/के/ने; words और, नहीं, यह, वह, हम, क्या, कर.
-  - Marathi: आहे/आहेत, मला, तू, आणि, नाही, च्या, ला; letters ळ, ण frequent.
-  - Nepali: छ/छन्, हो, मा, लाई, र, हामी, गर्.
-• Arabic script (Arabic / Persian / Urdu / Pashto):
-  - Persian (Farsi): است، می‌, که، را، این، آن، چه، و، برای.
-  - Urdu: ہے، ہیں، کے، میں، اور، نہیں، کا، کی، کو.
-  - Pashto: letters ښ ګ ړ ډ ټ ږ; words دی، دے، او، چې، ته.
-  - Arabic: ال‑ prefix, في، من، على، الذي، إن، هذا.
-• Cyrillic (Russian / Ukrainian / Bulgarian / Serbian): decide by distinctive letters (і ї є ґ → Ukrainian; ъ frequent + no ы → Bulgarian) and vocabulary.
-• Latin script (Spanish / Portuguese / Italian / etc.): decide by diacritics and function words (ção/não → Portuguese; ñ/¿ → Spanish; gli/che/è → Italian).
+DEVANAGARI — Sanskrit vs Hindi vs Marathi vs Nepali (decisive test):
+• SANSKRIT if the text shows: word-final visarga ः (e.g. रामः, धर्मः, फलानि), anusvāra-heavy sandhi, verbs ending -ति/-न्ति/-ष्यति/-तु/-न्ताम् (अस्ति, भवति, गच्छति), particles च, वा, हि, तु, एव, इति, अपि, pronouns अहम्, त्वम्, सः, तत्, यत्, किम्, एषः — AND it has NONE of the Hindi/Marathi postpositions below. Classical/verse text is almost always Sanskrit.
+• HINDI if it has postpositions/auxiliaries है, हैं, था, को, में, से, का, की, के, ने, और, नहीं, यह, वह, क्या.
+• MARATHI if it has आहे, आहेत, नाही, मला, तू, आपण, च्या, ला, ने and frequent ळ.
+• NEPALI if it has छ, छन्, हो, मा, लाई, र, हामी, गर्.
+HARD RULE: If you see visarga ः endings, इति, च/वा/एव and verbs in -ति/-न्ति, and you do NOT see है/हैं/का/की/के/को/में/आहे/नाही — the language is SANSKRIT, not Hindi or Marathi.
+
+ARABIC SCRIPT — Arabic / Persian / Urdu / Pashto: Persian است، می، که، را، این; Urdu ہے، ہیں، کے، میں، نہیں; Pashto letters ښ ګ ړ + دی، دے، چې; Arabic ال‑، في، من، على، الذي.
+CYRILLIC — Ukrainian і ї є ґ; Bulgarian ъ-heavy no ы; else Russian.
+LATIN — Portuguese ção/não/õ; Spanish ñ/¿/¡; Italian gli/che/è; etc.
 
 Rules:
-- Return the full English name (e.g. "Sanskrit", "Hindi", "Marathi", "Tamil", "Pashto", "Persian", "Urdu", "Arabic", "English").
-- If multiple languages are mixed, return the DOMINANT one.
-- "confidence" is your certainty as an integer 0-100.
-- If you genuinely cannot tell, use "Unknown" with a low confidence.
+- Mixed text → the DOMINANT language.
+- If truly undeterminable → "language":"Unknown" with low confidence.
 
-Respond with ONLY this JSON, no extra text:
-{"language":"<full English name>","confidence":<integer 0-100>}
+Respond with ONLY this JSON, nothing else:
+{"script":"<script>","markers":["<token>","..."],"language":"<full English name>","confidence":<0-100>}
 
 TEXT:
 """${sample}"""`;
