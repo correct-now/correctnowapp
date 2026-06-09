@@ -799,36 +799,45 @@ function clearHighlights() {
  */
 function showApplyAllButton() {
   if (!applyAllButton) {
+    _ensureUIStyles();
     applyAllButton = document.createElement('button');
-    applyAllButton.textContent = '✓ Apply All Corrections';
+    applyAllButton.setAttribute('data-correctnow-ui', 'true');
+    applyAllButton.innerHTML =
+      `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M20 6 9 17l-5-5"/></svg>` +
+      `<span>Apply All</span>`;
     applyAllButton.style.cssText = `
       position: fixed;
       z-index: 2147483647;
-      padding: 10px 20px;
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 10px 18px;
+      background: linear-gradient(135deg, #2563eb 0%, #6366f1 100%);
       color: white;
       border: none;
-      border-radius: 8px;
-      font-size: 14px;
+      border-radius: 12px;
+      font-size: 13.5px;
       font-weight: 600;
+      letter-spacing: -0.2px;
       cursor: pointer;
-      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
-      transition: all 0.2s ease;
+      box-shadow: 0 8px 22px rgba(37, 99, 235, 0.35), 0 2px 6px rgba(37, 99, 235, 0.25);
+      transition: transform 0.18s cubic-bezier(.34,1.56,.64,1), box-shadow 0.18s ease;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       white-space: nowrap;
       visibility: hidden;
+      animation: correctnow-pop .2s cubic-bezier(.34,1.56,.64,1);
     `;
 
     applyAllButton.addEventListener('mouseenter', () => {
       applyAllButton.style.transform = 'translateY(-2px)';
-      applyAllButton.style.boxShadow = '0 6px 16px rgba(16, 185, 129, 0.5)';
+      applyAllButton.style.boxShadow = '0 12px 28px rgba(37, 99, 235, 0.45), 0 3px 8px rgba(37, 99, 235, 0.3)';
     });
-    
+
     applyAllButton.addEventListener('mouseleave', () => {
       applyAllButton.style.transform = 'translateY(0)';
-      applyAllButton.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.4)';
+      applyAllButton.style.boxShadow = '0 8px 22px rgba(37, 99, 235, 0.35), 0 2px 6px rgba(37, 99, 235, 0.25)';
     });
-    
+
     // Prevent underlying input from losing focus when clicking Apply All
     applyAllButton.addEventListener('mousedown', (e) => { e.preventDefault(); });
     applyAllButton.addEventListener('pointerdown', (e) => { e.preventDefault(); });
@@ -1089,9 +1098,26 @@ function applyAllCorrections() {
 }
 
 /**
- * Show correction tooltip on hover
+ * Dismiss a single suggestion (UI affordance for the card's Ignore button).
+ * Removes only this error and rebuilds the overlay for the rest.
+ */
+function _ignoreError(error) {
+  const remaining = currentErrors.filter((e) => e !== error);
+  if (remaining.length && currentFocusedElement) {
+    highlightErrors(currentFocusedElement, remaining); // rebuilds overlay + resets currentErrors
+  } else {
+    clearHighlights();
+  }
+  hideCorrectionTooltip();
+}
+
+/**
+ * Show premium glassmorphism suggestion card on hover.
+ * Visual redesign only — accept still calls applyCorrection(), ignore dismisses.
  */
 function showCorrectionTooltip(event, error) {
+  _ensureUIStyles();
+
   // Clear any pending hide timeout
   if (tooltipHideTimeout) {
     clearTimeout(tooltipHideTimeout);
@@ -1107,104 +1133,115 @@ function showCorrectionTooltip(event, error) {
   const span = event.target;
   const rect = span.getBoundingClientRect();
 
+  const hasSuggestion = error.suggestion && error.suggestion.trim() && error.suggestion !== 'No suggestion';
+  const color = _suggestionColor(error.type);
+  const label = _suggestionLabel(error.type);
+  const message = error.message || '';
+  const originalText = (error.original && String(error.original).trim())
+    ? String(error.original).trim()
+    : (span && span.textContent ? span.textContent.trim() : '');
+
+  // Theme palette (in-page card adapts to OS color scheme)
+  const dark = _prefersDarkUI();
+  const cardBg = dark ? 'rgba(22,27,34,0.86)' : 'rgba(255,255,255,0.9)';
+  const cardBorder = dark ? 'rgba(255,255,255,0.10)' : 'rgba(15,23,42,0.08)';
+  const txt = dark ? '#f1f5f9' : '#0f172a';
+  const sub = dark ? '#9aa6b8' : '#64748b';
+  const surf2 = dark ? 'rgba(255,255,255,0.06)' : '#f1f5f9';
+  const ignoreText = dark ? '#cbd5e1' : '#475569';
+  const shadow = dark
+    ? '0 14px 40px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.5)'
+    : '0 14px 40px rgba(2,6,23,0.16), 0 2px 8px rgba(2,6,23,0.08)';
+
   const tooltip = document.createElement('div');
   tooltip.className = 'correctnow-tooltip';
-  tooltip.style.cssText = `
-    position: fixed;
-    z-index: 2147483646;
-    background: white;
-    border: 2px solid #ef4444;
-    border-radius: 8px;
-    padding: 10px 14px;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: 13px;
-    min-width: 150px;
-    max-width: 300px;
-    pointer-events: auto;
-    transition: opacity 0.2s ease;
-  `;
+  tooltip.setAttribute('data-correctnow-ui', 'true');
+  tooltip.style.cssText =
+    `position:fixed;z-index:2147483646;box-sizing:border-box;` +
+    `min-width:248px;max-width:330px;padding:14px;` +
+    `background:${cardBg};-webkit-backdrop-filter:blur(14px) saturate(180%);backdrop-filter:blur(14px) saturate(180%);` +
+    `border:1px solid ${cardBorder};border-radius:14px;box-shadow:${shadow};` +
+    `font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;` +
+    `pointer-events:auto;transform-origin:top center;animation:correctnow-pop .18s cubic-bezier(.34,1.56,.64,1);`;
 
-  const hasSuggestion = error.suggestion && error.suggestion.trim() && error.suggestion !== 'No suggestion';
+  const chip =
+    `<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;` +
+    `font-size:11px;font-weight:700;letter-spacing:.2px;background:${_hexA(color, 0.14)};color:${color};">` +
+    `<span style="width:6px;height:6px;border-radius:50%;background:${color};"></span>${label}</span>`;
 
-  console.log('🎯 Showing tooltip for:', error.message, 'Suggestion:', error.suggestion, 'Has valid suggestion:', hasSuggestion);
+  const messageHtml = message
+    ? `<div dir="auto" style="font-size:12.5px;line-height:1.5;color:${sub};margin:10px 0 0;">${escapeHtml(message)}</div>`
+    : '';
 
-  tooltip.innerHTML = `
-    <div style="color: #666; font-size: 11px; margin-bottom: 6px; line-height: 1.4;">${escapeHtml(error.message || 'Spelling error')}</div>
-    <div style="font-weight: 600; color: ${hasSuggestion ? '#10b981' : '#999'}; font-size: 15px; line-height: 1.4;">${escapeHtml(error.suggestion || 'No suggestion available')}</div>
-    ${hasSuggestion ? `<div style="color: #999; font-size: 10px; margin-top: 6px; font-style: italic;">Click to apply</div>` : ''}
-  `;
-  
-  // Make entire tooltip clickable if there's a suggestion
-  if (hasSuggestion) {
-    tooltip.style.cursor = 'pointer';
-    tooltip.style.transition = 'all 0.2s ease';
-  }
+  // dir="auto" lets each token follow its own script direction (RTL for
+  // Arabic/Hebrew/Urdu/Persian, LTR otherwise) — essential for a multilingual tool.
+  const suggestionHtml = hasSuggestion
+    ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:11px 0 13px;font-size:14px;">` +
+        (originalText
+          ? `<span dir="auto" style="color:${sub};text-decoration:line-through;text-decoration-color:${_hexA(color, 0.85)};">${escapeHtml(originalText)}</span>` +
+            `<span style="color:${sub};font-size:13px;">→</span>`
+          : '') +
+        `<span dir="auto" style="font-weight:700;color:${txt};">${escapeHtml(error.suggestion)}</span></div>`
+    : `<div style="font-size:13px;color:${sub};margin:10px 0 4px;">No suggestion available</div>`;
+
+  const actionsHtml = hasSuggestion
+    ? `<div style="display:flex;gap:8px;">` +
+        `<button data-cn="accept" class="cn-act" style="flex:1;height:36px;border:none;border-radius:10px;cursor:pointer;` +
+        `font-size:13px;font-weight:600;color:#fff;background:linear-gradient(135deg,#2563eb,#6366f1);` +
+        `box-shadow:0 4px 12px rgba(37,99,235,.32);display:inline-flex;align-items:center;justify-content:center;gap:6px;">` +
+        `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Accept</button>` +
+        `<button data-cn="ignore" class="cn-act" style="height:36px;padding:0 14px;border:1px solid ${cardBorder};border-radius:10px;cursor:pointer;` +
+        `font-size:13px;font-weight:600;color:${ignoreText};background:${surf2};">Ignore</button></div>`
+    : `<div style="display:flex;"><button data-cn="ignore" class="cn-act" style="flex:1;height:36px;border:1px solid ${cardBorder};` +
+        `border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;color:${ignoreText};background:${surf2};">Dismiss</button></div>`;
+
+  tooltip.innerHTML =
+    `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">${chip}</div>` +
+    messageHtml + suggestionHtml + actionsHtml;
 
   document.body.appendChild(tooltip);
 
-  // Position tooltip with better centering
+  // Position tooltip with better centering (viewport-relative; fixed positioning)
   const tooltipRect = tooltip.getBoundingClientRect();
-  // Tooltip uses position:fixed so coordinates are viewport-relative.
-  // getBoundingClientRect() already returns viewport-relative values —
-  // do NOT add window.scrollX/scrollY or the tooltip drifts on scrolled pages.
   let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+  let top = rect.top - tooltipRect.height - 8;
 
-  // Default to showing ABOVE the error (prevents overlap with next line errors)
-  // Small gap (2px) for easy mouse movement from error to tooltip
-  let top = rect.top - tooltipRect.height - 2;
-
-  // Keep within viewport horizontally
-  if (left + tooltipRect.width > window.innerWidth - 10) {
-    left = window.innerWidth - tooltipRect.width - 10;
-  }
+  if (left + tooltipRect.width > window.innerWidth - 10) left = window.innerWidth - tooltipRect.width - 10;
   if (left < 10) left = 10;
-
-  // If not enough space above, show below instead
-  if (top < 10) {
-    top = rect.bottom + 2;
-  }
+  if (top < 10) top = rect.bottom + 8;
 
   tooltip.style.left = left + 'px';
   tooltip.style.top = top + 'px';
 
-  // Keep tooltip visible when hovering over it
+  // Keep tooltip visible while hovered
   tooltip.addEventListener('mouseenter', () => {
-    if (tooltipHideTimeout) {
-      clearTimeout(tooltipHideTimeout);
-      tooltipHideTimeout = null;
-    }
-    // Add hover effect if clickable
-    if (hasSuggestion) {
-      tooltip.style.transform = 'scale(1.02)';
-      tooltip.style.boxShadow = '0 6px 20px rgba(0,0,0,0.25)';
-    }
+    if (tooltipHideTimeout) { clearTimeout(tooltipHideTimeout); tooltipHideTimeout = null; }
   });
-
   tooltip.addEventListener('mouseleave', () => {
-    // Reset hover effect
-    if (hasSuggestion) {
-      tooltip.style.transform = 'scale(1)';
-      tooltip.style.boxShadow = '0 4px 16px rgba(0,0,0,0.2)';
-    }
-    // Hide after a short delay when leaving tooltip
     tooltipHideTimeout = setTimeout(hideCorrectionTooltip, 300);
   });
 
-  // Click entire tooltip to apply correction
-  if (hasSuggestion) {
-    // Prevent underlying input from losing focus on click
-    tooltip.addEventListener('mousedown', (e) => { e.preventDefault(); });
-    tooltip.addEventListener('pointerdown', (e) => { e.preventDefault(); });
-
-    tooltip.addEventListener('click', (e) => {
+  // Wire Accept / Ignore (keep underlying field focused)
+  const acceptBtn = tooltip.querySelector('[data-cn="accept"]');
+  const ignoreBtn = tooltip.querySelector('[data-cn="ignore"]');
+  [acceptBtn, ignoreBtn].forEach((b) => {
+    if (!b) return;
+    b.addEventListener('mousedown', (e) => e.preventDefault());
+    b.addEventListener('pointerdown', (e) => e.preventDefault());
+  });
+  if (acceptBtn) {
+    acceptBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (tooltipHideTimeout) {
-        clearTimeout(tooltipHideTimeout);
-        tooltipHideTimeout = null;
-      }
+      if (tooltipHideTimeout) { clearTimeout(tooltipHideTimeout); tooltipHideTimeout = null; }
       applyCorrection(span, error);
       hideCorrectionTooltip();
+    });
+  }
+  if (ignoreBtn) {
+    ignoreBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (tooltipHideTimeout) { clearTimeout(tooltipHideTimeout); tooltipHideTimeout = null; }
+      _ignoreError(error);
     });
   }
 
@@ -1323,43 +1360,62 @@ function showMessage(text, type = 'info', isDetailed = false) {
     existing.remove();
   }
 
+  _ensureUIStyles();
   const message = document.createElement('div');
   message.className = CONFIG.MESSAGE_CLASS;
+  message.setAttribute('data-correctnow-ui', 'true');
 
-  // Color based on type
+  // Accent color based on type
   const colors = {
-    success: '#10b981',
-    error: '#ef4444',
-    warning: '#f59e0b',
-    info: '#3b82f6',
+    success: '#059669',
+    error: '#dc2626',
+    warning: '#d97706',
+    info: '#2563eb',
   };
+  const dark = _prefersDarkUI();
+  const cardBg = dark ? 'rgba(22,27,34,0.92)' : 'rgba(255,255,255,0.94)';
+  const cardBorder = dark ? 'rgba(255,255,255,0.10)' : 'rgba(15,23,42,0.08)';
+  const txt = dark ? '#f1f5f9' : '#0f172a';
+  const accent = colors[type] || colors.info;
 
-  const bgColors = {
-    success: '#ecfdf5',
-    error: '#fef2f2',
-    warning: '#fffbeb',
-    info: '#eff6ff',
+  // Per-type icon (consistent line-icon family)
+  const icons = {
+    success: '<path d="M20 6 9 17l-5-5"/>',
+    error: '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/>',
+    warning: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/>',
+    info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
   };
 
   // Temporary positioning to measure size
   message.style.cssText = `
     position: fixed;
     z-index: 999998;
-    padding: 12px 16px;
-    background-color: ${bgColors[type]};
-    color: ${colors[type]};
-    border: 1px solid ${colors[type]};
-    border-radius: 4px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 15px;
+    background: ${cardBg};
+    -webkit-backdrop-filter: blur(14px) saturate(180%);
+    backdrop-filter: blur(14px) saturate(180%);
+    color: ${txt};
+    border: 1px solid ${cardBorder};
+    border-left: 3px solid ${accent};
+    border-radius: 12px;
     font-size: 13px;
+    font-weight: 500;
+    line-height: 1.5;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    max-width: ${(type === 'error' || type === 'warning') ? '500px' : '350px'};
+    max-width: ${(type === 'error' || type === 'warning') ? '460px' : '340px'};
     white-space: ${(isDetailed || type === 'error' || type === 'warning') ? 'pre-wrap' : 'nowrap'};
     word-wrap: break-word;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    box-shadow: ${dark ? '0 14px 40px rgba(0,0,0,0.6)' : '0 14px 40px rgba(2,6,23,0.16)'};
     visibility: hidden;
+    animation: correctnow-toast-in 0.28s cubic-bezier(.34,1.56,.64,1);
   `;
 
-  message.textContent = text;
+  message.innerHTML =
+    `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="${accent}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;">${icons[type] || icons.info}</svg>` +
+    `<span style="min-width:0;">${escapeHtml(text)}</span>`;
   document.body.appendChild(message);
 
   // Calculate position to keep within viewport
@@ -1549,6 +1605,95 @@ function escapeAttr(str) {
     .replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// ---- Premium suggestion design system ---------------------------------------
+// Distinct colors per suggestion category (Grammarly-style):
+//   grammar/spelling → red · punctuation → amber · clarity → blue · style → purple
+function _suggestionColor(type) {
+  switch (String(type || '').toLowerCase()) {
+    case 'clarity':     return '#2563eb';
+    case 'style':       return '#8b5cf6';
+    case 'punctuation': return '#f59e0b';
+    case 'grammar':     return '#ef4444';
+    case 'spelling':    return '#ef4444';
+    default:            return '#ef4444';
+  }
+}
+function _suggestionLabel(type) {
+  const t = String(type || '').toLowerCase();
+  if (t === 'clarity') return 'Clarity';
+  if (t === 'style') return 'Style';
+  if (t === 'punctuation') return 'Punctuation';
+  if (t === 'spelling') return 'Spelling';
+  if (t === 'grammar') return 'Grammar';
+  return 'Suggestion';
+}
+function _hexA(hex, a) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+// Crisp wavy underline as an inline SVG tile (used for contentEditable strips).
+function _waveBg(color) {
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='6' height='4' viewBox='0 0 6 4'><path d='M0 3 Q1.5 0.4 3 3 T6 3' fill='none' stroke='${color}' stroke-width='1.1' stroke-linecap='round'/></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+// User's theme preference, mirrored from the popup ('auto' | 'light' | 'dark').
+// Kept in sync via chrome.storage so the in-page card/toast match the popup.
+let _cnThemePref = 'auto';
+
+// True if the in-page UI should render dark — honors the popup's manual choice
+// first, then falls back to the OS/browser color scheme when set to 'auto'.
+function _prefersDarkUI() {
+  if (_cnThemePref === 'dark') return true;
+  if (_cnThemePref === 'light') return false;
+  try { return window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (_) { return false; }
+}
+
+// Load the stored theme preference and keep it live across changes.
+(function _cnInitThemeSync() {
+  try {
+    if (!chrome?.storage?.local) return;
+    chrome.storage.local.get(['uiTheme'], (r) => {
+      if (chrome.runtime?.lastError) return;
+      if (r && typeof r.uiTheme === 'string') _cnThemePref = r.uiTheme;
+    });
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes.uiTheme) {
+        _cnThemePref = changes.uiTheme.newValue || 'auto';
+        // Re-theme any open card immediately: dismiss so the next hover re-renders
+        // with the new palette (underline colors are type-based, not theme-based).
+        try { if (typeof hideCorrectionTooltip === 'function') hideCorrectionTooltip(); } catch (_) {}
+      }
+    });
+  } catch (_) { /* storage unavailable in this frame — fall back to OS theme */ }
+})();
+
+// Also react to live OS theme changes while in 'auto' mode.
+try {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (_cnThemePref === 'auto') {
+      try { if (typeof hideCorrectionTooltip === 'function') hideCorrectionTooltip(); } catch (_) {}
+    }
+  });
+} catch (_) {}
+
+// Inject shared keyframes once (animations for the in-page card + toast).
+function _ensureUIStyles() {
+  if (document.getElementById('correctnow-ui-style')) return;
+  const style = document.createElement('style');
+  style.id = 'correctnow-ui-style';
+  style.textContent = `
+    @keyframes correctnow-pop { from { opacity: 0; transform: translateY(6px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes correctnow-toast-in { from { opacity: 0; transform: translateY(-8px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    .correctnow-tooltip .cn-act { transition: transform .15s cubic-bezier(.34,1.56,.64,1), box-shadow .15s ease, background .15s ease, border-color .15s ease; }
+    .correctnow-tooltip .cn-act:hover { transform: translateY(-1px); }
+    .correctnow-tooltip .cn-act:active { transform: translateY(0) scale(.97); }
+  `;
+  (document.head || document.documentElement).appendChild(style);
+}
+
 // ---- ① Input Mirror Overlay ------------------------------------------------
 
 function _syncInputOverlay(el) {
@@ -1599,10 +1744,12 @@ function _buildMirrorHTML(text, errors) {
     const e = Math.min(text.length, err.end);
     if (e <= s) return;
     if (s > cursor) html += escapeHtml(text.slice(cursor, s));
+    const col = _suggestionColor(err.type);
     html += `<span class="correctnow-error-span" data-err-start="${s}" data-err-end="${e}" ` +
       `data-suggestion="${escapeAttr(err.suggestion || '')}" ` +
-      `style="color:transparent;text-decoration:underline #ef4444;text-decoration-thickness:2px;` +
-      `text-underline-offset:3px;background-color:rgba(239,68,68,0.12);border-radius:2px;` +
+      `style="color:transparent;text-decoration:underline;text-decoration-style:wavy;` +
+      `text-decoration-color:${col};text-decoration-thickness:1.5px;text-underline-offset:2px;` +
+      `background-color:${_hexA(col, 0.10)};border-radius:2px;` +
       `pointer-events:auto;cursor:pointer;white-space:inherit;"` +
       `>${escapeHtml(text.slice(s, e))}</span>`;
     cursor = e;
@@ -1692,14 +1839,16 @@ function _getErrorRange(el, start, end) {
 }
 
 function _makeRectElements(rect, err, overlay) {
+  const col = _suggestionColor(err.type);
   const ul = document.createElement('div');
   ul.style.cssText =
-    `position:fixed;pointer-events:none;border-radius:1px;background:#ef4444;` +
-    `top:${rect.bottom - 2}px;left:${rect.left}px;width:${rect.width}px;height:2px;`;
+    `position:fixed;pointer-events:none;` +
+    `background-image:${_waveBg(col)};background-repeat:repeat-x;background-position:left center;` +
+    `top:${rect.bottom - 3}px;left:${rect.left}px;width:${rect.width}px;height:4px;`;
   const hl = document.createElement('div');
   hl.style.cssText =
-    `position:fixed;pointer-events:auto;cursor:pointer;border-radius:2px;` +
-    `background:rgba(239,68,68,0.08);` +
+    `position:fixed;pointer-events:auto;cursor:pointer;border-radius:3px;` +
+    `background:${_hexA(col, 0.07)};` +
     `top:${rect.top}px;left:${rect.left}px;width:${rect.width}px;height:${rect.height}px;`;
   hl.addEventListener('mouseenter', ev => showCorrectionTooltip(ev, err));
   hl.addEventListener('mouseleave', () => {
@@ -1750,7 +1899,7 @@ function _syncCEOverlay(el) {
         const rect = rects[i];
         if (!rect) { ul.style.display = 'none'; hl.style.display = 'none'; return; }
         ul.style.display = hl.style.display = '';
-        ul.style.top = (rect.bottom - 2) + 'px'; ul.style.left = rect.left + 'px'; ul.style.width = rect.width + 'px';
+        ul.style.top = (rect.bottom - 3) + 'px'; ul.style.left = rect.left + 'px'; ul.style.width = rect.width + 'px';
         hl.style.top = rect.top + 'px'; hl.style.left = rect.left + 'px';
         hl.style.width = rect.width + 'px'; hl.style.height = rect.height + 'px';
       });

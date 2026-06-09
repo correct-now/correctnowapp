@@ -36,6 +36,14 @@ const errorMessage = document.getElementById('errorMessage');
 const successMessage = document.getElementById('successMessage');
 const backendModeSelect = document.getElementById('backendModeSelect');
 const backendModeHint = document.getElementById('backendModeHint');
+// New premium-UI elements (purely presentational wiring — no business logic)
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsPanel = document.getElementById('settingsPanel');
+const themeSegment = document.getElementById('themeSegment');
+const statusBadge = document.getElementById('statusBadge');
+const statusBadgeText = document.getElementById('statusBadgeText');
+const userAvatar = document.getElementById('userAvatar');
+const dashboardBtnFooter = document.getElementById('dashboardBtnFooter');
 
 let currentBackendMode = 'deployed';
 let currentBackendApiBase = BACKEND_OPTIONS.deployed.apiBase;
@@ -234,16 +242,18 @@ async function showDashboard(authState) {
   dashboardView.classList.remove('hidden');
   
   // Display user info
-  userEmail.textContent = authState.user.email || 'User';
-  
+  const emailStr = authState.user.email || 'User';
+  userEmail.textContent = emailStr;
+  if (userAvatar) userAvatar.textContent = (emailStr.trim()[0] || 'U').toUpperCase();
+
   // Get usage stats
   const stats = await getUserStats();
-  
+
   if (stats) {
     // Update plan badge
     const planType = stats.planType || 'free';
-    planBadge.textContent = planType.charAt(0).toUpperCase() + planType.slice(1) + ' Plan';
-    planBadge.style.background = planType === 'free' ? '#71717a' : '#0077B5';
+    planBadge.textContent = planType.charAt(0).toUpperCase() + planType.slice(1);
+    planBadge.classList.toggle('is-pro', planType !== 'free');
     
     // Update usage stats
     const creditsUsed = stats.dailyChecksUsed || 0;
@@ -475,5 +485,94 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+// =============================================================================
+// PRESENTATION LAYER — theme, settings panel, status badge
+// (purely visual; does not touch auth, stats, or backend logic)
+// =============================================================================
+
+const THEME_KEY = 'uiTheme'; // 'auto' | 'light' | 'dark'
+const _prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+
+function resolveTheme(pref) {
+  if (pref === 'light' || pref === 'dark') return pref;
+  return _prefersDark.matches ? 'dark' : 'light';
+}
+
+function applyTheme(pref) {
+  document.documentElement.setAttribute('data-theme', resolveTheme(pref));
+  if (themeSegment) {
+    themeSegment.querySelectorAll('button').forEach((b) => {
+      b.classList.toggle('active', b.dataset.themeValue === pref);
+    });
+  }
+}
+
+async function initTheme() {
+  let pref = 'auto';
+  try {
+    const stored = await chrome.storage.local.get([THEME_KEY]);
+    if (stored[THEME_KEY]) pref = stored[THEME_KEY];
+  } catch (_) { /* default auto */ }
+  applyTheme(pref);
+
+  // React to OS theme changes while in 'auto'
+  _prefersDark.addEventListener('change', async () => {
+    try {
+      const s = await chrome.storage.local.get([THEME_KEY]);
+      if ((s[THEME_KEY] || 'auto') === 'auto') applyTheme('auto');
+    } catch (_) {}
+  });
+
+  if (themeSegment) {
+    themeSegment.querySelectorAll('button').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const value = btn.dataset.themeValue || 'auto';
+        applyTheme(value);
+        try { await chrome.storage.local.set({ [THEME_KEY]: value }); } catch (_) {}
+      });
+    });
+  }
+}
+
+function initSettingsPanel() {
+  if (!settingsBtn || !settingsPanel) return;
+  settingsBtn.addEventListener('click', () => {
+    const open = settingsPanel.classList.toggle('open');
+    settingsBtn.setAttribute('aria-expanded', String(open));
+  });
+}
+
+async function syncStatusBadge() {
+  if (!statusBadge || !statusBadgeText) return;
+  let enabled = true;
+  try {
+    const { extensionEnabled } = await chrome.storage.local.get(['extensionEnabled']);
+    enabled = extensionEnabled !== false;
+  } catch (_) {}
+  statusBadge.classList.toggle('is-off', !enabled);
+  statusBadgeText.textContent = enabled ? 'Active' : 'Off';
+}
+
+function initFooterLink() {
+  if (!dashboardBtnFooter) return;
+  dashboardBtnFooter.addEventListener('click', (e) => {
+    e.preventDefault();
+    chrome.tabs.create({ url: getDashboardUrl() });
+  });
+}
+
+// Keep the status badge live if the enabled-state changes elsewhere
+try {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.extensionEnabled) syncStatusBadge();
+  });
+} catch (_) {}
+
 // Initialize on load
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => {
+  init();          // existing auth/stats flow (unchanged)
+  initTheme();     // theme system
+  initSettingsPanel();
+  initFooterLink();
+  syncStatusBadge();
+});

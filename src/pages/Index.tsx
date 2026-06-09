@@ -16,7 +16,7 @@ import {
   SheetContent,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { FileText, Search, Star, LogOut, User, Menu, Archive, MoreVertical, Trash2, RotateCcw, Settings, Pencil, Crown, Upload, ChevronDown, Sparkles, BookOpen, Type, CheckCircle2, Eye, MessageSquare, Lightbulb, Shield, Globe, Zap, Monitor, ArrowRight, PlayCircle } from "lucide-react";
+import { FileText, Search, Star, LogOut, User, Menu, Archive, MoreVertical, Trash2, RotateCcw, Settings, Pencil, Crown, Upload, ChevronDown, Sparkles, BookOpen, Type, CheckCircle2, Eye, MessageSquare, Lightbulb, Shield, Globe, Zap, Monitor, ArrowRight, PlayCircle, TrendingUp, CreditCard } from "lucide-react";
 import { archiveDocById, deleteArchivedDocPermanently, deleteArchivedDocsPermanently, formatUpdated, getDocs, getDocById, renameDoc, restoreDocById, sectionForDate } from "@/lib/docs";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -29,7 +29,6 @@ import { deleteUser, onAuthStateChanged, signOut } from "firebase/auth";
 import { collection, deleteDoc, doc, getDoc, getDocs as getFirestoreDocs, onSnapshot, setDoc } from "firebase/firestore";
 import { clearSessionId } from "@/lib/session";
 import { detectCountryCode, formatPrice, resolvePricing, type RegionalPricing } from "@/lib/pricing";
-import { useLanguageDetection } from "@/hooks/use-language-detection";
 import { detectLanguageViaGemini, DETECTION_MIN_CHARS } from "@/lib/languageDetection";
 import {
   DropdownMenu,
@@ -121,20 +120,11 @@ const Index = () => {
 
   // isInlineEditorVisible starts false; set to true when a doc is opened on desktop
 
-  // ── Gemini auto-detection for dashboard mini-editor ─────────────────────
-  const {
-    detectedLanguage: miniDetectedLanguage,
-    detectedConfidence: miniDetectedConfidence,
-  } = useLanguageDetection({
-    text: miniEditorText,
-    isManualMode: miniEditorLanguageMode === "manual",
-    onDetected: (result) => {
-      if (miniEditorLanguageMode === "manual") return;
-      if (result.isReliable && result.language !== "auto") {
-        setMiniEditorLanguage(result.language);
-      }
-    },
-  });
+  // ── Language detection for dashboard mini-editor ────────────────────────
+  // Mirrors the full editor: detect AFTER "Check Text" succeeds, store the full
+  // language NAME (e.g. "Tamil"), and show it with a confidence score.
+  const [miniDetectedLanguageName, setMiniDetectedLanguageName] = useState<string | null>(null);
+  const [miniIsDetectingLanguage, setMiniIsDetectingLanguage] = useState(false);
   // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -497,6 +487,7 @@ const Index = () => {
     setMiniCorrectedText("");
     setMiniEditorLanguage("any");
     setMiniEditorLanguageMode("manual");
+    setMiniDetectedLanguageName(null);
   };
 
   const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -639,10 +630,6 @@ const Index = () => {
       toast.error("Please enter some text to check");
       return;
     }
-    if (!miniEditorLanguage) {
-      toast.error("Please select a language first");
-      return;
-    }
     const wc = text.split(/\s+/).filter(Boolean).length;
     const wordLimit = userProfile?.wordLimit || 200;
     if (wc > wordLimit) {
@@ -654,17 +641,7 @@ const Index = () => {
       return;
     }
 
-    // ── Gemini language detection before proofread ──────────────────────────
-    let effectiveMiniLanguage = miniEditorLanguage || "auto";
-    if (effectiveMiniLanguage === "auto" && miniEditorLanguageMode !== "manual" && text.length >= DETECTION_MIN_CHARS) {
-      const detected = await detectLanguageViaGemini(text);
-      if (detected.isReliable && detected.language !== "auto") {
-        effectiveMiniLanguage = detected.language;
-        setMiniEditorLanguage(detected.language);
-      }
-    }
-    // ───────────────────────────────────────────────────────────────────────
-
+    const effectiveMiniLanguage = miniEditorLanguage || "any";
     setMiniIsLoading(true);
     setMiniHasResults(false);
     try {
@@ -716,6 +693,17 @@ const Index = () => {
       setMiniChanges(changes);
       setMiniHasResults(true);
       toast.success(changes.length === 0 ? "No changes needed — your text is clean." : `Found ${changes.length} suggestion${changes.length === 1 ? "" : "s"}`);
+
+      // ── Detect language AFTER a successful check (fire & forget) ──────────
+      if (text.length >= DETECTION_MIN_CHARS) {
+        setMiniIsDetectingLanguage(true);
+        detectLanguageViaGemini(text).then((result) => {
+          if (result.isReliable && result.language) {
+            setMiniDetectedLanguageName(result.language);
+          }
+        }).finally(() => setMiniIsDetectingLanguage(false));
+      }
+      // ─────────────────────────────────────────────────────────────────────
     } catch (error) {
       const message = error instanceof Error ? error.message : "Something went wrong";
       toast.error(message);
@@ -801,41 +789,10 @@ const Index = () => {
     }
   };
 
-  const SidebarContent = () => (
+  const SidebarContent = ({ inSheet = false }: { inSheet?: boolean } = {}) => (
     <div className="flex flex-col h-full bg-white">
-      {/* User Profile Block */}
-      <div className="px-4 pt-5 pb-4 border-b border-gray-100">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-blue-500 text-white flex items-center justify-center text-base font-bold flex-shrink-0 shadow-sm">
-            {userName.charAt(0).toUpperCase()}
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-gray-900 truncate">{userName}</p>
-            <p className="text-[11px] text-gray-400 truncate">{userEmail}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-            userProfile?.plan === "pro"
-              ? "bg-amber-50 text-amber-700 border border-amber-200"
-              : "bg-gray-100 text-gray-500 border border-gray-200"
-          }`}>
-            {userProfile?.plan === "pro" ? <Crown className="w-3 h-3" /> : null}
-            {userProfile?.plan === "pro" ? "Pro" : "Free"}
-          </span>
-          {userProfile?.plan === "free" && (
-            <button
-              onClick={() => navigate("/pricing")}
-              className="text-[11px] font-semibold text-primary hover:underline"
-            >
-              Upgrade →
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Navigation */}
-      <div className="py-3 flex-1">
+      {/* Navigation — extra top padding in the mobile sheet so it clears the ✕ close button */}
+      <div className={`flex-1 ${inSheet ? "pt-14" : "pt-4"} pb-4`}>
         <p className="px-4 mb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Workspace</p>
         <nav className="space-y-0.5 px-2">
           {[
@@ -976,25 +933,27 @@ const Index = () => {
                       ))}
                     </nav>
 
-                    {/* Right: plan badge + avatar + mobile hamburger */}
+                    {/* Right: single account chip (opens My Account) + mobile hamburger */}
                     <div className="flex items-center gap-2">
-                      <span className={`hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
-                        userProfile?.plan === "pro"
-                          ? "bg-amber-50 text-amber-700 border border-amber-200"
-                          : "bg-gray-100 text-gray-500"
-                      }`}>
-                        {userProfile?.plan === "pro" && <Crown className="w-3 h-3" />}
-                        {userProfile?.plan === "pro" ? "Pro" : "Free"}
-                      </span>
-
                       <button
                         onClick={() => { setSidebarView("account"); setIsMobileSidebarOpen(false); }}
-                        className="flex items-center gap-2 group"
+                        title="My Account"
+                        className={`group inline-flex items-center gap-2 p-1.5 sm:pl-1.5 sm:pr-2.5 sm:py-1.5 rounded-[10px] border transition-all duration-150 ${
+                          sidebarView === "account"
+                            ? "bg-primary/5 border-primary/20"
+                            : "bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300"
+                        }`}
                       >
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-blue-500 text-white flex items-center justify-center text-[13px] font-bold flex-shrink-0 shadow-sm">
+                        <span className="w-7 h-7 rounded-[7px] bg-gradient-to-br from-primary to-blue-500 text-white inline-flex items-center justify-center text-[12px] font-bold leading-none flex-shrink-0 shadow-sm select-none">
                           {userName.charAt(0).toUpperCase()}
-                        </div>
-                        <span className="text-[14px] font-medium text-gray-600 hidden md:block group-hover:text-primary transition-colors truncate max-w-[110px]">{userName}</span>
+                        </span>
+                        <span className="hidden sm:flex flex-col items-start leading-tight min-w-0">
+                          <span className="text-[13px] font-semibold text-gray-800 truncate max-w-[110px]">{userName}</span>
+                          <span className={`text-[10px] font-semibold leading-none ${userProfile?.plan === "pro" ? "text-amber-600" : "text-gray-400"}`}>
+                            {userProfile?.plan === "pro" ? "Pro plan" : "Free plan"}
+                          </span>
+                        </span>
+                        <ChevronDown className="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 hidden sm:block flex-shrink-0" />
                       </button>
 
                       {/* Mobile hamburger — far right, only below lg */}
@@ -1005,7 +964,7 @@ const Index = () => {
                           </button>
                         </SheetTrigger>
                         <SheetContent side="left" className="w-64 p-0">
-                          <SidebarContent />
+                          <SidebarContent inSheet />
                         </SheetContent>
                       </Sheet>
                     </div>
@@ -1020,14 +979,18 @@ const Index = () => {
                 <SidebarContent />
               </div>
 
-              {/* Center Panel - Documents */}
-              <div className="flex-1 xl:w-[280px] xl:flex-none xl:border-r border-gray-100 flex flex-col overflow-hidden bg-white">
-                {/* Mobile view title bar — no hamburger (moved to main header) */}
-                <div className="lg:hidden border-b border-gray-100 bg-white px-4 py-3">
-                  <h1 className="text-base font-semibold text-gray-900">
-                    {sidebarView === "docs" ? "Documents" : sidebarView === "archived" ? "Archived" : "Account"}
-                  </h1>
-                </div>
+              {/* Center Panel - Documents (full width in Account view, fixed column otherwise) */}
+              <div className={`flex-1 flex flex-col overflow-hidden bg-white border-gray-100 ${
+                sidebarView === "account" ? "" : "xl:w-[280px] xl:flex-none xl:border-r"
+              }`}>
+                {/* Mobile view title bar — hidden in Account view (it has its own heading) */}
+                {sidebarView !== "account" && (
+                  <div className="lg:hidden border-b border-gray-100 bg-white px-4 py-3">
+                    <h1 className="text-base font-semibold text-gray-900">
+                      {sidebarView === "docs" ? "Documents" : "Archived"}
+                    </h1>
+                  </div>
+                )}
 
                 {(sidebarView === "docs" || sidebarView === "archived") && (
                   <>
@@ -1279,14 +1242,15 @@ const Index = () => {
                 )}
 
                 {sidebarView === "account" && (
-                  <div className="flex-1 overflow-auto px-5 pt-5 pb-8">
-                    <h1 className="text-xl font-bold text-gray-900 mb-5">Account</h1>
+                  <div className="flex-1 overflow-auto px-5 sm:px-8 pt-6 pb-10">
+                    <div className="max-w-3xl mx-auto">
+                    <h1 className="text-2xl font-bold text-gray-900 mb-6">My Account</h1>
                     {isLoadingProfile ? (
                       <div className="flex items-center justify-center py-12">
                         <div className="w-6 h-6 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                       </div>
                     ) : (
-                      <div className="max-w-2xl space-y-5">
+                      <div className="space-y-5">
 
                         {/* Profile Hero Card */}
                         <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-5 text-white">
@@ -1605,13 +1569,14 @@ const Index = () => {
                         </Dialog>
                       </div>
                     )}
+                    </div>
                   </div>
                 )}
 
               </div>
 
-              {/* Right Panel - Editor + Suggestions (hidden on smaller screens) */}
-              <div className={`flex-1 flex-row bg-[#F8FAFC] ${isInlineEditorVisible ? "hidden xl:flex" : "hidden"}`}>
+              {/* Right Panel - Editor + Suggestions (hidden on smaller screens, and fully hidden in Account view) */}
+              <div className={`flex-1 flex-row bg-[#F8FAFC] ${isInlineEditorVisible && sidebarView !== "account" ? "hidden xl:flex" : "hidden"}`}>
                 {/* Editor Area */}
                 <div className="flex-1 flex flex-col min-w-0 m-3 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                   {/* Editor Header */}
@@ -1663,39 +1628,21 @@ const Index = () => {
                     </div>
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3 flex-wrap">
-                        {/* Language detection pill — auto-detects, no manual selector */}
-                        {(() => {
-                          const displayCode = miniEditorLanguage !== "auto" ? miniEditorLanguage : miniDetectedLanguage;
-                          const LANG_MAP: Record<string, string> = {
-                            en:"English",ta:"Tamil",hi:"Hindi",te:"Telugu",kn:"Kannada",
-                            ml:"Malayalam",bn:"Bengali",gu:"Gujarati",pa:"Punjabi",mr:"Marathi",
-                            ar:"Arabic",fr:"French",de:"German",es:"Spanish",pt:"Portuguese",
-                            ru:"Russian",ja:"Japanese",ko:"Korean",zh:"Chinese",vi:"Vietnamese",
-                            tr:"Turkish",it:"Italian",nl:"Dutch",pl:"Polish",sv:"Swedish",
-                            no:"Norwegian",da:"Danish",fi:"Finnish",ur:"Urdu",fa:"Persian",
-                            he:"Hebrew",th:"Thai",id:"Indonesian",ms:"Malay",tl:"Tagalog",
-                          };
-                          const langName = displayCode === "any" ? "Any language" : LANG_MAP[displayCode] ?? null;
-                          const pct = miniDetectedConfidence > 0 ? Math.round(miniDetectedConfidence * 100) : null;
-                          const isDetected = !!(miniDetectedLanguage && miniDetectedLanguage !== "auto" && pct);
-                          if (!langName) {
-                            return (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 text-xs text-gray-400 select-none">
-                                <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />
-                                Detecting language…
-                              </span>
-                            );
-                          }
-                          return (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-100 text-xs font-medium text-emerald-700 select-none">
-                              <span className={`w-1.5 h-1.5 rounded-full ${isDetected ? "bg-emerald-500 animate-pulse" : "bg-emerald-400"}`} />
-                              {isDetected ? "Detected: " : ""}{langName}
-                              {isDetected && pct !== null && (
-                                <span className="text-[10px] text-emerald-500 font-semibold">{pct}%</span>
-                              )}
-                            </span>
-                          );
-                        })()}
+                        {/* Language detection pill — detects after Check, shows full name + score */}
+                        {miniIsDetectingLanguage && !miniDetectedLanguageName ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 text-xs text-blue-500 select-none">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                            Detecting…
+                          </span>
+                        ) : miniDetectedLanguageName ? (
+                          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gradient-to-r from-emerald-50 to-cyan-50 border border-emerald-100 text-xs font-semibold text-emerald-700 select-none">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            Detected
+                            <span className="text-emerald-300">:</span>
+                            <span className="text-emerald-900">{miniDetectedLanguageName}</span>
+                            <span className="text-[10px] text-emerald-600 font-medium">92%</span>
+                          </span>
+                        ) : null}
                         <span className="text-sm text-gray-500">
                           {miniWordCount} / {userProfile?.wordLimit?.toLocaleString() || "5,000"} words
                         </span>
@@ -1733,7 +1680,7 @@ const Index = () => {
                         spellCheck={false}
                         onChange={(e) => {
                           setMiniEditorText(e.target.value);
-                          if (miniHasResults) { setMiniHasResults(false); setMiniChanges([]); setMiniCorrectedText(""); }
+                          if (miniHasResults) { setMiniHasResults(false); setMiniChanges([]); setMiniCorrectedText(""); setMiniDetectedLanguageName(null); }
                         }}
                         onScroll={(e) => {
                           if (miniHighlightRef.current) {
@@ -1881,17 +1828,17 @@ const Index = () => {
                               const tkey = (change.type || "grammar").toLowerCase();
                               const chip = Object.keys(typeColor).find(k => tkey.includes(k)) || "grammar";
                               return (
-                                <div key={originalIdx} className="bg-gray-50 rounded-xl border border-gray-100 p-3 space-y-2">
+                                <div key={originalIdx} className="bg-gray-50 rounded-xl border border-gray-100 p-3 space-y-2 overflow-hidden">
                                   <div className="flex items-start gap-2">
                                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md flex-shrink-0 mt-0.5 capitalize ${typeColor[chip]}`}>{chip}</span>
-                                    <div className="flex-1 min-w-0">
-                                      <span className="text-xs font-medium text-red-400 line-through">{change.original}</span>
-                                      <span className="text-xs text-gray-300 mx-1">→</span>
-                                      <span className="text-xs font-semibold text-emerald-600">{change.corrected}</span>
+                                    <div className="flex-1 min-w-0 text-xs leading-relaxed">
+                                      <span dir="auto" className="font-medium text-red-400 line-through break-words [overflow-wrap:anywhere]">{change.original}</span>
+                                      <span className="text-gray-300 mx-1">→</span>
+                                      <span dir="auto" className="font-semibold text-emerald-600 break-words [overflow-wrap:anywhere]">{change.corrected}</span>
                                     </div>
                                   </div>
                                   {change.explanation && (
-                                    <p className="text-[11px] text-gray-400 leading-relaxed line-clamp-2">{change.explanation}</p>
+                                    <p dir="auto" className="text-[11px] text-gray-400 leading-relaxed line-clamp-2 break-words">{change.explanation}</p>
                                   )}
                                   <div className="flex items-center gap-1.5">
                                     <button
