@@ -124,6 +124,7 @@ const Index = () => {
   // Mirrors the full editor: detect AFTER "Check Text" succeeds, store the full
   // language NAME (e.g. "Tamil"), and show it with a confidence score.
   const [miniDetectedLanguageName, setMiniDetectedLanguageName] = useState<string | null>(null);
+  const [miniDetectedConfidence, setMiniDetectedConfidence] = useState<number | null>(null);
   const [miniIsDetectingLanguage, setMiniIsDetectingLanguage] = useState(false);
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -488,6 +489,7 @@ const Index = () => {
     setMiniEditorLanguage("any");
     setMiniEditorLanguageMode("manual");
     setMiniDetectedLanguageName(null);
+    setMiniDetectedConfidence(null);
   };
 
   const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -700,6 +702,7 @@ const Index = () => {
         detectLanguageViaGemini(text).then((result) => {
           if (result.isReliable && result.language) {
             setMiniDetectedLanguageName(result.language);
+            setMiniDetectedConfidence(result.confidence);
           }
         }).finally(() => setMiniIsDetectingLanguage(false));
       }
@@ -1640,7 +1643,9 @@ const Index = () => {
                             Detected
                             <span className="text-emerald-300">:</span>
                             <span className="text-emerald-900">{miniDetectedLanguageName}</span>
-                            <span className="text-[10px] text-emerald-600 font-medium">92%</span>
+                            {miniDetectedConfidence != null && (
+                              <span className="text-[10px] text-emerald-600 font-medium">{Math.round(miniDetectedConfidence * 100)}%</span>
+                            )}
                           </span>
                         ) : null}
                         <span className="text-sm text-gray-500">
@@ -1680,7 +1685,7 @@ const Index = () => {
                         spellCheck={false}
                         onChange={(e) => {
                           setMiniEditorText(e.target.value);
-                          if (miniHasResults) { setMiniHasResults(false); setMiniChanges([]); setMiniCorrectedText(""); setMiniDetectedLanguageName(null); }
+                          if (miniHasResults) { setMiniHasResults(false); setMiniChanges([]); setMiniCorrectedText(""); setMiniDetectedLanguageName(null); setMiniDetectedConfidence(null); }
                         }}
                         onScroll={(e) => {
                           if (miniHighlightRef.current) {

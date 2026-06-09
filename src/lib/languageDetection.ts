@@ -59,15 +59,22 @@ export const detectLanguageViaGemini = async (text: string): Promise<DetectionRe
 
     if (!res.ok) return FALLBACK;
 
-    const data = await res.json() as { language?: string | null };
+    const data = await res.json() as { language?: string | null; confidence?: number };
     const language = typeof data?.language === "string" ? data.language.trim() : null;
 
     if (!language) return FALLBACK;
 
+    // Backend returns confidence as an integer 0-100; normalise to 0-1.
+    const rawConfidence = Number(data?.confidence);
+    const confidence = Number.isFinite(rawConfidence)
+      ? Math.max(0, Math.min(1, rawConfidence / 100))
+      : 0.9;
+
     return {
       language,
-      confidence: 0.92,
-      isReliable: true,
+      confidence,
+      // Only surface a detection we're reasonably sure about.
+      isReliable: confidence >= 0.5,
       source: "gemini",
     };
   } catch {

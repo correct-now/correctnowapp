@@ -2296,15 +2296,42 @@ app.post("/api/detect-language", async (req, res) => {
     const model = process.env.GEMINI_DETECT_MODEL || "gemini-2.5-flash";
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-    const prompt = `What language is the following text written in? Reply with ONLY a JSON object: {"language":"<full English language name>"}.
-Examples: {"language":"Tamil"}, {"language":"Pashto"}, {"language":"English"}, {"language":"Hindi"}.
-If you cannot determine the language, reply: {"language":"Unknown"}.
-Do NOT return a language code â€” return the full English name only.
+    // Use a generous slice — enough signal to identify the language accurately
+    // (including same-script disambiguation) without sending huge payloads.
+    const sample = text.slice(0, 1200);
 
-Text:
-"""${text}"""`;
+    const prompt = `You are an expert computational linguist performing precise language identification.
 
-    const detectKey = crypto.createHash("sha256").update(text.slice(0, 500)).digest("hex");
+Identify the language of the TEXT below and return the FULL English language name.
+
+CRITICAL — disambiguate languages that SHARE a writing system. Decide by VOCABULARY, GRAMMAR and MORPHOLOGY, never by script alone:
+
+• Devanagari (Sanskrit / Hindi / Marathi / Nepali / Konkani):
+  - Sanskrit: heavy sandhi; case endings -aḥ/-aṃ/-ena/-asya/-āya; verbs ending -ति/-न्ति/-ते; particles च, वा, एव, हि, तु, इति; words अस्ति, भवति, सर्वम्, तत्, यत्. Often śloka/verse, no postpositions.
+  - Hindi: postpositions है/हैं/को/में/से/का/की/के/ने; words और, नहीं, यह, वह, हम, क्या, कर.
+  - Marathi: आहे/आहेत, मला, तू, आणि, नाही, च्या, ला; letters ळ, ण frequent.
+  - Nepali: छ/छन्, हो, मा, लाई, र, हामी, गर्.
+• Arabic script (Arabic / Persian / Urdu / Pashto):
+  - Persian (Farsi): است، می‌, که، را، این، آن، چه، و، برای.
+  - Urdu: ہے، ہیں، کے، میں، اور، نہیں، کا، کی، کو.
+  - Pashto: letters ښ ګ ړ ډ ټ ږ; words دی، دے، او، چې، ته.
+  - Arabic: ال‑ prefix, في، من، على، الذي، إن، هذا.
+• Cyrillic (Russian / Ukrainian / Bulgarian / Serbian): decide by distinctive letters (і ї є ґ → Ukrainian; ъ frequent + no ы → Bulgarian) and vocabulary.
+• Latin script (Spanish / Portuguese / Italian / etc.): decide by diacritics and function words (ção/não → Portuguese; ñ/¿ → Spanish; gli/che/è → Italian).
+
+Rules:
+- Return the full English name (e.g. "Sanskrit", "Hindi", "Marathi", "Tamil", "Pashto", "Persian", "Urdu", "Arabic", "English").
+- If multiple languages are mixed, return the DOMINANT one.
+- "confidence" is your certainty as an integer 0-100.
+- If you genuinely cannot tell, use "Unknown" with a low confidence.
+
+Respond with ONLY this JSON, no extra text:
+{"language":"<full English name>","confidence":<integer 0-100>}
+
+TEXT:
+"""${sample}"""`;
+
+    const detectKey = crypto.createHash("sha256").update(sample).digest("hex");
     const cachedDetect = getCache(`detect:${detectKey}`);
     if (cachedDetect) {
       return res.json(cachedDetect);
@@ -2323,7 +2350,7 @@ Text:
       const errorText = await response.text();
       console.error("Detect-language error:", errorText);
       if (errorText.includes("User location is not supported") || errorText.includes("FAILED_PRECONDITION")) {
-        return res.json({ language: null });
+        return res.json({ language: null, confidence: 0 });
       }
       return res.status(500).json({ message: "Detect-language error", details: errorText });
     }
@@ -2341,10 +2368,16 @@ Text:
       return res.status(500).json({ message: "Failed to parse detect-language response" });
     }
 
-    const language = typeof parsed?.language === "string" && parsed.language !== "Unknown"
-      ? parsed.language.trim()
-      : null;
-    const result = { language };
+    const rawLang = typeof parsed?.language === "string" ? parsed.language.trim() : "";
+    const language = rawLang && rawLang.toLowerCase() !== "unknown" ? rawLang : null;
+
+    // Normalise confidence to an integer 0-100. Default to a sensible value if
+    // the model omitted it but did return a language.
+    let confidence = Number(parsed?.confidence);
+    if (!Number.isFinite(confidence)) confidence = language ? 90 : 0;
+    confidence = Math.max(0, Math.min(100, Math.round(confidence)));
+
+    const result = { language, confidence };
     setCache(`detect:${detectKey}`, result);
     return res.json(result);
   } catch (err) {

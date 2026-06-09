@@ -388,6 +388,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
   const suggestionsRef = useRef<HTMLDivElement>(null);
   // ── Language detection — shown ONLY after Check Text is clicked ──────────
   const [detectedLanguageName, setDetectedLanguageName] = useState<string | null>(null);
+  const [detectedConfidence, setDetectedConfidence] = useState<number>(0);
   const [isDetectingLanguage, setIsDetectingLanguage] = useState(false);
   // ────────────────────────────────────────────────────────────────────────
 
@@ -1066,6 +1067,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
         detectLanguageViaGemini(textToCheck).then((result) => {
           if (result.isReliable && result.language) {
             setDetectedLanguageName(result.language);
+            setDetectedConfidence(result.confidence);
           }
         }).finally(() => {
           setIsDetectingLanguage(false);
@@ -1095,6 +1097,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
     setHasResults(false);
     setDocId(undefined);
     setDetectedLanguageName(null);
+    setDetectedConfidence(0);
     checkPromptedRef.current = false;
     newDocPromptedRef.current = false;
     setShouldBlinkCheck(false);
@@ -1487,7 +1490,7 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                     {/* Language detection pill — read-only, shows current language (Any default) */}
                     <LanguageDetectionPill
                       detectedLanguage={detectedLanguageName}
-                      detectedConfidence={0.92}
+                      detectedConfidence={detectedConfidence}
                       isDetecting={isDetectingLanguage}
                     />
                     <div className="flex flex-col items-start gap-0.5 sm:gap-1 w-full sm:w-auto">
