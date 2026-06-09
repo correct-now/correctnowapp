@@ -570,22 +570,11 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
             daysSinceReset !== null &&
             daysSinceReset >= 30;
 
-          // Persist monthly reset to database
-          if (shouldReset) {
-            try {
-              await updateDoc(ref, {
-                creditsUsed: 0,
-                creditsResetDate: now.toISOString(),
-                updatedAt: now.toISOString(),
-              });
-              // State will update on next snapshot
-              return;
-            } catch (error) {
-              console.error("Failed to reset credits:", error);
-            }
-          }
-
-          const usedValue = Number(data?.creditsUsed || 0);
+          // Monthly credit reset is performed server-side (on the next
+          // /api/proofread call) so usage counters cannot be tampered with
+          // from the client. `shouldReset` only affects the optimistic local
+          // display below; the authoritative reset + persistence is on the server.
+          const usedValue = shouldReset ? 0 : Number(data?.creditsUsed || 0);
           const totalCredits = planCredits + validAddonCredits;
           
           setPlanName(plan);

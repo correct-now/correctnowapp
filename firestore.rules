@@ -6,6 +6,10 @@ service cloud.firestore {
     }
 
     function isAdmin() {
+      // Admin is granted ONLY by a verified custom claim or an exact-match
+      // allow-listed identity. The previous `.*admin.*` substring match was a
+      // privilege-escalation hole (any email containing "admin" gained full
+      // database access) and has been removed.
       return (
         request.auth != null &&
         (
@@ -14,12 +18,29 @@ service cloud.firestore {
             request.auth.token.email != null &&
             (
               request.auth.token.email == 'correctnowapp@gmail.com' ||
-              request.auth.token.email.matches('.*@correctnow\\.app$') ||
-              request.auth.token.email.matches('.*admin.*')
+              request.auth.token.email.matches('.*@correctnow\\.app$')
             )
           )
         )
       );
+    }
+
+    // Entitlement / billing / usage fields that ONLY the server (Admin SDK,
+    // which bypasses rules) or an admin may write. Clients must never set these
+    // on their own user document — otherwise a user could grant themselves Pro
+    // straight from the browser console, bypassing all payment verification.
+    function protectedUserFields() {
+      return [
+        'plan', 'wordLimit', 'credits', 'creditsUsed', 'creditsResetDate',
+        'subscriptionStatus', 'subscriptionId', 'razorpaySubscriptionId',
+        'stripeSubscriptionId', 'stripeCustomerId', 'paymentGateway',
+        'subscriptionCreatedAt', 'subscriptionUpdatedAt',
+        'subscriptionCurrentPeriodEnd', 'subscriptionPeriodStart',
+        'lastPaymentAmount', 'lastPaymentId', 'razorpayPaidCount',
+        'razorpayTotalCount', 'addonCredits', 'addonCreditsExpiryAt',
+        'adminCredits', 'adminCreditsExpiryAt', 'adminPlanExpiresAt',
+        'dailyChecksUsed', 'lastCheckDate'
+      ];
     }
 
     // Allow any authenticated user to read coupons (needed for payment/admin pages)
@@ -42,7 +63,19 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isSignedIn() && request.auth.uid == userId;
-      allow write: if isSignedIn() && request.auth.uid == userId;
+
+      // A user may create their own profile doc as long as it carries NO
+      // entitlement/billing fields (those are server-owned).
+      allow create: if isSignedIn() && request.auth.uid == userId
+        && !request.resource.data.keys().hasAny(protectedUserFields());
+
+      // A user may update their own profile, but the set of CHANGED keys must
+      // not touch any protected entitlement/billing/usage field.
+      allow update: if isSignedIn() && request.auth.uid == userId
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(protectedUserFields());
+
+      // No client-side deletes of the user doc.
+      allow delete: if false;
     }
     
     match /users/{userId}/docs/{docId} {

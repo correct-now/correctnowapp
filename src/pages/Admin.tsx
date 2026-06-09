@@ -113,6 +113,19 @@ import {
   type FilterPreset,
 } from "@/pages/admin-helpers";
 
+/**
+ * Build headers for an authenticated admin API call. Every privileged
+ * /api/admin/* endpoint now requires a valid Firebase ID token (the server
+ * verifies the admin claim/allow-list), so all admin mutations must send it.
+ */
+const adminHeaders = async (): Promise<Record<string, string>> => {
+  const auth = getFirebaseAuth();
+  const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return headers;
+};
+
 type AdminUser = {
   id: string;
   name: string;
@@ -917,7 +930,7 @@ const Admin = () => {
       // Call backend API to delete from both Auth and Firestore
       const response = await fetch("/api/admin/delete-user", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await adminHeaders(),
         body: JSON.stringify({ userId }),
       });
 
@@ -1135,7 +1148,7 @@ const Admin = () => {
           // Call backend API to delete from both Auth and Firestore
           const response = await fetch("/api/admin/delete-user", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: await adminHeaders(),
             body: JSON.stringify({ userId }),
           });
 
@@ -1194,7 +1207,7 @@ const Admin = () => {
     try {
       const res = await fetch("/api/admin/bulk-action", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await adminHeaders(),
         body: JSON.stringify({ action, userIds: ids, ...extra }),
       });
       const data = await res.json();
@@ -1699,7 +1712,7 @@ const Admin = () => {
     try {
       const response = await fetch("/api/admin/toggle-plan", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await adminHeaders(),
         body: JSON.stringify({ userId: user.id }),
       });
       const data = await response.json();
@@ -1727,7 +1740,7 @@ const Admin = () => {
     try {
       const response = await fetch("/api/admin/toggle-plan", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await adminHeaders(),
         body: JSON.stringify({ userId, durationDays: planGrantDays }),
       });
       const data = await response.json();
@@ -1954,7 +1967,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
 
       const response = await fetch("/api/admin/create-user", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await adminHeaders(),
         body: JSON.stringify(payload),
       });
 
@@ -2119,7 +2132,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
       try {
         const res = await fetch('/api/admin/create-user', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: await adminHeaders(),
           body: JSON.stringify({ name: row.name, email: row.email, phone: row.phone || undefined, category: row.category || undefined, password: row.password }),
         });
         const data = await res.json();

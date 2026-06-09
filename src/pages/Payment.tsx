@@ -13,7 +13,7 @@ import {
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { getFirebaseAuth, getFirebaseDb } from "@/lib/firebase";
-import { doc as firestoreDoc, getDoc, onSnapshot, setDoc } from "firebase/firestore";
+import { doc as firestoreDoc, onSnapshot } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { detectCountryCode, formatPrice, getCreditPacks, resolvePricing, type CreditPackKey, type RegionalPricing } from "@/lib/pricing";
 
@@ -255,27 +255,36 @@ const Payment = () => {
             email: user?.email || "",
           },
           theme: { color: "#2563EB" },
-          handler: async () => {
-            const ref = firestoreDoc(db, `users/${user.uid}`);
-            const snap = await getDoc(ref);
-            const now = new Date();
-            const expiry = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-            const currentAddon = Number(snap.exists() ? snap.data()?.addonCredits : 0) || 0;
-            const currentExpiry = snap.exists() ? snap.data()?.addonCreditsExpiryAt : null;
-            const isCurrentValid = currentExpiry ? new Date(String(currentExpiry)).getTime() > now.getTime() : false;
-            const nextAddon = (isCurrentValid ? currentAddon : 0) + creditPack.credits;
-            await setDoc(
-              ref,
-              {
-                addonCredits: nextAddon,
-                addonCreditsExpiryAt: expiry.toISOString(),
-                creditsUpdatedAt: now.toISOString(),
-                updatedAt: now.toISOString(),
-              },
-              { merge: true }
-            );
-            toast.success("Credits added successfully");
-            navigate("/");
+          handler: async (response: any) => {
+            // Credits are added ONLY after the server verifies the Razorpay
+            // signature. The client never writes the balance directly.
+            try {
+              const token = user ? await user.getIdToken() : null;
+              const verifyRes = await fetch(`${apiBase}/api/razorpay/verify`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({
+                  razorpay_payment_id: response?.razorpay_payment_id,
+                  razorpay_order_id: response?.razorpay_order_id,
+                  razorpay_signature: response?.razorpay_signature,
+                  credits: creditPack.credits,
+                }),
+              });
+              if (!verifyRes.ok) {
+                const e = await verifyRes.json().catch(() => ({}));
+                throw new Error(e?.message || "Payment verification failed");
+              }
+              toast.success("Credits added successfully");
+              navigate("/");
+            } catch (err: any) {
+              toast.error(
+                err?.message ||
+                  "We could not verify your payment. If money was deducted, please contact support."
+              );
+            }
           },
         };
 
@@ -317,25 +326,36 @@ const Payment = () => {
           email: user?.email || "",
         },
         theme: { color: "#2563EB" },
-        handler: async () => {
-          if (user && db) {
-            const ref = firestoreDoc(db, `users/${user.uid}`);
-            await setDoc(
-              ref,
-              {
-                plan: "pro",
-                wordLimit: 2000,
-                credits: 25000,
-                subscriptionId: subscription?.id || "",
-                subscriptionStatus: "active",
-                subscriptionUpdatedAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
+        handler: async (response: any) => {
+          // Pro is granted ONLY after the server verifies the Razorpay
+          // signature against the subscription. The client no longer writes
+          // the plan directly (that was a payment bypass).
+          try {
+            const token = user ? await user.getIdToken() : null;
+            const verifyRes = await fetch(`${apiBase}/api/razorpay/verify`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
               },
-              { merge: true }
+              body: JSON.stringify({
+                razorpay_payment_id: response?.razorpay_payment_id,
+                razorpay_subscription_id: response?.razorpay_subscription_id || subscription?.id,
+                razorpay_signature: response?.razorpay_signature,
+              }),
+            });
+            if (!verifyRes.ok) {
+              const e = await verifyRes.json().catch(() => ({}));
+              throw new Error(e?.message || "Payment verification failed");
+            }
+            toast.success("Payment successful");
+            navigate("/");
+          } catch (err: any) {
+            toast.error(
+              err?.message ||
+                "We could not verify your payment. If money was deducted, please contact support."
             );
           }
-          toast.success("Payment successful");
-          navigate("/");
         },
       };
 

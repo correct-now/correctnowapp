@@ -1,4 +1,4 @@
-import express from "express";
+﻿import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
@@ -49,13 +49,13 @@ const initAdminDb = () => {
         try {
           // Try parsing as-is first (works if already valid JSON)
           serviceAccount = JSON.parse(serviceAccountJson);
-          console.log("✓ Successfully parsed FIREBASE_SERVICE_ACCOUNT (direct parse)");
+          console.log("âœ“ Successfully parsed FIREBASE_SERVICE_ACCOUNT (direct parse)");
           
           // Handle double-encoded JSON (when parsing returns a string instead of object)
           if (typeof serviceAccount === 'string') {
             console.log("Detected double-encoded JSON, parsing again...");
             serviceAccount = JSON.parse(serviceAccount);
-            console.log("✓ Successfully parsed double-encoded JSON");
+            console.log("âœ“ Successfully parsed double-encoded JSON");
           }
         } catch (err) {
           // If that fails, try unescaping (handles escaped JSON strings from .env files)
@@ -72,9 +72,9 @@ const initAdminDb = () => {
               .replace(/\\\\/g, '\\');
             
             serviceAccount = JSON.parse(serviceAccountJson);
-            console.log("✓ Successfully parsed FIREBASE_SERVICE_ACCOUNT (after unescaping)");
+            console.log("âœ“ Successfully parsed FIREBASE_SERVICE_ACCOUNT (after unescaping)");
           } catch (err2) {
-            console.error("❌ Failed to parse FIREBASE_SERVICE_ACCOUNT:", err2.message);
+            console.error("âŒ Failed to parse FIREBASE_SERVICE_ACCOUNT:", err2.message);
             console.error("Environment variable preview:", serviceAccountJson?.substring(0, 100));
             throw new Error("Invalid FIREBASE_SERVICE_ACCOUNT format. Must be valid JSON.");
           }
@@ -82,17 +82,17 @@ const initAdminDb = () => {
         
         // Verify it's an object with required fields
         if (!serviceAccount || typeof serviceAccount !== 'object') {
-          console.error("❌ Parsed result type:", typeof serviceAccount);
+          console.error("âŒ Parsed result type:", typeof serviceAccount);
           console.error("Parsed result preview:", JSON.stringify(serviceAccount)?.substring(0, 200));
           throw new Error("FIREBASE_SERVICE_ACCOUNT must be a valid JSON object");
         }
         
         if (!serviceAccount.project_id || !serviceAccount.private_key || !serviceAccount.client_email) {
-          console.error("❌ Missing required fields. Has:", Object.keys(serviceAccount || {}).join(', '));
+          console.error("âŒ Missing required fields. Has:", Object.keys(serviceAccount || {}).join(', '));
           throw new Error("FIREBASE_SERVICE_ACCOUNT is missing required fields (project_id, private_key, client_email)");
         }
         
-        console.log("✓ Firebase service account validated, project:", serviceAccount.project_id);
+        console.log("âœ“ Firebase service account validated, project:", serviceAccount.project_id);
         admin.initializeApp({
           credential: admin.credential.cert(serviceAccount),
         });
@@ -223,10 +223,12 @@ const getUserEntitlements = (userData) => {
     ? Date.now() - updatedAt.getTime() <= 1000 * 60 * 60 * 24 * 31 // 31 days
     : false;
   
-  // Allow both 'active' and 'past_due' status to have pro access (grace period)
-  // Users will be downgraded to free plan after multiple payment failures via webhooks
-  const isActive = ['active', 'past_due'].includes(subscriptionStatus) && (updatedAt ? isRecent : true);
-  
+  // INSTANT-DOWNGRADE POLICY (no grace period): ONLY an 'active' subscription
+  // grants Pro. Any other status â€” payment_failed, past_due, cancelled,
+  // refunded, inactive â€” loses Pro access immediately. This matches the
+  // frontend getEffectivePlan() so server and client never disagree.
+  const isActive = subscriptionStatus === 'active' && (updatedAt ? isRecent : true);
+
   const effectiveIsPro = subscriptionStatus ? (isActive && isPro) : isPro;
   
   // Get today's date for daily check reset
@@ -344,19 +346,169 @@ const toStripeAmount = (amount, currency) => {
     : Math.round(amount * 100);
 };
 
-const updateUsersBySubscriptionId = async (subscriptionId, updates) => {
-  if (!adminDb || !subscriptionId) return;
-  const snapshot = await adminDb
-    .collection("users")
-    .where("subscriptionId", "==", subscriptionId)
-    .get();
-  if (snapshot.empty) return;
+// ---------------------------------------------------------------------------
+// Payment-system security & reliability helpers
+// ---------------------------------------------------------------------------
 
+/**
+ * Constant-time comparison of two hex signatures to defeat timing attacks.
+ * Falls back to false on any length mismatch or error.
+ */
+const safeEqualHex = (a, b) => {
+  try {
+    const ba = Buffer.from(String(a), "utf8");
+    const bb = Buffer.from(String(b), "utf8");
+    if (ba.length !== bb.length) return false;
+    return crypto.timingSafeEqual(ba, bb);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Centralised admin authorisation. ONLY a verified `admin` custom claim or an
+ * exact-match allow-listed email is treated as admin. The previous
+ * `email.includes("admin")` check was a privilege-escalation hole (any user
+ * with "admin" anywhere in their email gained full admin access) and is gone.
+ */
+const ADMIN_EMAILS = new Set(
+  String(process.env.ADMIN_EMAILS || "correctnowapp@gmail.com")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+);
+const isAdminClaims = (decodedToken) => {
+  if (!decodedToken) return false;
+  if (decodedToken.admin === true) return true;
+  const email = String(decodedToken.email || "").trim().toLowerCase();
+  if (!email) return false;
+  if (ADMIN_EMAILS.has(email)) return true;
+  // Verified custom domain (exact suffix, not substring)
+  if (email.endsWith("@correctnow.app")) return true;
+  return false;
+};
+
+/**
+ * Express middleware enforcing admin auth on a route. Rejects with 401/403
+ * unless the caller presents a valid Firebase ID token whose claims pass
+ * isAdminClaims(). Attaches the decoded token to req.admin for downstream use.
+ */
+const requireAdmin = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization || "";
+    if (!authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Unauthorized: missing token" });
+    }
+    const idToken = authHeader.slice(7);
+    let decoded;
+    try {
+      decoded = await admin.auth().verifyIdToken(idToken);
+    } catch {
+      return res.status(401).json({ error: "Unauthorized: invalid token" });
+    }
+    if (!isAdminClaims(decoded)) {
+      return res.status(403).json({ error: "Forbidden: admin access required" });
+    }
+    req.admin = decoded;
+    return next();
+  } catch (err) {
+    console.error("requireAdmin error:", err);
+    return res.status(500).json({ error: "Auth check failed" });
+  }
+};
+
+/**
+ * Idempotency guard. Atomically records a webhook event id; returns true if the
+ * event was ALREADY processed (duplicate delivery), false if this is the first
+ * time. Concurrent duplicate deliveries are serialised by the transaction so an
+ * event is never double-applied. Fails open (returns false) if no event id is
+ * available so we never silently drop a real event.
+ */
+const isDuplicateWebhookEvent = async (gateway, eventId) => {
+  if (!adminDb || !eventId) return false;
+  const ref = adminDb.collection("webhookEvents").doc(`${gateway}_${eventId}`);
+  try {
+    const isFirst = await adminDb.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (snap.exists) return false;
+      tx.set(ref, { gateway, eventId, processedAt: new Date().toISOString() });
+      return true;
+    });
+    return !isFirst;
+  } catch (e) {
+    console.error("Idempotency check failed:", e.message);
+    return false;
+  }
+};
+
+/** Remove an idempotency marker so a failed-and-retried event can reprocess. */
+const clearWebhookEvent = async (gateway, eventId) => {
+  if (!adminDb || !eventId) return;
+  try {
+    await adminDb.collection("webhookEvents").doc(`${gateway}_${eventId}`).delete();
+  } catch (e) {
+    console.error("Failed to clear webhook event marker:", e.message);
+  }
+};
+
+/** Append an immutable audit record of a payment/subscription event. */
+const recordPaymentEvent = async (entry) => {
+  if (!adminDb) return;
+  try {
+    await adminDb.collection("paymentHistory").add({
+      ...entry,
+      createdAt: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error("Failed to record payment event:", e.message);
+  }
+};
+
+/**
+ * Resolve user docs that belong to a subscription id, matching BOTH the
+ * `subscriptionId` and `razorpaySubscriptionId` fields (historical data used
+ * different field names). Returns an array of QueryDocumentSnapshots.
+ */
+const findUsersBySubscription = async (subscriptionId) => {
+  if (!adminDb || !subscriptionId) return [];
+  const col = adminDb.collection("users");
+  const seen = new Map();
+  for (const field of ["subscriptionId", "razorpaySubscriptionId", "stripeSubscriptionId"]) {
+    // eslint-disable-next-line no-await-in-loop
+    const snap = await col.where(field, "==", subscriptionId).get();
+    snap.forEach((d) => seen.set(d.id, d));
+  }
+  return Array.from(seen.values());
+};
+
+/**
+ * Apply `updates` to every user mapped to `subscriptionId`. Returns the number
+ * of user docs updated (0 means the subscriptionâ†’user mapping is not yet
+ * established, which the caller can use to decide whether to ask for a retry).
+ */
+const updateUsersBySubscriptionId = async (subscriptionId, updates) => {
+  if (!adminDb || !subscriptionId) return 0;
+  const docs = await findUsersBySubscription(subscriptionId);
+  if (!docs.length) return 0;
   const batch = adminDb.batch();
-  snapshot.forEach((doc) => {
-    batch.set(doc.ref, updates, { merge: true });
-  });
+  docs.forEach((doc) => batch.set(doc.ref, updates, { merge: true }));
   await batch.commit();
+  return docs.length;
+};
+
+/** Canonical free-plan downgrade payload (instant, no grace period). */
+const FREE_PLAN_DOWNGRADE = {
+  plan: "free",
+  wordLimit: 200,
+  credits: 0,
+  creditsUsed: 0,
+};
+/** Canonical pro-plan grant payload. */
+const PRO_PLAN_GRANT = {
+  plan: "pro",
+  wordLimit: 5000,
+  credits: 25000,
+  creditsUsed: 0,
 };
 
 // IP tracking for rate limiting non-authenticated users
@@ -399,7 +551,7 @@ app.post(
     let event;
     try {
       event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
-      console.log("✓ Webhook signature verified successfully");
+      console.log("âœ“ Webhook signature verified successfully");
     } catch (err) {
       console.error("ERROR: Stripe webhook signature verification failed:", err.message);
       return res.status(400).json({ error: `Webhook Error: ${err.message}` });
@@ -461,7 +613,7 @@ app.post(
               creditsUpdatedAt: nowIso,
               updatedAt: nowIso,
             }, { merge: true });
-            console.log("✓ Credits updated successfully");
+            console.log("âœ“ Credits updated successfully");
           } else {
             console.log("Processing SUBSCRIPTION purchase");
             // Fetch subscription to get current_period_end
@@ -487,7 +639,7 @@ app.post(
                 if (sub.current_period_start) stripePeriodStart = new Date(sub.current_period_start * 1000).toISOString();
                 const inv = sub.latest_invoice;
                 if (inv && typeof inv === "object" && inv.amount_paid != null) {
-                  lastPaymentAmount = inv.amount_paid / 100; // cents → dollars/rupees
+                  lastPaymentAmount = inv.amount_paid / 100; // cents â†’ dollars/rupees
                 }
               }
             } catch (e) { console.warn("Could not fetch subscription details:", e.message); }
@@ -511,12 +663,12 @@ app.post(
             console.log("Update data:", JSON.stringify(updateData, null, 2));
             
             await userRef.set(updateData, { merge: true });
-            console.log("✓ Subscription updated successfully");
+            console.log("âœ“ Subscription updated successfully");
             
             // Verify the update
             const verifySnap = await userRef.get();
             if (verifySnap.exists) {
-              console.log("✓ Verification - User document exists");
+              console.log("âœ“ Verification - User document exists");
               console.log("Updated user data:", JSON.stringify(verifySnap.data(), null, 2));
             } else {
               console.error("ERROR: User document not found after update");
@@ -590,7 +742,7 @@ app.post(
           });
           
           await batch.commit();
-          console.log("✓ Batch update completed");
+          console.log("âœ“ Batch update completed");
           break;
         }
         
@@ -638,7 +790,7 @@ app.post(
           });
           
           await batch.commit();
-          console.log("✓ Batch update completed");
+          console.log("âœ“ Batch update completed");
           break;
         }
         
@@ -677,7 +829,7 @@ app.post(
           });
           
           await batch.commit();
-          console.log("✓ Batch update completed");
+          console.log("âœ“ Batch update completed");
           break;
         }
         
@@ -701,18 +853,45 @@ app.post("/api/razorpay/webhook", express.raw({ type: "application/json" }), asy
   const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
   const signature = req.headers["x-razorpay-signature"];
   if (!secret || !signature) {
-    return res.status(500).json({ message: "Webhook secret or signature missing" });
+    // Misconfiguration / missing signature â†’ 400 (do not leak which one).
+    return res.status(400).json({ message: "Webhook secret or signature missing" });
   }
 
+  // 1) Verify signature (timing-safe) on the RAW body BEFORE parsing.
   const expected = crypto.createHmac("sha256", secret).update(req.body).digest("hex");
-  if (expected !== signature) {
+  if (!safeEqualHex(expected, signature)) {
     return res.status(400).json({ message: "Invalid webhook signature" });
   }
 
+  // 2) Parse payload.
+  let event;
   try {
-    const event = JSON.parse(req.body.toString("utf8"));
-    const eventName = event?.event || "unknown";
-    console.log("Razorpay webhook:", eventName);
+    event = JSON.parse(req.body.toString("utf8"));
+  } catch {
+    return res.status(400).json({ message: "Invalid webhook payload" });
+  }
+
+  const eventName = event?.event || "unknown";
+  // Razorpay sends a stable per-delivery id header for idempotency.
+  const eventId =
+    req.headers["x-razorpay-event-id"] ||
+    event?.id ||
+    `${eventName}_${event?.created_at || ""}`;
+
+  if (!adminDb) {
+    // Can't process reliably without the DB; ask Razorpay to retry.
+    return res.status(500).json({ message: "DB not ready" });
+  }
+
+  // 3) Idempotency â€” acknowledge duplicates with 200 so Razorpay stops retrying.
+  if (await isDuplicateWebhookEvent("razorpay", eventId)) {
+    console.log("Razorpay duplicate event ignored:", eventName, eventId);
+    return res.status(200).json({ status: "duplicate_ignored" });
+  }
+
+  try {
+    console.log("Razorpay webhook:", eventName, eventId);
+    const nowIso = new Date().toISOString();
 
     const subscriptionId =
       event?.payload?.subscription?.entity?.id ||
@@ -720,10 +899,11 @@ app.post("/api/razorpay/webhook", express.raw({ type: "application/json" }), asy
       event?.payload?.invoice?.entity?.subscription_id ||
       event?.payload?.subscription?.id ||
       "";
+    const paymentEntity = event?.payload?.payment?.entity || null;
 
-    if (adminDb && subscriptionId) {
-      const nowIso = new Date().toISOString();
-      if (eventName === "subscription.charged") {
+    // ---- Renewal / activation success ----
+    if (eventName === "subscription.charged" || eventName === "subscription.activated") {
+      if (subscriptionId) {
         const subEntity = event?.payload?.subscription?.entity || {};
         const chargeAt = subEntity.charge_at;
         const periodEndIso = chargeAt ? new Date(chargeAt * 1000).toISOString() : null;
@@ -731,13 +911,10 @@ app.post("/api/razorpay/webhook", express.raw({ type: "application/json" }), asy
         const subscriptionCreatedAt = startAt ? new Date(startAt * 1000).toISOString() : nowIso;
         const paidCount = subEntity.paid_count ?? null;
         const totalCount = subEntity.total_count ?? null;
-        const amountPaise = subEntity.amount ?? null;
-        const amountInr = amountPaise !== null ? (amountPaise / 100) : null;
-        await updateUsersBySubscriptionId(subscriptionId, {
-          plan: "pro",
-          wordLimit: 5000,
-          credits: 25000,
-          creditsUsed: 0,
+        const amountPaise = paymentEntity?.amount ?? subEntity.amount ?? null;
+        const amountInr = amountPaise !== null ? amountPaise / 100 : null;
+        const count = await updateUsersBySubscriptionId(subscriptionId, {
+          ...PRO_PLAN_GRANT,
           creditsResetDate: nowIso,
           subscriptionStatus: "active",
           razorpaySubscriptionId: subscriptionId,
@@ -750,352 +927,114 @@ app.post("/api/razorpay/webhook", express.raw({ type: "application/json" }), asy
           subscriptionUpdatedAt: nowIso,
           updatedAt: nowIso,
         });
-      } else if (eventName === "payment.failed") {
-        // First payment failure - mark as past_due but keep pro access temporarily
-        console.log("Razorpay payment failed - marking as past_due (grace period)");
-        await updateUsersBySubscriptionId(subscriptionId, {
-          subscriptionStatus: "past_due",
+        await recordPaymentEvent({
+          gateway: "razorpay",
+          type: "renewal_success",
+          event: eventName,
+          eventId,
+          subscriptionId,
+          paymentId: paymentEntity?.id || null,
+          amount: amountInr,
+          currency: "INR",
+          usersUpdated: count,
+        });
+        if (count === 0) {
+          // No user mapped to this subscription. This is normal for the very
+          // first charge (the client /verify endpoint performs the actual grant
+          // and establishes the mapping) or for orphan/test events. We ACK with
+          // 200 rather than 500: repeated 500s would make Razorpay disable the
+          // webhook, breaking renewals for everyone. The miss is recorded above
+          // in paymentHistory for reconciliation.
+          console.warn("Razorpay charged but no user matched (acked):", subscriptionId);
+        }
+      }
+    }
+
+    // ---- INSTANT downgrade on the FIRST renewal failure (no grace) ----
+    else if (eventName === "payment.failed") {
+      if (subscriptionId) {
+        const count = await updateUsersBySubscriptionId(subscriptionId, {
+          ...FREE_PLAN_DOWNGRADE,
+          subscriptionStatus: "payment_failed",
           subscriptionUpdatedAt: nowIso,
           updatedAt: nowIso,
         });
-      } else if (
-        [
-          "subscription.halted",
-          "subscription.cancelled",
-          "subscription.paused",
-          "subscription.completed",
-        ].includes(eventName)
-      ) {
-        // Subscription halted (multiple failures) or cancelled - downgrade to free
-        console.log(`Razorpay ${eventName} - downgrading to free plan`);
-        await updateUsersBySubscriptionId(subscriptionId, {
-          plan: "free",
-          wordLimit: 200,
-          credits: 0,
-          creditsUsed: 0,
-          subscriptionStatus: "inactive",
+        await recordPaymentEvent({
+          gateway: "razorpay",
+          type: "payment_failed_downgrade",
+          event: eventName,
+          eventId,
+          subscriptionId,
+          paymentId: paymentEntity?.id || null,
+          amount: paymentEntity?.amount != null ? paymentEntity.amount / 100 : null,
+          currency: "INR",
+          reason: paymentEntity?.error_description || paymentEntity?.error_reason || null,
+          usersUpdated: count,
+        });
+        console.log(`Razorpay payment.failed â€” instantly downgraded ${count} user(s) to free`);
+      }
+    }
+
+    // ---- Refunds â†’ revoke access ----
+    else if (eventName === "refund.created" || eventName === "refund.processed") {
+      const refundEntity = event?.payload?.refund?.entity || {};
+      const refSubId = refundEntity?.notes?.subscription_id || subscriptionId;
+      if (refSubId) {
+        const count = await updateUsersBySubscriptionId(refSubId, {
+          ...FREE_PLAN_DOWNGRADE,
+          subscriptionStatus: "refunded",
+          subscriptionUpdatedAt: nowIso,
           updatedAt: nowIso,
         });
+        await recordPaymentEvent({
+          gateway: "razorpay",
+          type: "refund",
+          event: eventName,
+          eventId,
+          subscriptionId: refSubId,
+          refundId: refundEntity.id || null,
+          paymentId: refundEntity.payment_id || null,
+          amount: refundEntity.amount != null ? refundEntity.amount / 100 : null,
+          currency: "INR",
+          usersUpdated: count,
+        });
+        console.log(`Razorpay ${eventName} â€” revoked access for ${count} user(s)`);
       }
     }
-  } catch {
-    return res.status(400).json({ message: "Invalid webhook payload" });
-  }
 
-  return res.status(200).json({ status: "ok" });
-});
+    // ---- Halt / cancel / pause / complete â†’ downgrade ----
+    else if (
+      ["subscription.halted", "subscription.cancelled", "subscription.paused", "subscription.completed"].includes(
+        eventName
+      )
+    ) {
+      if (subscriptionId) {
+        const status = eventName === "subscription.cancelled" ? "cancelled" : "inactive";
+        const count = await updateUsersBySubscriptionId(subscriptionId, {
+          ...FREE_PLAN_DOWNGRADE,
+          subscriptionStatus: status,
+          subscriptionUpdatedAt: nowIso,
+          updatedAt: nowIso,
+        });
+        await recordPaymentEvent({
+          gateway: "razorpay",
+          type: "subscription_ended",
+          event: eventName,
+          eventId,
+          subscriptionId,
+          usersUpdated: count,
+        });
+        console.log(`Razorpay ${eventName} â€” downgraded ${count} user(s) to free`);
+      }
+    }
 
-app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
-  console.log("=== STRIPE WEBHOOK RECEIVED ===");
-  console.log("Timestamp:", new Date().toISOString());
-  
-  const sig = req.headers["stripe-signature"];
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  
-  console.log("Has signature:", !!sig);
-  console.log("Has webhook secret:", !!webhookSecret);
-  
-  if (!sig || !webhookSecret) {
-    console.error("ERROR: Missing signature or webhook secret");
-    console.log("Signature present:", !!sig);
-    console.log("Webhook secret present:", !!webhookSecret);
-    return res.status(400).json({ error: "Missing signature or webhook secret" });
-  }
-
-  const stripe = getStripe();
-  if (!stripe) {
-    console.error("ERROR: Stripe not configured");
-    return res.status(500).json({ error: "Stripe not configured" });
-  }
-
-  let event;
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
-    console.log("✓ Webhook signature verified successfully");
+    return res.status(200).json({ status: "ok" });
   } catch (err) {
-    console.error("ERROR: Stripe webhook signature verification failed:", err.message);
-    return res.status(400).json({ error: `Webhook Error: ${err.message}` });
-  }
-
-  console.log("Event type:", event.type);
-  console.log("Event ID:", event.id);
-
-  try {
-    const nowIso = new Date().toISOString();
-    
-    switch (event.type) {
-      case "checkout.session.completed": {
-        console.log("--- Processing checkout.session.completed ---");
-        const session = event.data.object;
-        const customerId = session.customer;
-        const subscriptionId = session.subscription;
-        const metadata = session.metadata || {};
-        const userId = metadata.userId;
-        
-        console.log("Customer ID:", customerId);
-        console.log("Subscription ID:", subscriptionId);
-        console.log("User ID from metadata:", userId);
-        console.log("Metadata type:", metadata.type);
-        console.log("AdminDb available:", !!adminDb);
-        
-        if (!userId) {
-          console.error("ERROR: No userId in metadata");
-          break;
-        }
-        
-        if (!adminDb) {
-          console.error("ERROR: AdminDb not initialized");
-          break;
-        }
-        
-        const userRef = adminDb.collection("users").doc(userId);
-        console.log("User reference path:", `users/${userId}`);
-        
-        if (metadata.type === "credits") {
-          console.log("Processing CREDIT purchase");
-          const credits = Number(metadata.credits || 0);
-          console.log("Credits to add:", credits);
-          
-          const userSnap = await userRef.get();
-          const currentCredits = userSnap.exists ? Number(userSnap.data()?.credits || 0) : 0;
-          console.log("Current credits:", currentCredits);
-          console.log("New total credits:", currentCredits + credits);
-          
-          await userRef.set({
-            credits: currentCredits + credits,
-            creditsUpdatedAt: nowIso,
-            updatedAt: nowIso,
-          }, { merge: true });
-          console.log("✓ Credits updated successfully");
-        } else {
-          console.log("Processing SUBSCRIPTION purchase");
-          // Fetch subscription to get current_period_end
-          let periodEnd = null;
-          try {
-            const stripeSdk = getStripe();
-            if (stripeSdk && subscriptionId) {
-              const sub = await stripeSdk.subscriptions.retrieve(subscriptionId);
-              periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null;
-            }
-          } catch (e) { console.warn("Could not fetch subscription period end:", e.message); }
-          const updateData = {
-            plan: "pro",
-            wordLimit: 5000,
-            credits: 25000,
-            creditsUsed: 0,
-            creditsResetDate: nowIso,
-            stripeCustomerId: customerId,
-            stripeSubscriptionId: subscriptionId,
-            subscriptionStatus: "active",
-            subscriptionCurrentPeriodEnd: periodEnd,
-            subscriptionUpdatedAt: nowIso,
-            updatedAt: nowIso,
-          };
-          console.log("Update data:", JSON.stringify(updateData, null, 2));
-          
-          await userRef.set(updateData, { merge: true });
-          console.log("✓ Subscription updated successfully");
-          
-          // Verify the update
-          const verifySnap = await userRef.get();
-          if (verifySnap.exists) {
-            console.log("✓ Verification - User document exists");
-            console.log("Updated user data:", JSON.stringify(verifySnap.data(), null, 2));
-          } else {
-            console.error("ERROR: User document not found after update");
-          }
-        }
-        break;
-      }
-      
-      case "customer.subscription.updated":
-      case "customer.subscription.deleted": {
-        console.log("--- Processing subscription update/delete ---");
-        const subscription = event.data.object;
-        const subscriptionId = subscription.id;
-        const status = subscription.status;
-        
-        console.log("Subscription ID:", subscriptionId);
-        console.log("Subscription status:", status);
-        
-        if (!adminDb || !subscriptionId) {
-          console.error("ERROR: No adminDb or subscriptionId");
-          break;
-        }
-        
-        const snapshot = await adminDb
-          .collection("users")
-          .where("stripeSubscriptionId", "==", subscriptionId)
-          .get();
-        
-        console.log("Found users with this subscription:", snapshot.size);
-          
-        if (snapshot.empty) {
-          console.error("ERROR: No users found with subscription ID:", subscriptionId);
-          break;
-        }
-        
-        const batch = adminDb.batch();
-        const updates = {};
-        
-        if (status === "active") {
-          updates.plan = "pro";
-          updates.wordLimit = 5000;
-          updates.credits = 25000;
-          updates.creditsUsed = 0;
-          updates.creditsResetDate = nowIso;
-          updates.subscriptionStatus = "active";
-          if (subscription.current_period_end) {
-            updates.subscriptionCurrentPeriodEnd = new Date(subscription.current_period_end * 1000).toISOString();
-          }
-        } else if (["canceled", "unpaid"].includes(status)) {
-          updates.plan = "free";
-          updates.wordLimit = 200;
-          updates.credits = 0;
-          updates.creditsUsed = 0;
-          updates.subscriptionStatus = status;
-          updates.subscriptionCurrentPeriodEnd = null;
-        } else if (status === "past_due") {
-          updates.subscriptionStatus = "past_due";
-          if (subscription.current_period_end) {
-            updates.subscriptionCurrentPeriodEnd = new Date(subscription.current_period_end * 1000).toISOString();
-          }
-        }
-        
-        updates.subscriptionUpdatedAt = nowIso;
-        updates.updatedAt = nowIso;
-        
-        console.log("Updates to apply:", JSON.stringify(updates, null, 2));
-        
-        snapshot.forEach((doc) => {
-          console.log("Updating user:", doc.id);
-          batch.set(doc.ref, updates, { merge: true });
-        });
-        
-        await batch.commit();
-        console.log("✓ Batch update completed");
-        break;
-      }
-      
-      case "invoice.payment_succeeded": {
-        console.log("--- Processing invoice.payment_succeeded ---");
-        const invoice = event.data.object;
-        const subscriptionId = invoice.subscription;
-        
-        console.log("Subscription ID:", subscriptionId);
-        
-        if (!adminDb || !subscriptionId) {
-          console.error("ERROR: No adminDb or subscriptionId");
-          break;
-        }
-        
-        const snapshot = await adminDb
-          .collection("users")
-          .where("stripeSubscriptionId", "==", subscriptionId)
-          .get();
-        
-        console.log("Found users:", snapshot.size);
-          
-        if (snapshot.empty) {
-          console.error("ERROR: No users found with subscription ID:", subscriptionId);
-          break;
-        }
-        
-        const batch = adminDb.batch();
-        const periodEndIso2 = invoice.lines?.data?.[0]?.period?.end
-          ? new Date(invoice.lines.data[0].period.end * 1000).toISOString()
-          : null;
-        snapshot.forEach((doc) => {
-          console.log("Updating user:", doc.id);
-          batch.set(doc.ref, {
-            plan: "pro",
-            wordLimit: 5000,
-            credits: 25000,
-            creditsUsed: 0,
-            creditsResetDate: nowIso,
-            subscriptionStatus: "active",
-            ...(periodEndIso2 ? { subscriptionCurrentPeriodEnd: periodEndIso2 } : {}),
-            subscriptionUpdatedAt: nowIso,
-            updatedAt: nowIso,
-          }, { merge: true });
-        });
-        
-        await batch.commit();
-        console.log("✓ Batch update completed");
-        break;
-      }
-      
-      case "invoice.payment_failed": {
-        console.log("--- Processing invoice.payment_failed ---");
-        const invoice = event.data.object;
-        const subscriptionId = invoice.subscription;
-        const attemptCount = invoice.attempt_count || 0;
-        
-        console.log("Subscription ID:", subscriptionId);
-        console.log("Payment attempt count:", attemptCount);
-        
-        if (!adminDb || !subscriptionId) {
-          console.error("ERROR: No adminDb or subscriptionId");
-          break;
-        }
-        
-        const snapshot = await adminDb
-          .collection("users")
-          .where("stripeSubscriptionId", "==", subscriptionId)
-          .get();
-        
-        console.log("Found users:", snapshot.size);
-          
-        if (snapshot.empty) {
-          console.error("ERROR: No users found with subscription ID:", subscriptionId);
-          break;
-        }
-        
-        const batch = adminDb.batch();
-        
-        // After 2nd failed attempt, downgrade to free; otherwise just mark past_due
-        if (attemptCount >= 2) {
-          console.log("Multiple payment failures - downgrading to free plan");
-          snapshot.forEach((doc) => {
-            console.log("Downgrading user:", doc.id);
-            batch.set(doc.ref, {
-              plan: "free",
-              wordLimit: 200,
-              credits: 0,
-              creditsUsed: 0,
-              subscriptionStatus: "past_due",
-              subscriptionUpdatedAt: nowIso,
-              updatedAt: nowIso,
-            }, { merge: true });
-          });
-        } else {
-          console.log("First payment failure - marking as past_due (grace period)");
-          snapshot.forEach((doc) => {
-            console.log("Updating user:", doc.id);
-            batch.set(doc.ref, {
-              subscriptionStatus: "past_due",
-              subscriptionUpdatedAt: nowIso,
-              updatedAt: nowIso,
-            }, { merge: true });
-          });
-        }
-        
-        await batch.commit();
-        console.log("✓ Batch update completed");
-        break;
-      }
-      
-      default:
-        console.log("Unhandled event type:", event.type);
-    }
-    
-    console.log("=== WEBHOOK PROCESSING COMPLETED SUCCESSFULLY ===");
-    res.json({ received: true });
-  } catch (error) {
-    console.error("=== WEBHOOK ERROR ===");
-    console.error("Error message:", error.message);
-    console.error("Error stack:", error.stack);
-    res.status(500).json({ error: "Webhook processing failed" });
+    // Signature was already verified â€” this is a processing/transient error.
+    // Clear the idempotency marker and return 500 so Razorpay retries the event.
+    console.error("Razorpay webhook processing error:", err);
+    await clearWebhookEvent("razorpay", eventId);
+    return res.status(500).json({ message: "Processing failed" });
   }
 });
 
@@ -1140,13 +1079,8 @@ app.post("/api/set-admin", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized: Invalid token" });
     }
 
-    // Check if the requesting user is an admin
-    const isAdmin = decodedToken.admin === true || 
-                    decodedToken.email === 'correctnowapp@gmail.com' ||
-                    (decodedToken.email && decodedToken.email.endsWith('@correctnow.app')) ||
-                    (decodedToken.email && decodedToken.email.includes('admin'));
-
-    if (!isAdmin) {
+    // Check if the requesting user is an admin (claim or exact allow-list only).
+    if (!isAdminClaims(decodedToken)) {
       return res.status(403).json({ error: "Forbidden: Admin access required" });
     }
 
@@ -1197,7 +1131,7 @@ app.post("/api/set-admin", async (req, res) => {
 });
 
 // Create new user (admin only)
-app.post("/api/admin/create-user", async (req, res) => {
+app.post("/api/admin/create-user", requireAdmin, async (req, res) => {
   try {
     const { name, email, phone, category, password } = req.body;
     
@@ -1303,7 +1237,7 @@ app.post("/api/admin/create-user", async (req, res) => {
 });
 
 // Delete user (admin only) - deletes from both Auth and Firestore
-app.post("/api/admin/delete-user", async (req, res) => {
+app.post("/api/admin/delete-user", requireAdmin, async (req, res) => {
   try {
     const { userId } = req.body;
     
@@ -1343,7 +1277,7 @@ app.post("/api/admin/delete-user", async (req, res) => {
 });
 
 // Toggle user plan between Pro and Free (admin only)
-app.post("/api/admin/toggle-plan", async (req, res) => {
+app.post("/api/admin/toggle-plan", requireAdmin, async (req, res) => {
   try {
     const { userId, durationDays } = req.body;
     
@@ -1373,6 +1307,7 @@ app.post("/api/admin/toggle-plan", async (req, res) => {
       credits: newPlan === "pro" ? 25000 : 0,
       creditsUsed: 0,
       subscriptionStatus: newPlan === "pro" ? "active" : "inactive",
+      subscriptionUpdatedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
@@ -1384,7 +1319,7 @@ app.post("/api/admin/toggle-plan", async (req, res) => {
       updates.adminPlanExpiresAt = expiresAt.toISOString();
       updates.adminPlanDurationDays = days;
     } else {
-      // Downgrading — clear manual grant fields and subscription metadata
+      // Downgrading â€” clear manual grant fields and subscription metadata
       updates.adminPlanExpiresAt = null;
       updates.adminPlanDurationDays = null;
       updates.razorpaySubscriptionId = null;
@@ -1393,7 +1328,7 @@ app.post("/api/admin/toggle-plan", async (req, res) => {
 
     await adminDb.collection("users").doc(userId).update(updates);
     
-    console.log(`Toggled plan for user ${userId}: ${currentPlan} → ${newPlan}${updates.adminPlanExpiresAt ? ` (expires ${updates.adminPlanExpiresAt})` : ""}`);
+    console.log(`Toggled plan for user ${userId}: ${currentPlan} â†’ ${newPlan}${updates.adminPlanExpiresAt ? ` (expires ${updates.adminPlanExpiresAt})` : ""}`);
 
     res.json({ 
       success: true, 
@@ -1410,7 +1345,7 @@ app.post("/api/admin/toggle-plan", async (req, res) => {
 });
 
 // Bulk user actions (plan, credits, suspend, category)
-app.post("/api/admin/bulk-action", async (req, res) => {
+app.post("/api/admin/bulk-action", requireAdmin, async (req, res) => {
   try {
     const { action, userIds, durationDays, creditsAmount, creditsExpiry, category } = req.body;
     if (!action || !Array.isArray(userIds) || userIds.length === 0) {
@@ -1439,6 +1374,7 @@ app.post("/api/admin/bulk-action", async (req, res) => {
               credits: 25000,
               creditsUsed: 0,
               subscriptionStatus: "active",
+              subscriptionUpdatedAt: new Date().toISOString(),
               adminPlanExpiresAt: expiresAt.toISOString(),
               adminPlanDurationDays: days,
               updatedAt: new Date().toISOString(),
@@ -1506,12 +1442,7 @@ app.get("/api/admin/subscriptions", async (req, res) => {
     } catch {
       return res.status(401).json({ error: "Invalid token" });
     }
-    const isAdmin =
-      decodedToken.admin === true ||
-      decodedToken.email === "correctnowapp@gmail.com" ||
-      (decodedToken.email && decodedToken.email.endsWith("@correctnow.app")) ||
-      (decodedToken.email && decodedToken.email.includes("admin"));
-    if (!isAdmin) return res.status(403).json({ error: "Forbidden" });
+    if (!isAdminClaims(decodedToken)) return res.status(403).json({ error: "Forbidden" });
 
     if (!adminDb) return res.status(500).json({ error: "DB not ready" });
 
@@ -1759,11 +1690,11 @@ app.post("/api/razorpay/subscription", async (req, res) => {
       subscriptionData.addons = [{
         item: {
           name: `${percent}% off first month`,
-          amount: -discountAmount,  // ✅ Negative amount = discount
+          amount: -discountAmount,  // âœ… Negative amount = discount
           currency: "INR"
         }
       }];
-      console.log(`Applied ${percent}% discount (₹${discountAmount/100}) for first month only`);
+      console.log(`Applied ${percent}% discount (â‚¹${discountAmount/100}) for first month only`);
     }
     
     const subscription = await razorpay.subscriptions.create(subscriptionData);
@@ -1777,11 +1708,267 @@ app.post("/api/razorpay/subscription", async (req, res) => {
       statusCode: err.statusCode,
       error: err.error,
     });
-    return res.status(500).json({ 
+    return res.status(500).json({
       message: "Failed to create subscription",
       error: err.message,
       details: err.error?.description || err.error?.reason || "Unknown error"
     });
+  }
+});
+
+/**
+ * SECURE server-side Razorpay payment verification.
+ *
+ * This is the ONLY trusted path that grants Pro / adds credits. The client
+ * checkout handler must call this with the signed fields Razorpay returns;
+ * the server validates the HMAC signature with the secret key and only then
+ * mutates the user's plan via the Admin SDK. This closes the payment-bypass
+ * where the client wrote `plan: "pro"` directly to Firestore with no proof of
+ * payment. Requires a valid Firebase ID token so a user can only upgrade
+ * THEIR OWN account.
+ */
+app.post("/api/razorpay/verify", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || "";
+    const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!idToken) return res.status(401).json({ message: "Unauthorized" });
+    const decoded = await verifyAuthToken(idToken);
+    if (!decoded?.uid) return res.status(401).json({ message: "Invalid token" });
+
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    if (!keySecret) return res.status(500).json({ message: "Razorpay not configured" });
+    if (!adminDb) return res.status(500).json({ message: "DB not ready" });
+
+    const {
+      razorpay_payment_id,
+      razorpay_subscription_id,
+      razorpay_order_id,
+      razorpay_signature,
+    } = req.body || {};
+
+    if (!razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ message: "Missing payment fields" });
+    }
+
+    // Signature formula differs by flow:
+    //   subscriptions: HMAC(payment_id + '|' + subscription_id)
+    //   orders:        HMAC(order_id  + '|' + payment_id)
+    let expected;
+    if (razorpay_subscription_id) {
+      expected = crypto
+        .createHmac("sha256", keySecret)
+        .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
+        .digest("hex");
+    } else if (razorpay_order_id) {
+      expected = crypto
+        .createHmac("sha256", keySecret)
+        .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+        .digest("hex");
+    } else {
+      return res.status(400).json({ message: "Missing subscription or order id" });
+    }
+
+    if (!safeEqualHex(expected, razorpay_signature)) {
+      await recordPaymentEvent({
+        gateway: "razorpay",
+        type: "verify_failed_signature",
+        userId: decoded.uid,
+        paymentId: razorpay_payment_id,
+        subscriptionId: razorpay_subscription_id || null,
+        orderId: razorpay_order_id || null,
+      });
+      return res.status(400).json({ message: "Signature verification failed" });
+    }
+
+    // Replay protection: a single Razorpay payment may only ever be applied
+    // once. Without this, a user could re-POST the same valid signature to a
+    // paid credit order repeatedly and stack credits (the order stays "paid"
+    // forever). Marked atomically BEFORE mutating; cleared in catch on failure
+    // so a genuine error can be retried.
+    if (await isDuplicateWebhookEvent("rzp_verify", razorpay_payment_id)) {
+      return res.json({ success: true, deduped: true });
+    }
+
+    const nowIso = new Date().toISOString();
+    const userRef = adminDb.collection("users").doc(decoded.uid);
+
+    if (razorpay_subscription_id) {
+      // Subscription purchase → grant Pro and establish the subscription→user
+      // mapping that the webhook relies on for renewals/cancellations.
+      await userRef.set(
+        {
+          ...PRO_PLAN_GRANT,
+          creditsResetDate: nowIso,
+          subscriptionId: razorpay_subscription_id,
+          razorpaySubscriptionId: razorpay_subscription_id,
+          paymentGateway: "razorpay",
+          subscriptionStatus: "active",
+          subscriptionCreatedAt: nowIso,
+          lastPaymentId: razorpay_payment_id,
+          subscriptionUpdatedAt: nowIso,
+          updatedAt: nowIso,
+        },
+        { merge: true }
+      );
+      await recordPaymentEvent({
+        gateway: "razorpay",
+        type: "verify_success_subscription",
+        userId: decoded.uid,
+        paymentId: razorpay_payment_id,
+        subscriptionId: razorpay_subscription_id,
+      });
+      return res.json({ success: true, type: "subscription" });
+    }
+
+    // One-time order: credit pack. The credit amount is read from the ORDER's
+    // server-side notes (set at order creation), NOT from the client body —
+    // otherwise a user could claim arbitrary credits for a small payment.
+    let creditsToAdd = 0;
+    try {
+      const razorpay = getRazorpay();
+      if (razorpay && razorpay_order_id) {
+        const order = await razorpay.orders.fetch(razorpay_order_id);
+        // Defence in depth: confirm the order is actually paid.
+        if (order?.status && order.status !== "paid") {
+          // Release the replay marker so a retry after settlement can proceed.
+          await clearWebhookEvent("rzp_verify", razorpay_payment_id);
+          return res.status(400).json({ message: "Order not paid" });
+        }
+        creditsToAdd = Math.max(0, Number(order?.notes?.credits) || 0);
+      }
+    } catch (e) {
+      console.error("Failed to fetch order for credit verification:", e.message);
+      return res.status(502).json({ message: "Could not verify order with gateway" });
+    }
+    if (creditsToAdd > 0) {
+      const snap = await userRef.get();
+      const data = snap.exists ? snap.data() : {};
+      const now = Date.now();
+      const currentAddon = Number(data?.addonCredits || 0) || 0;
+      const currentExpiry = data?.addonCreditsExpiryAt;
+      const isCurrentValid = currentExpiry
+        ? new Date(String(currentExpiry)).getTime() > now
+        : false;
+      const nextAddon = (isCurrentValid ? currentAddon : 0) + creditsToAdd;
+      const expiry = new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString();
+      await userRef.set(
+        {
+          addonCredits: nextAddon,
+          addonCreditsExpiryAt: expiry,
+          creditsUpdatedAt: nowIso,
+          lastPaymentId: razorpay_payment_id,
+          updatedAt: nowIso,
+        },
+        { merge: true }
+      );
+    }
+    await recordPaymentEvent({
+      gateway: "razorpay",
+      type: "verify_success_order",
+      userId: decoded.uid,
+      paymentId: razorpay_payment_id,
+      orderId: razorpay_order_id,
+      credits: creditsToAdd || null,
+    });
+    return res.json({ success: true, type: "order" });
+  } catch (err) {
+    console.error("Razorpay verify error:", err);
+    // Release the replay marker so the client can safely retry a failed verify.
+    if (req.body?.razorpay_payment_id) {
+      await clearWebhookEvent("rzp_verify", req.body.razorpay_payment_id);
+    }
+    return res.status(500).json({ message: "Verification failed" });
+  }
+});
+
+/**
+ * Cancel the authenticated user's subscription. This BOTH cancels the
+ * subscription at the payment gateway (so no further charges occur) AND
+ * downgrades the user to Free. Previously cancellation happened only client-side
+ * in Firestore, which left the gateway subscription active — the customer kept
+ * being charged. Requires a valid Firebase ID token; a user can only cancel
+ * their OWN subscription.
+ */
+app.post("/api/subscription/cancel", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || "";
+    const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!idToken) return res.status(401).json({ message: "Unauthorized" });
+    const decoded = await verifyAuthToken(idToken);
+    if (!decoded?.uid) return res.status(401).json({ message: "Invalid token" });
+    if (!adminDb) return res.status(500).json({ message: "DB not ready" });
+
+    const userRef = adminDb.collection("users").doc(decoded.uid);
+    const snap = await userRef.get();
+    if (!snap.exists) return res.status(404).json({ message: "User not found" });
+    const data = snap.data() || {};
+
+    const nowIso = new Date().toISOString();
+    const razorpaySubId = data.razorpaySubscriptionId || data.subscriptionId || null;
+    const stripeSubId = data.stripeSubscriptionId || null;
+    let gatewayCancelled = false;
+    const errors = [];
+
+    // Cancel at Razorpay (cancel_at_cycle_end=false → stop immediately).
+    if (razorpaySubId) {
+      try {
+        const razorpay = getRazorpay();
+        if (razorpay) {
+          await razorpay.subscriptions.cancel(razorpaySubId, false);
+          gatewayCancelled = true;
+        }
+      } catch (e) {
+        // "already cancelled" style errors are fine — treat as success.
+        const msg = e?.error?.description || e?.message || "";
+        if (/cancel|not.*active|already/i.test(msg)) gatewayCancelled = true;
+        else errors.push(`razorpay: ${msg}`);
+      }
+    }
+
+    // Cancel at Stripe.
+    if (stripeSubId) {
+      try {
+        const stripe = getStripe();
+        if (stripe) {
+          await stripe.subscriptions.cancel(stripeSubId);
+          gatewayCancelled = true;
+        }
+      } catch (e) {
+        const msg = e?.message || "";
+        if (/cancel|no such|already/i.test(msg)) gatewayCancelled = true;
+        else errors.push(`stripe: ${msg}`);
+      }
+    }
+
+    // If a gateway cancel was attempted and genuinely failed, surface the error
+    // and DO NOT downgrade — otherwise the user loses access but keeps paying.
+    if ((razorpaySubId || stripeSubId) && !gatewayCancelled && errors.length) {
+      return res.status(502).json({ message: "Could not cancel at payment gateway", errors });
+    }
+
+    // Downgrade locally (server-owned write).
+    await userRef.set(
+      {
+        ...FREE_PLAN_DOWNGRADE,
+        subscriptionStatus: "cancelled",
+        subscriptionUpdatedAt: nowIso,
+        updatedAt: nowIso,
+      },
+      { merge: true }
+    );
+
+    await recordPaymentEvent({
+      gateway: razorpaySubId ? "razorpay" : stripeSubId ? "stripe" : "none",
+      type: "user_cancelled",
+      userId: decoded.uid,
+      subscriptionId: razorpaySubId || stripeSubId || null,
+      gatewayCancelled,
+    });
+
+    return res.json({ success: true, gatewayCancelled });
+  } catch (err) {
+    console.error("Subscription cancel error:", err);
+    return res.status(500).json({ message: "Cancellation failed" });
   }
 });
 
@@ -2033,7 +2220,7 @@ app.post("/api/stripe/create-checkout-session", async (req, res) => {
           // Create or retrieve one-time coupon
           const coupon = await stripe.coupons.create({
             percent_off: percent,
-            duration: 'once',  // ✅ First payment only!
+            duration: 'once',  // âœ… First payment only!
             name: `${couponCode} - ${percent}% off first month`,
           });
           
@@ -2112,7 +2299,7 @@ app.post("/api/detect-language", async (req, res) => {
     const prompt = `What language is the following text written in? Reply with ONLY a JSON object: {"language":"<full English language name>"}.
 Examples: {"language":"Tamil"}, {"language":"Pashto"}, {"language":"English"}, {"language":"Hindi"}.
 If you cannot determine the language, reply: {"language":"Unknown"}.
-Do NOT return a language code — return the full English name only.
+Do NOT return a language code â€” return the full English name only.
 
 Text:
 """${text}"""`;
@@ -2236,35 +2423,35 @@ Focus on:
 PROPER NOUNS / NAMES (CRITICAL, NEWS-GRADE):
 - Identify proper nouns (people, places, parties, brands, orgs) and preserve them.
 - BUT: If a proper noun is clearly misspelled (a typo), you MUST suggest the corrected spelling.
-  Example: "naesh" → "naresh" (typo correction, not translation).
+  Example: "naesh" â†’ "naresh" (typo correction, not translation).
 - Never translate/transliterate names. Keep the same script and casing style.
 - If you are NOT confident it is a misspelling, do NOT change it.
 
 SPECIFIC FOR TAMIL:
-- Strictly follow 'Valinam Migum/Miga' (வலினம் மிகும்) rules. This is the HIGHEST PRIORITY for Tamil.
-- VALINAM MIGUM RULES (MANDATORY - Apply to ALL hard consonants: க், ச், த், ப்):
-  * After words ending in vowels/ஒற்று when followed by words starting with க, ச, த, ப:
-    - "செய்வதற்கு பதில்" → "செய்வதற்குப் பதில்" (ப் added before ப)
-    - "அவர்களுக்கு கொடுத்தார்" → "அவர்களுக்குக் கொடுத்தார்" (க் added before க)
-    - "இவர்களுக்கு சொல்ல" → "இவர்களுக்குச் சொல்ல" (ச் added before ச)
-    - "அதற்கு தகுந்த" → "அதற்குத் தகுந்த" (த் added before த)
-  * After உம், ஆன, ஆக, இல், ஐ suffixes before hard consonants:
-    - "நல்லதும் கெட்டதும்" → correct (no change needed - already has joining)
-    - "அழகான பூக்கள்" → "அழகானப் பூக்கள்" OR keep if contextually natural
-  * CRITICAL: Words starting with "ப" (pa) are most commonly missed:
-    - "என்று பேசினார்" → "என்றுப் பேசினார்" (add ப் before ப after று)
-    - "மக்களுக்கு பயன்" → "மக்களுக்குப் பயன்" (add ப் before ப after கு)
-    - "அவருக்கு பிடிக்கும்" → "அவருக்குப் பிடிக்கும்"
-  * After சொல்லி, கொண்டு, வந்து, சென்று, etc. before க, ச, த, ப words.
-- Fix run-on words (Otrumizhal) (e.g., 'இன்னும்கடுமையாக' -> 'இன்னும் கடுமையாக').
-- Join postpositions correctly when natural (e.g., "எடப்பாடியுடன்", "என்றெல்லாம்").
+- Strictly follow 'Valinam Migum/Miga' (à®µà®²à®¿à®©à®®à¯ à®®à®¿à®•à¯à®®à¯) rules. This is the HIGHEST PRIORITY for Tamil.
+- VALINAM MIGUM RULES (MANDATORY - Apply to ALL hard consonants: à®•à¯, à®šà¯, à®¤à¯, à®ªà¯):
+  * After words ending in vowels/à®’à®±à¯à®±à¯ when followed by words starting with à®•, à®š, à®¤, à®ª:
+    - "à®šà¯†à®¯à¯à®µà®¤à®±à¯à®•à¯ à®ªà®¤à®¿à®²à¯" â†’ "à®šà¯†à®¯à¯à®µà®¤à®±à¯à®•à¯à®ªà¯ à®ªà®¤à®¿à®²à¯" (à®ªà¯ added before à®ª)
+    - "à®…à®µà®°à¯à®•à®³à¯à®•à¯à®•à¯ à®•à¯Šà®Ÿà¯à®¤à¯à®¤à®¾à®°à¯" â†’ "à®…à®µà®°à¯à®•à®³à¯à®•à¯à®•à¯à®•à¯ à®•à¯Šà®Ÿà¯à®¤à¯à®¤à®¾à®°à¯" (à®•à¯ added before à®•)
+    - "à®‡à®µà®°à¯à®•à®³à¯à®•à¯à®•à¯ à®šà¯Šà®²à¯à®²" â†’ "à®‡à®µà®°à¯à®•à®³à¯à®•à¯à®•à¯à®šà¯ à®šà¯Šà®²à¯à®²" (à®šà¯ added before à®š)
+    - "à®…à®¤à®±à¯à®•à¯ à®¤à®•à¯à®¨à¯à®¤" â†’ "à®…à®¤à®±à¯à®•à¯à®¤à¯ à®¤à®•à¯à®¨à¯à®¤" (à®¤à¯ added before à®¤)
+  * After à®‰à®®à¯, à®†à®©, à®†à®•, à®‡à®²à¯, à® suffixes before hard consonants:
+    - "à®¨à®²à¯à®²à®¤à¯à®®à¯ à®•à¯†à®Ÿà¯à®Ÿà®¤à¯à®®à¯" â†’ correct (no change needed - already has joining)
+    - "à®…à®´à®•à®¾à®© à®ªà¯‚à®•à¯à®•à®³à¯" â†’ "à®…à®´à®•à®¾à®©à®ªà¯ à®ªà¯‚à®•à¯à®•à®³à¯" OR keep if contextually natural
+  * CRITICAL: Words starting with "à®ª" (pa) are most commonly missed:
+    - "à®Žà®©à¯à®±à¯ à®ªà¯‡à®šà®¿à®©à®¾à®°à¯" â†’ "à®Žà®©à¯à®±à¯à®ªà¯ à®ªà¯‡à®šà®¿à®©à®¾à®°à¯" (add à®ªà¯ before à®ª after à®±à¯)
+    - "à®®à®•à¯à®•à®³à¯à®•à¯à®•à¯ à®ªà®¯à®©à¯" â†’ "à®®à®•à¯à®•à®³à¯à®•à¯à®•à¯à®ªà¯ à®ªà®¯à®©à¯" (add à®ªà¯ before à®ª after à®•à¯)
+    - "à®…à®µà®°à¯à®•à¯à®•à¯ à®ªà®¿à®Ÿà®¿à®•à¯à®•à¯à®®à¯" â†’ "à®…à®µà®°à¯à®•à¯à®•à¯à®ªà¯ à®ªà®¿à®Ÿà®¿à®•à¯à®•à¯à®®à¯"
+  * After à®šà¯Šà®²à¯à®²à®¿, à®•à¯Šà®£à¯à®Ÿà¯, à®µà®¨à¯à®¤à¯, à®šà¯†à®©à¯à®±à¯, etc. before à®•, à®š, à®¤, à®ª words.
+- Fix run-on words (Otrumizhal) (e.g., 'à®‡à®©à¯à®©à¯à®®à¯à®•à®Ÿà¯à®®à¯ˆà®¯à®¾à®•' -> 'à®‡à®©à¯à®©à¯à®®à¯ à®•à®Ÿà¯à®®à¯ˆà®¯à®¾à®•').
+- Join postpositions correctly when natural (e.g., "à®Žà®Ÿà®ªà¯à®ªà®¾à®Ÿà®¿à®¯à¯à®Ÿà®©à¯", "à®Žà®©à¯à®±à¯†à®²à¯à®²à®¾à®®à¯").
 - COMMON WORD VALIDATION: Double-check frequently used words for correctness:
-  * "எதிரபார்க்கப்படுகிறது" (incorrect) → "எதிர்பார்க்கப்படுகிறது" (correct)
-  * "பயன்படுதுகிறது" (incorrect) → "பயன்படுத்துகிறது" (correct)
-  * "தெரிவிக்கபட்டது" (incorrect) → "தெரிவிக்கப்பட்டது" (correct)
+  * "à®Žà®¤à®¿à®°à®ªà®¾à®°à¯à®•à¯à®•à®ªà¯à®ªà®Ÿà¯à®•à®¿à®±à®¤à¯" (incorrect) â†’ "à®Žà®¤à®¿à®°à¯à®ªà®¾à®°à¯à®•à¯à®•à®ªà¯à®ªà®Ÿà¯à®•à®¿à®±à®¤à¯" (correct)
+  * "à®ªà®¯à®©à¯à®ªà®Ÿà¯à®¤à¯à®•à®¿à®±à®¤à¯" (incorrect) â†’ "à®ªà®¯à®©à¯à®ªà®Ÿà¯à®¤à¯à®¤à¯à®•à®¿à®±à®¤à¯" (correct)
+  * "à®¤à¯†à®°à®¿à®µà®¿à®•à¯à®•à®ªà®Ÿà¯à®Ÿà®¤à¯" (incorrect) â†’ "à®¤à¯†à®°à®¿à®µà®¿à®•à¯à®•à®ªà¯à®ªà®Ÿà¯à®Ÿà®¤à¯" (correct)
   * Pay special attention to words with compound formation and sandhi rules
 - VERB FORMS: Validate passive and compound verb forms carefully
-- SANDHI ACCURACY CHECK: For every word starting with க, ச, த, ப, verify whether the preceding word requires consonant doubling. When in doubt, APPLY the sandhi rule.
+- SANDHI ACCURACY CHECK: For every word starting with à®•, à®š, à®¤, à®ª, verify whether the preceding word requires consonant doubling. When in doubt, APPLY the sandhi rule.
 
 LOANWORD DETECTION (ALL LANGUAGES):
 - If an English word is written/transliterated in a non-English script/language, provide dual options.
@@ -2272,9 +2459,9 @@ LOANWORD DETECTION (ALL LANGUAGES):
   "<InputLanguageName>: <input-language-form> | English: <english-word>"
 - Replace <InputLanguageName> with the actual language name (e.g., Tamil, Hindi, Telugu, Arabic, Bengali, Kannada, Malayalam, etc.).
 - Examples:
-  * "பெனஷன்" → explanation: "Tamil: பென்ஷன் | English: pension"
-  * "मोबाइल" → explanation: "Hindi: मोबाइल | English: mobile"
-  * "సర్వీస్" → explanation: "Telugu: సర్వీస్ | English: service"
+  * "à®ªà¯†à®©à®·à®©à¯" â†’ explanation: "Tamil: à®ªà¯†à®©à¯à®·à®©à¯ | English: pension"
+  * "à¤®à¥‹à¤¬à¤¾à¤‡à¤²" â†’ explanation: "Hindi: à¤®à¥‹à¤¬à¤¾à¤‡à¤² | English: mobile"
+  * "à°¸à°°à±à°µà±€à°¸à±" â†’ explanation: "Telugu: à°¸à°°à±à°µà±€à°¸à± | English: service"
 - This is required for ANY language, not only Tamil.
 
 OUTPUT FORMAT (MANDATORY):
@@ -2296,97 +2483,97 @@ UNIVERSAL LINGUISTIC RULES (Apply to ALL languages):
 
 1. REDUNDANCY & TAUTOLOGY (Logic Check):
    - Eliminate unnecessary word repetitions and redundant phrases.
-   - Examples: "return back" → "return", "free gift" → "gift"
-   - Tamil: "A-um B-um iruvarum" → Remove "iruvarum" (both + both = redundant)
+   - Examples: "return back" â†’ "return", "free gift" â†’ "gift"
+   - Tamil: "A-um B-um iruvarum" â†’ Remove "iruvarum" (both + both = redundant)
 
 2. FLOW & COHERENCE (Connector Words / Discourse Markers):
   - Improve text flow by adding missing or weak connector words BETWEEN consecutive sentences/clauses
     when the logical relationship is clear but not explicitly signposted.
-  - Look for these relationships: continuation, addition, contrast, cause–effect, conclusion, time sequence.
+  - Look for these relationships: continuation, addition, contrast, causeâ€“effect, conclusion, time sequence.
   - Suggest only when it clearly improves readability; avoid overusing connectors.
   - Preserve meaning: do NOT introduce new claims, opinions, or facts.
   - Match tone/register:
     - News/academic/formal: prefer formal connectors.
     - Casual/informal: allow conversational connectors.
   - IMPORTANT: For every connector-word suggestion, include a category label in the explanation as one of:
-    Addition | Contrast | Cause–Effect | Continuation
+    Addition | Contrast | Causeâ€“Effect | Continuation
     (Map conclusion/time-sequence/continuation into Continuation when needed.)
-  - Example (Tamil): "அவர் கடுமையாக விமர்சித்தார். அவர் பின்னர் அழைப்பு ஏற்றார்." →
-    "அவர் கடுமையாக விமர்சித்தார். ஆனால், அவர் பின்னர் அழைப்பு ஏற்றார்." (Contrast)
+  - Example (Tamil): "à®…à®µà®°à¯ à®•à®Ÿà¯à®®à¯ˆà®¯à®¾à®• à®µà®¿à®®à®°à¯à®šà®¿à®¤à¯à®¤à®¾à®°à¯. à®…à®µà®°à¯ à®ªà®¿à®©à¯à®©à®°à¯ à®…à®´à¯ˆà®ªà¯à®ªà¯ à®à®±à¯à®±à®¾à®°à¯." â†’
+    "à®…à®µà®°à¯ à®•à®Ÿà¯à®®à¯ˆà®¯à®¾à®• à®µà®¿à®®à®°à¯à®šà®¿à®¤à¯à®¤à®¾à®°à¯. à®†à®©à®¾à®²à¯, à®…à®µà®°à¯ à®ªà®¿à®©à¯à®©à®°à¯ à®…à®´à¯ˆà®ªà¯à®ªà¯ à®à®±à¯à®±à®¾à®°à¯." (Contrast)
 
 3. STRUCTURAL INTEGRITY (Word Joining/Splitting):
    - Fix errors where words are incorrectly merged or separated.
-   - Tamil Sandhi (வலினம் மிகும் - HIGHEST PRIORITY):
-     * "செய்வதற்கு சமம்" → "செய்வதற்குச் சமம்" (ச் doubling before ச)
-     * "அவருக்கு பணம்" → "அவருக்குப் பணம்" (ப் doubling before ப)
-     * "இவர்களுக்கு தெரியும்" → "இவர்களுக்குத் தெரியும்" (த் doubling before த)
-     * "எனக்கு கொடு" → "எனக்குக் கொடு" (க் doubling before க)
-     * Rule: After -கு, -து, -று, -டு suffixes → add ப்/க்/ச்/த் before next word starting with ப/க/ச/த
-     * "என்று பார்த்தார்" → "என்றுப் பார்த்தார்" (ப் before ப after று)
-     * "கொண்டு போனார்" → "கொண்டுப் போனார்" (ப் before ப after டு)
-  - Tamil Case Endings / Postpositions: "எடப்பாடி உடன்" → "எடப்பாடியுடன்" (join postpositions)
-  - Tamil Sandhi/Clitics: "என்று எல்லாம்" → "என்றெல்லாம்" (join natural clitics)
-   - English: "alot" → "a lot", "cannot" (keep as one word)
+   - Tamil Sandhi (à®µà®²à®¿à®©à®®à¯ à®®à®¿à®•à¯à®®à¯ - HIGHEST PRIORITY):
+     * "à®šà¯†à®¯à¯à®µà®¤à®±à¯à®•à¯ à®šà®®à®®à¯" â†’ "à®šà¯†à®¯à¯à®µà®¤à®±à¯à®•à¯à®šà¯ à®šà®®à®®à¯" (à®šà¯ doubling before à®š)
+     * "à®…à®µà®°à¯à®•à¯à®•à¯ à®ªà®£à®®à¯" â†’ "à®…à®µà®°à¯à®•à¯à®•à¯à®ªà¯ à®ªà®£à®®à¯" (à®ªà¯ doubling before à®ª)
+     * "à®‡à®µà®°à¯à®•à®³à¯à®•à¯à®•à¯ à®¤à¯†à®°à®¿à®¯à¯à®®à¯" â†’ "à®‡à®µà®°à¯à®•à®³à¯à®•à¯à®•à¯à®¤à¯ à®¤à¯†à®°à®¿à®¯à¯à®®à¯" (à®¤à¯ doubling before à®¤)
+     * "à®Žà®©à®•à¯à®•à¯ à®•à¯Šà®Ÿà¯" â†’ "à®Žà®©à®•à¯à®•à¯à®•à¯ à®•à¯Šà®Ÿà¯" (à®•à¯ doubling before à®•)
+     * Rule: After -à®•à¯, -à®¤à¯, -à®±à¯, -à®Ÿà¯ suffixes â†’ add à®ªà¯/à®•à¯/à®šà¯/à®¤à¯ before next word starting with à®ª/à®•/à®š/à®¤
+     * "à®Žà®©à¯à®±à¯ à®ªà®¾à®°à¯à®¤à¯à®¤à®¾à®°à¯" â†’ "à®Žà®©à¯à®±à¯à®ªà¯ à®ªà®¾à®°à¯à®¤à¯à®¤à®¾à®°à¯" (à®ªà¯ before à®ª after à®±à¯)
+     * "à®•à¯Šà®£à¯à®Ÿà¯ à®ªà¯‹à®©à®¾à®°à¯" â†’ "à®•à¯Šà®£à¯à®Ÿà¯à®ªà¯ à®ªà¯‹à®©à®¾à®°à¯" (à®ªà¯ before à®ª after à®Ÿà¯)
+  - Tamil Case Endings / Postpositions: "à®Žà®Ÿà®ªà¯à®ªà®¾à®Ÿà®¿ à®‰à®Ÿà®©à¯" â†’ "à®Žà®Ÿà®ªà¯à®ªà®¾à®Ÿà®¿à®¯à¯à®Ÿà®©à¯" (join postpositions)
+  - Tamil Sandhi/Clitics: "à®Žà®©à¯à®±à¯ à®Žà®²à¯à®²à®¾à®®à¯" â†’ "à®Žà®©à¯à®±à¯†à®²à¯à®²à®¾à®®à¯" (join natural clitics)
+   - English: "alot" â†’ "a lot", "cannot" (keep as one word)
 
 4. PUNCTUATION, QUOTES & TYPOGRAPHY (Be STRICT):
    - Treat punctuation and quotation correctness as critical (do NOT skip).
    - MANDATORY FIRST STEP: Count opening vs closing quotes/brackets in the ENTIRE text.
      * Count: " (opening) vs " (closing), ' vs ', ( vs ), [ vs ], { vs }
      * If counts don't match, you MUST flag it as an error.
-     * Example: Text ending with stray " but no opening → suggest removing it.
-     * Example input: 'அவர் பின்னர் அழைப்பு ஏற்றார்."' (1 closing quote, 0 opening)
-       → Suggest: 'அவர் பின்னர் அழைப்பு ஏற்றார்.' (remove the unmatched ")
+     * Example: Text ending with stray " but no opening â†’ suggest removing it.
+     * Example input: 'à®…à®µà®°à¯ à®ªà®¿à®©à¯à®©à®°à¯ à®…à®´à¯ˆà®ªà¯à®ªà¯ à®à®±à¯à®±à®¾à®°à¯."' (1 closing quote, 0 opening)
+       â†’ Suggest: 'à®…à®µà®°à¯ à®ªà®¿à®©à¯à®©à®°à¯ à®…à®´à¯ˆà®ªà¯à®ªà¯ à®à®±à¯à®±à®¾à®°à¯.' (remove the unmatched ")
    - Ensure ALL quotes, parentheses, and brackets are perfectly balanced and properly nested.
    - Fix duplicated/mismatched quote marks and broken nesting.
-     Examples: "''கர்ணன்''" → "'கர்ணன்'" (avoid double-single-quote artifacts)
+     Examples: "''à®•à®°à¯à®£à®©à¯''" â†’ "'à®•à®°à¯à®£à®©à¯'" (avoid double-single-quote artifacts)
    - Enforce clean punctuation spacing rules:
      - No extra spaces before punctuation (",", ".", ":", ";", "?", "!")
      - Exactly one space after sentence punctuation where the language uses spaces.
      - No doubled punctuation unless stylistically required; normalize "!!", "??", "..." when inappropriate.
    - Ensure sentences have appropriate ending punctuation (missing full stop/question mark).
    - Ensure commas/colons are used correctly for apposition and lists.
-     Example: "சென்னை:" is acceptable for dateline style; otherwise prefer "சென்னை -" or "சென்னை:" consistently.
+     Example: "à®šà¯†à®©à¯à®©à¯ˆ:" is acceptable for dateline style; otherwise prefer "à®šà¯†à®©à¯à®©à¯ˆ -" or "à®šà¯†à®©à¯à®©à¯ˆ:" consistently.
    - Tamil-specific strictness:
      - If a sentence opens a quote, ensure it closes before attribution verb:
-       "..." என்று கூறினார் / "..." என்று பேசினார்
-     - Add comma after formal discourse markers when appropriate: "ஆனால்,", "எனவே,", "மேலும்,"
+       "..." à®Žà®©à¯à®±à¯ à®•à¯‚à®±à®¿à®©à®¾à®°à¯ / "..." à®Žà®©à¯à®±à¯ à®ªà¯‡à®šà®¿à®©à®¾à®°à¯
+     - Add comma after formal discourse markers when appropriate: "à®†à®©à®¾à®²à¯,", "à®Žà®©à®µà¯‡,", "à®®à¯‡à®²à¯à®®à¯,"
    - English-specific strictness:
      - Add comma after formal discourse markers when appropriate: "However,", "Therefore,", "Moreover,"
 
 5. VOCABULARY VARIATION (Repetition Avoidance):
    - Identify and replace repetitive verbs/adjectives in adjacent sentences with contextually appropriate synonyms.
-   - Example: If "பேசியிருந்தார்" appears twice nearby, suggest "விமர்சித்திருந்தார்" for second instance.
+   - Example: If "à®ªà¯‡à®šà®¿à®¯à®¿à®°à¯à®¨à¯à®¤à®¾à®°à¯" appears twice nearby, suggest "à®µà®¿à®®à®°à¯à®šà®¿à®¤à¯à®¤à®¿à®°à¯à®¨à¯à®¤à®¾à®°à¯" for second instance.
 
 6. GRAMMATICAL PRECISION:
    - Fix subject-verb agreement, tense inconsistencies, and case endings/suffixes.
    - Tamil Vibhakti: Ensure nouns and postpositions are joined per morphophonology rules.
-  - Tamil Accusative before comparisons: If using "போல/மாதிரி" for comparison,
+  - Tamil Accusative before comparisons: If using "à®ªà¯‹à®²/à®®à®¾à®¤à®¿à®°à®¿" for comparison,
     apply the required case ending when needed.
-    Example: "பகையாளி போல" → "பகையாளியைப் போல" (ஐ-வேற்றுமை)
+    Example: "à®ªà®•à¯ˆà®¯à®¾à®³à®¿ à®ªà¯‹à®²" â†’ "à®ªà®•à¯ˆà®¯à®¾à®³à®¿à®¯à¯ˆà®ªà¯ à®ªà¯‹à®²" (à®-à®µà¯‡à®±à¯à®±à¯à®®à¯ˆ)
    
    ENGLISH-SPECIFIC GRAMMAR RULES (MANDATORY):
    - CAPITALIZATION: Always capitalize the pronoun "I" everywhere, including after conjunctions
-     * Examples: "i went" → "I went", "but i was" → "but I was", "and i decided" → "and I decided"
+     * Examples: "i went" â†’ "I went", "but i was" â†’ "but I was", "and i decided" â†’ "and I decided"
    - VERB TENSE CONSISTENCY: Maintain consistent past/present/future tense throughout
-     * Past: "decide" → "decided", "wakes" → "woke", "miss" → "missed", "telling" → "told"
-     * Progressive: "i feeling" → "I felt", "was starting" → "started" (for simple past actions)
+     * Past: "decide" â†’ "decided", "wakes" â†’ "woke", "miss" â†’ "missed", "telling" â†’ "told"
+     * Progressive: "i feeling" â†’ "I felt", "was starting" â†’ "started" (for simple past actions)
      * Conditional/Subjunctive: When expressing hypothetical future (promises, intentions in past narrative),
        use "would" instead of "will" for consistency with past tense context
-       Example: Past narrative: "I promised that I will study" → "I promised that I would study"
+       Example: Past narrative: "I promised that I will study" â†’ "I promised that I would study"
    - ARTICLE USAGE: Use "an" before vowel sounds, "a" before consonant sounds
-     * Examples: "a online" → "an online", "a hour" → "an hour", "a university" (correct - starts with /j/ sound)
+     * Examples: "a online" â†’ "an online", "a hour" â†’ "an hour", "a university" (correct - starts with /j/ sound)
    - INFINITIVE vs GERUND: Use "to + verb" (infinitive) for purpose, not "for + verb"
-     * Examples: "for improve" → "to improve", "for study" → "to study"
+     * Examples: "for improve" â†’ "to improve", "for study" â†’ "to study"
    - SINGULAR/PLURAL AGREEMENT: Match number with quantity words
-     * Examples: "many lesson" → "many lessons", "one skill" → "skills" (when referring to multiple)
+     * Examples: "many lesson" â†’ "many lessons", "one skill" â†’ "skills" (when referring to multiple)
    - AUXILIARY VERBS: Use proper helping verbs in negatives and questions
-     * Examples: "i not follow" → "I did not follow", "you not know" → "you do not know"
+     * Examples: "i not follow" â†’ "I did not follow", "you not know" â†’ "you do not know"
    - AM/PM FORMATTING: Use proper time notation
-     * Examples: "9 am" → "9 a.m." or "9 AM", "3 pm" → "3 p.m." or "3 PM"
+     * Examples: "9 am" â†’ "9 a.m." or "9 AM", "3 pm" â†’ "3 p.m." or "3 PM"
    - EVERYDAY vs EVERY DAY: Distinguish adjective form from adverbial phrase
      * "everyday" (adjective) = ordinary, common: "everyday problems", "everyday life"
      * "every day" (adverb phrase) = each day, daily: "I study every day", "happens every day"
-     * Examples: "I go to school everyday" → "I go to school every day"
+     * Examples: "I go to school everyday" â†’ "I go to school every day"
    - COMMA PLACEMENT (Critical):
      * After introductory phrases: "Last week, I decided...", "However, I promised..."
      * Before conjunctions joining independent clauses: "I was nervous, but I tried"
@@ -2395,37 +2582,37 @@ UNIVERSAL LINGUISTIC RULES (Apply to ALL languages):
 
 7. WORD SPACING (Otrumizhal):
    - Separate run-on words and normalize spacing.
-   - Tamil: "இன்னும்கடுமையாக" → "இன்னும் கடுமையாக"
+   - Tamil: "à®‡à®©à¯à®©à¯à®®à¯à®•à®Ÿà¯à®®à¯ˆà®¯à®¾à®•" â†’ "à®‡à®©à¯à®©à¯à®®à¯ à®•à®Ÿà¯à®®à¯ˆà®¯à®¾à®•"
    - Remove excessive spaces between words.
 
 8. TYPO / SPELLING & TRUNCATION DETECTION (All languages):
   - Actively look for obvious typos, missing letters, swapped letters, and clipped words.
   - If a word looks incomplete or nonstandard in context, correct it to the most likely intended word.
-  - Examples (English): "definately" → "definitely", "teh" → "the".
+  - Examples (English): "definately" â†’ "definitely", "teh" â†’ "the".
   - Examples (Tamil):
-    - "மழ்ச்சியையும்" → "மகிழ்ச்சியையும்" (typo in common word)
-    - "சிறந் வசனம்" → "சிறந்த வசனம்" (clipped adjective)
-    - "சிறந்தத படம்" → "சிறந்த படம்" (remove stray suffix/extra letter)
-    - "இதைடுத்து" → "இதையடுத்து" (orthographic join)
+    - "à®®à®´à¯à®šà¯à®šà®¿à®¯à¯ˆà®¯à¯à®®à¯" â†’ "à®®à®•à®¿à®´à¯à®šà¯à®šà®¿à®¯à¯ˆà®¯à¯à®®à¯" (typo in common word)
+    - "à®šà®¿à®±à®¨à¯ à®µà®šà®©à®®à¯" â†’ "à®šà®¿à®±à®¨à¯à®¤ à®µà®šà®©à®®à¯" (clipped adjective)
+    - "à®šà®¿à®±à®¨à¯à®¤à®¤ à®ªà®Ÿà®®à¯" â†’ "à®šà®¿à®±à®¨à¯à®¤ à®ªà®Ÿà®®à¯" (remove stray suffix/extra letter)
+    - "à®‡à®¤à¯ˆà®Ÿà¯à®¤à¯à®¤à¯" â†’ "à®‡à®¤à¯ˆà®¯à®Ÿà¯à®¤à¯à®¤à¯" (orthographic join)
 
 9. LANGUAGE-SPECIFIC REFINEMENTS:
-   - Tamil: Apply Valinam Migum/Miga rules (hard consonants: க், ச், த், ப்) with 100% accuracy.
-     * SCAN EVERY word boundary: if word N+1 starts with க/ச/த/ப, check if word N requires doubling.
-     * Common suffixes that trigger doubling: -கு, -து, -று, -டு, -ல், -ன், -ம்
-     * The ப் consonant is MOST FREQUENTLY missed by writers - be extra vigilant.
+   - Tamil: Apply Valinam Migum/Miga rules (hard consonants: à®•à¯, à®šà¯, à®¤à¯, à®ªà¯) with 100% accuracy.
+     * SCAN EVERY word boundary: if word N+1 starts with à®•/à®š/à®¤/à®ª, check if word N requires doubling.
+     * Common suffixes that trigger doubling: -à®•à¯, -à®¤à¯, -à®±à¯, -à®Ÿà¯, -à®²à¯, -à®©à¯, -à®®à¯
+     * The à®ªà¯ consonant is MOST FREQUENTLY missed by writers - be extra vigilant.
      * Examples commonly missed:
-       - "அதற்கு பிறகு" → "அதற்குப் பிறகு"
-       - "என்பதற்கு பதிலாக" → "என்பதற்குப் பதிலாக"
-       - "வருவதற்கு பதில்" → "வருவதற்குப் பதில்"
-       - "அவர்களுக்கு போதுமானது" → "அவர்களுக்குப் போதுமானது"
-   - English: Fix slang ("u" → "you", "r" → "are"), contractions, and informal texting.
+       - "à®…à®¤à®±à¯à®•à¯ à®ªà®¿à®±à®•à¯" â†’ "à®…à®¤à®±à¯à®•à¯à®ªà¯ à®ªà®¿à®±à®•à¯"
+       - "à®Žà®©à¯à®ªà®¤à®±à¯à®•à¯ à®ªà®¤à®¿à®²à®¾à®•" â†’ "à®Žà®©à¯à®ªà®¤à®±à¯à®•à¯à®ªà¯ à®ªà®¤à®¿à®²à®¾à®•"
+       - "à®µà®°à¯à®µà®¤à®±à¯à®•à¯ à®ªà®¤à®¿à®²à¯" â†’ "à®µà®°à¯à®µà®¤à®±à¯à®•à¯à®ªà¯ à®ªà®¤à®¿à®²à¯"
+       - "à®…à®µà®°à¯à®•à®³à¯à®•à¯à®•à¯ à®ªà¯‹à®¤à¯à®®à®¾à®©à®¤à¯" â†’ "à®…à®µà®°à¯à®•à®³à¯à®•à¯à®•à¯à®ªà¯ à®ªà¯‹à®¤à¯à®®à®¾à®©à®¤à¯"
+   - English: Fix slang ("u" â†’ "you", "r" â†’ "are"), contractions, and informal texting.
    - Apply proper capitalization, sentence boundaries, and common misspellings.
 
 10. CONTEXTUAL WORD CHOICE (Domain-appropriate wording):
   - Prefer the most natural, commonly used term in the given domain/context.
   - Do NOT invent facts; only improve word choice when meaning is preserved.
-  - Tamil (politics): "கூட்டு" → "கூட்டணி" when referring to political alliances.
-  - English collocation: "do a mistake" → "make a mistake".
+  - Tamil (politics): "à®•à¯‚à®Ÿà¯à®Ÿà¯" â†’ "à®•à¯‚à®Ÿà¯à®Ÿà®£à®¿" when referring to political alliances.
+  - English collocation: "do a mistake" â†’ "make a mistake".
 
 CRITICAL EXECUTION REQUIREMENTS:
 - You MUST analyze EVERY SINGLE LINE from first to last - scan the ENTIRE text systematically.
@@ -2439,7 +2626,7 @@ PRESERVATION RULES:
 
 OUTPUT GUIDELINES:
 - For each change, provide a clear, educational explanation (8-14 words) in the same language as the input.
-- Explain the "Why" (ஏன்?) behind major fixes to educate the user.
+- Explain the "Why" (à®à®©à¯?) behind major fixes to educate the user.
 - If no changes needed, return original text and empty changes array.
 
 Return ONLY valid JSON in this exact format:
@@ -2627,7 +2814,7 @@ const addMissingQuoteChecks = (text, changes) => {
   // Check if there's already a suggestion about quotes
   const hasQuoteFix = changes.some(c => 
     c.explanation && 
-    (c.explanation.includes('quote') || c.explanation.includes('மேற்கோள்') || c.explanation.includes('"'))
+    (c.explanation.includes('quote') || c.explanation.includes('à®®à¯‡à®±à¯à®•à¯‹à®³à¯') || c.explanation.includes('"'))
   );
   
   if (!hasQuoteFix) {
@@ -2649,7 +2836,7 @@ const addMissingQuoteChecks = (text, changes) => {
           augmented.push({
             original: before + quoteChar + after,
             corrected: before + after,
-            explanation: "மேற்கோள் குறி சமநிலையற்றது; இணையற்ற மூடும் மேற்கோள் குறி அகற்றப்பட்டது. (Unbalanced quote removed)"
+            explanation: "à®®à¯‡à®±à¯à®•à¯‹à®³à¯ à®•à¯à®±à®¿ à®šà®®à®¨à®¿à®²à¯ˆà®¯à®±à¯à®±à®¤à¯; à®‡à®£à¯ˆà®¯à®±à¯à®± à®®à¯‚à®Ÿà¯à®®à¯ à®®à¯‡à®±à¯à®•à¯‹à®³à¯ à®•à¯à®±à®¿ à®…à®•à®±à¯à®±à®ªà¯à®ªà®Ÿà¯à®Ÿà®¤à¯. (Unbalanced quote removed)"
           });
         }
       }
@@ -2672,7 +2859,7 @@ const addMissingQuoteChecks = (text, changes) => {
           augmented.push({
             original: before + quoteChar + after,
             corrected: before + after,
-            explanation: "ஒற்றை மேற்கோள் குறி சமநிலையற்றது; அகற்றப்பட்டது. (Unbalanced single quote removed)"
+            explanation: "à®’à®±à¯à®±à¯ˆ à®®à¯‡à®±à¯à®•à¯‹à®³à¯ à®•à¯à®±à®¿ à®šà®®à®¨à®¿à®²à¯ˆà®¯à®±à¯à®±à®¤à¯; à®…à®•à®±à¯à®±à®ªà¯à®ªà®Ÿà¯à®Ÿà®¤à¯. (Unbalanced single quote removed)"
           });
         }
       }
@@ -2696,15 +2883,15 @@ const addTamilFallbackSuggestions = (text, changes, language) => {
   );
 
   const fallbackRules = [
-    { original: "எதிரபார்க்கப்படுகிறது", corrected: "எதிர்பார்க்கப்படுகிறது", explanation: "எழுத்துப்பிழை திருத்தம்: கூட்டு வடிவத்தில் 'ப்' சேர்க்கப்பட்டது." },
-    { original: "பெனஷன்", corrected: "பென்ஷன்", explanation: "Tamil: பென்ஷன் | English: pension" },
-    { original: "ஹாஸ்பிடல்", corrected: "ஹாஸ்பிட்டல்", explanation: "Tamil: ஹாஸ்பிட்டல் | English: hospital" },
-    { original: "கம்ப்யூட்டர்", corrected: "கம்ப்யூட்டர்", explanation: "Tamil: கம்ப்யூட்டர் | English: computer" },
-    { original: "இன்சூரன்ஸ்", corrected: "இன்ஷூரன்ஸ்", explanation: "Tamil: இன்ஷூரன்ஸ் | English: insurance" },
-    { original: "மொபைல்", corrected: "மொபைல்", explanation: "Tamil: மொபைல் | English: mobile" },
-    { original: "சர்வீஸ்", corrected: "சர்வீஸ்", explanation: "Tamil: சர்வீஸ் | English: service" },
-    { original: "சென்டர்", corrected: "சென்டர்", explanation: "Tamil: சென்டர் | English: center" },
-    { original: "சர்வீஸ் சென்டர்", corrected: "சர்வீஸ் சென்டர்", explanation: "Tamil: சர்வீஸ் சென்டர் | English: service center" },
+    { original: "à®Žà®¤à®¿à®°à®ªà®¾à®°à¯à®•à¯à®•à®ªà¯à®ªà®Ÿà¯à®•à®¿à®±à®¤à¯", corrected: "à®Žà®¤à®¿à®°à¯à®ªà®¾à®°à¯à®•à¯à®•à®ªà¯à®ªà®Ÿà¯à®•à®¿à®±à®¤à¯", explanation: "à®Žà®´à¯à®¤à¯à®¤à¯à®ªà¯à®ªà®¿à®´à¯ˆ à®¤à®¿à®°à¯à®¤à¯à®¤à®®à¯: à®•à¯‚à®Ÿà¯à®Ÿà¯ à®µà®Ÿà®¿à®µà®¤à¯à®¤à®¿à®²à¯ 'à®ªà¯' à®šà¯‡à®°à¯à®•à¯à®•à®ªà¯à®ªà®Ÿà¯à®Ÿà®¤à¯." },
+    { original: "à®ªà¯†à®©à®·à®©à¯", corrected: "à®ªà¯†à®©à¯à®·à®©à¯", explanation: "Tamil: à®ªà¯†à®©à¯à®·à®©à¯ | English: pension" },
+    { original: "à®¹à®¾à®¸à¯à®ªà®¿à®Ÿà®²à¯", corrected: "à®¹à®¾à®¸à¯à®ªà®¿à®Ÿà¯à®Ÿà®²à¯", explanation: "Tamil: à®¹à®¾à®¸à¯à®ªà®¿à®Ÿà¯à®Ÿà®²à¯ | English: hospital" },
+    { original: "à®•à®®à¯à®ªà¯à®¯à¯‚à®Ÿà¯à®Ÿà®°à¯", corrected: "à®•à®®à¯à®ªà¯à®¯à¯‚à®Ÿà¯à®Ÿà®°à¯", explanation: "Tamil: à®•à®®à¯à®ªà¯à®¯à¯‚à®Ÿà¯à®Ÿà®°à¯ | English: computer" },
+    { original: "à®‡à®©à¯à®šà¯‚à®°à®©à¯à®¸à¯", corrected: "à®‡à®©à¯à®·à¯‚à®°à®©à¯à®¸à¯", explanation: "Tamil: à®‡à®©à¯à®·à¯‚à®°à®©à¯à®¸à¯ | English: insurance" },
+    { original: "à®®à¯Šà®ªà¯ˆà®²à¯", corrected: "à®®à¯Šà®ªà¯ˆà®²à¯", explanation: "Tamil: à®®à¯Šà®ªà¯ˆà®²à¯ | English: mobile" },
+    { original: "à®šà®°à¯à®µà¯€à®¸à¯", corrected: "à®šà®°à¯à®µà¯€à®¸à¯", explanation: "Tamil: à®šà®°à¯à®µà¯€à®¸à¯ | English: service" },
+    { original: "à®šà¯†à®©à¯à®Ÿà®°à¯", corrected: "à®šà¯†à®©à¯à®Ÿà®°à¯", explanation: "Tamil: à®šà¯†à®©à¯à®Ÿà®°à¯ | English: center" },
+    { original: "à®šà®°à¯à®µà¯€à®¸à¯ à®šà¯†à®©à¯à®Ÿà®°à¯", corrected: "à®šà®°à¯à®µà¯€à®¸à¯ à®šà¯†à®©à¯à®Ÿà®°à¯", explanation: "Tamil: à®šà®°à¯à®µà¯€à®¸à¯ à®šà¯†à®©à¯à®Ÿà®°à¯ | English: service center" },
   ];
 
   const loanwordByOriginal = new Map(
@@ -2755,7 +2942,7 @@ const addTamilFallbackSuggestions = (text, changes, language) => {
  *
  * Strategy: simulate applying every existing change to originalText (greedy
  * left-to-right, first occurrence per change), then diff vs corrected_text.
- * If the diff is small (<=10 chars total — likely punctuation), append a new
+ * If the diff is small (<=10 chars total â€” likely punctuation), append a new
  * change entry anchored onto a real word so it has visible context.
  */
 const addPunctuationDiffSuggestions = (originalText, correctedText, changes) => {
@@ -2907,7 +3094,7 @@ const addPunctuationDiffSuggestions = (originalText, correctedText, changes) => 
     const updatedChanges = changes.map((c) => ({ ...c }));
 
     // Case A: insertion falls at the END of an existing change's corrected text
-    // → append the inserted chars to that change's corrected value.
+    // â†’ append the inserted chars to that change's corrected value.
     const repBefore = repAppliedRanges.find(
       (r) => r.appliedEnd === insertionPos
     );
@@ -2925,7 +3112,7 @@ const addPunctuationDiffSuggestions = (originalText, correctedText, changes) => 
     }
 
     // Case B: insertion falls at the START of an existing change's corrected text
-    // → prepend the inserted chars to that change's corrected value.
+    // â†’ prepend the inserted chars to that change's corrected value.
     const repAfter = repAppliedRanges.find(
       (r) => r.appliedStart === insertionPos
     );
@@ -3044,7 +3231,7 @@ app.get("/api/user/stats", async (req, res) => {
       creditsRemaining: creditsRemaining
     });
   } catch (error) {
-    console.error('❌ Error fetching user stats:', error);
+    console.error('âŒ Error fetching user stats:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -3077,7 +3264,7 @@ app.post("/api/refresh-token", async (req, res) => {
       expiresIn: 3600 // 1 hour in seconds
     });
   } catch (error) {
-    console.error('❌ Error refreshing token:', error);
+    console.error('âŒ Error refreshing token:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -3099,13 +3286,13 @@ app.post("/api/proofread", async (req, res) => {
       if (decodedToken) {
         authenticatedUser = decodedToken;
         userId = decodedToken.uid;
-        console.log('✅ Authenticated user:', userId);
+        console.log('âœ… Authenticated user:', userId);
         
         // Get user data and check entitlements
         const userData = await getUserData(userId);
         const entitlements = getUserEntitlements(userData);
         
-        console.log('📊 User entitlements:', entitlements);
+        console.log('ðŸ“Š User entitlements:', entitlements);
         
         // Track usage
         await incrementUsageCount(userId);
@@ -3126,7 +3313,7 @@ app.post("/api/proofread", async (req, res) => {
         res.setHeader('X-Checks-Used', entitlements.checksUsed.toString());
         res.setHeader('X-Checks-Limit', entitlements.checksLimit === -1 ? 'unlimited' : entitlements.checksLimit.toString());
       } else {
-        console.log('⚠️ Invalid auth token');
+        console.log('âš ï¸ Invalid auth token');
         return res.status(401).json({
           message: 'Invalid or expired auth token. Please sign in again.',
           requiresAuth: true,
@@ -3200,7 +3387,29 @@ app.post("/api/proofread", async (req, res) => {
 
           const nowMs = Date.now();
           const storedCreditsUsed = Number(data.creditsUsed || 0);
-          const creditsUsed = Number.isFinite(storedCreditsUsed) ? storedCreditsUsed : 0;
+          let creditsUsed = Number.isFinite(storedCreditsUsed) ? storedCreditsUsed : 0;
+
+          // SERVER-SIDE monthly credit reset (moved off the client, where a
+          // user could zero their own usage to bypass metering). When a Pro
+          // user's 30-day window has elapsed, reset the used counter here.
+          if (isPro) {
+            const lastResetRaw = data.creditsResetDate;
+            const lastReset = lastResetRaw ? new Date(String(lastResetRaw)) : null;
+            const daysSinceReset = lastReset && !Number.isNaN(lastReset.getTime())
+              ? (nowMs - lastReset.getTime()) / (1000 * 60 * 60 * 24)
+              : Infinity;
+            if (daysSinceReset >= 30) {
+              creditsUsed = 0;
+              try {
+                await userRef.set(
+                  { creditsUsed: 0, creditsResetDate: new Date(nowMs).toISOString() },
+                  { merge: true }
+                );
+              } catch (e) {
+                console.error("Monthly credit reset failed:", e.message);
+              }
+            }
+          }
           const baseCreditsRaw = data.credits ?? (isPro ? 25000 : 0);
           const baseCredits = Number.isFinite(Number(baseCreditsRaw)) ? Number(baseCreditsRaw) : 0;
           const rawAddonCredits = Number(data.addonCredits || 0);
@@ -3559,7 +3768,7 @@ if (existsSync(distPath)) {
             })
             .filter(item => item.url);
           
-          console.log(`✓ Added ${seoPageUrls.length} active SEO language pages to sitemap`);
+          console.log(`âœ“ Added ${seoPageUrls.length} active SEO language pages to sitemap`);
         } catch (err) {
           console.error('Error fetching SEO pages for sitemap:', err);
         }
@@ -3620,7 +3829,7 @@ ${blogUrls.map(blog => `  <url>
   });
 }
 
-// ── Google Indexing API ──────────────────────────────────────────────────────
+// â”€â”€ Google Indexing API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post("/api/google-index", express.json({ limit: "2mb" }), async (req, res) => {
   try {
     const { serviceAccountJson, urls } = req.body;
@@ -3647,7 +3856,7 @@ app.post("/api/google-index", express.json({ limit: "2mb" }), async (req, res) =
     sign.update(signingInput);
     const signature = sign.sign(sa.private_key, "base64url");
     const jwt = `${signingInput}.${signature}`;
-    // Exchange JWT → access token
+    // Exchange JWT â†’ access token
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -3679,7 +3888,7 @@ app.post("/api/google-index", express.json({ limit: "2mb" }), async (req, res) =
   }
 });
 
-// ─── Google Indexing Status Check ───────────────────────────────────────────
+// â”€â”€â”€ Google Indexing Status Check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post("/api/google-index-status", express.json({ limit: "2mb" }), async (req, res) => {
   try {
     const { serviceAccountJson, urls } = req.body;
@@ -3746,7 +3955,7 @@ app.post("/api/google-index-status", express.json({ limit: "2mb" }), async (req,
   }
 });
 
-// ─── Blog Content Generator (Gemini) ────────────────────────────────────────
+// â”€â”€â”€ Blog Content Generator (Gemini) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post("/api/blog-generate", express.json({ limit: "1mb" }), async (req, res) => {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -3854,7 +4063,7 @@ CRITICAL: contentHtml must be valid embeddable HTML only. Return raw JSON only.`
   }
 });
 
-// ─── Blog Image Generator (Imagen via Gemini) ────────────────────────────────
+// â”€â”€â”€ Blog Image Generator (Imagen via Gemini) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post("/api/blog-image-generate", express.json({ limit: "1mb" }), async (req, res) => {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -3872,7 +4081,7 @@ app.post("/api/blog-image-generate", express.json({ limit: "1mb" }), async (req,
 
     const fullPrompt = `${prompt}. Style: ${styleGuide}. No text overlay. No watermarks. Wide aspect ratio 16:9. Professional blog header image.`;
 
-    // Use Gemini 2.5 Flash image generation — lowest cost (~$0.039/image) on same API key
+    // Use Gemini 2.5 Flash image generation â€” lowest cost (~$0.039/image) on same API key
     const geminiImgEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`;
 
     const makeImageRequest = () =>
@@ -3919,7 +4128,7 @@ app.post("/api/blog-image-generate", express.json({ limit: "1mb" }), async (req,
   }
 });
 
-// ─── SEO Content Generator (Gemini) ────────────────────────────────────────
+// â”€â”€â”€ SEO Content Generator (Gemini) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post("/api/seo-generate", express.json({ limit: "1mb" }), async (req, res) => {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -3974,18 +4183,18 @@ Return a JSON object with EXACTLY this structure (no markdown, no code block, ra
 {
   "variants": [
     {
-      "title": "Page title ≤60 chars, includes primary keyword",
-      "h1": "H1 heading ≤70 chars, unique and descriptive, reflects the slug '${urlSlug}'",
+      "title": "Page title â‰¤60 chars, includes primary keyword",
+      "h1": "H1 heading â‰¤70 chars, unique and descriptive, reflects the slug '${urlSlug}'",
       "metaDescription": "Meta description 140-160 chars, compelling CTA, includes keyword",
       "keywords": "15-20 comma-separated SEO keywords",
       "description": "3 short paragraphs (200-300 words total) explaining the tool benefits. Plain text, no HTML tags."
     },
     {
-      "title": "Alternative title — different wording from variant 1",
-      "h1": "Alternative H1 — different angle from variant 1",
-      "metaDescription": "Alternative meta description — different phrasing",
+      "title": "Alternative title â€” different wording from variant 1",
+      "h1": "Alternative H1 â€” different angle from variant 1",
+      "metaDescription": "Alternative meta description â€” different phrasing",
       "keywords": "Same or slightly different keyword list",
-      "description": "Alternative description paragraphs — different structure/angle from variant 1"
+      "description": "Alternative description paragraphs â€” different structure/angle from variant 1"
     }
   ],
   "faqItems": [

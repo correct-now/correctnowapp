@@ -12,7 +12,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Link, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc as firestoreDoc, onSnapshot, setDoc } from "firebase/firestore";
+import { doc as firestoreDoc, onSnapshot } from "firebase/firestore";
 import { getFirebaseAuth, getFirebaseDb } from "@/lib/firebase";
 import { toast } from "sonner";
 import { detectCountryCode, formatPrice, resolvePricing, type RegionalPricing } from "@/lib/pricing";
@@ -173,27 +173,28 @@ const Pricing = () => {
       const db = getFirebaseDb();
       const user = auth?.currentUser;
 
-      if (!user || !db) {
+      if (!user) {
         throw new Error("Please sign in to cancel subscription");
       }
 
-      // Update user to free plan immediately
-      const userRef = firestoreDoc(db, `users/${user.uid}`);
-      await setDoc(
-        userRef,
-        {
-          plan: "free",
-          wordLimit: 200,
-          credits: 0,
-          creditsUsed: 0,
-          subscriptionId: "",
-          stripeSubscriptionId: "",
-          subscriptionStatus: "cancelled",
-          subscriptionUpdatedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+      // Cancellation is handled server-side: it cancels the subscription at the
+      // payment gateway (so no further charges) AND downgrades the account.
+      // The client can no longer write plan fields directly.
+      const apiBase = import.meta.env.DEV
+        ? (import.meta.env.VITE_API_BASE_URL || "http://localhost:8787")
+        : "";
+      const token = await user.getIdToken();
+      const res = await fetch(`${apiBase}/api/subscription/cancel`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-        { merge: true }
-      );
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to cancel subscription");
+      }
 
       toast.success("Successfully downgraded to Free plan. Subscription cancelled.");
     } catch (error: any) {
