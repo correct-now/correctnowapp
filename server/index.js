@@ -1466,6 +1466,32 @@ app.get("/api/admin/subscriptions", async (req, res) => {
     const stripe = getStripe();
     const razorpay = getRazorpay();
 
+    // Reconciliation: some Pro users have no stored gateway subscription id
+    // (e.g. they paid while the verify endpoint was unreachable, so the
+    // mapping was never written). Razorpay payments carry the customer's
+    // email, so fetch recent captured payments once and match by email to
+    // recover the subscription id + real amount, then backfill the user doc.
+    const paymentByEmail = new Map();
+    const needsReconcile = users.some(
+      (u) =>
+        !u.razorpaySubscriptionId &&
+        !u.stripeSubscriptionId &&
+        (String(u.plan || "").toLowerCase() === "pro" || u.subscriptionStatus)
+    );
+    if (razorpay && needsReconcile) {
+      try {
+        const resp = await razorpay.payments.all({ count: 100 });
+        for (const p of resp?.items || []) {
+          if (p.status !== "captured" || !p.email) continue;
+          const key = String(p.email).toLowerCase();
+          const prev = paymentByEmail.get(key);
+          if (!prev || p.created_at > prev.created_at) paymentByEmail.set(key, p);
+        }
+      } catch (e) {
+        console.warn("Razorpay payments fetch for reconciliation failed:", e.message);
+      }
+    }
+
     const results = await Promise.all(
       users.map(async (u) => {
         const base = {
@@ -1500,6 +1526,56 @@ app.get("/api/admin/subscriptions", async (req, res) => {
           livePaymentMethod: null,
           liveError: null,
         };
+
+        // Backfill missing gateway mapping from the reconciliation map.
+        if (
+          razorpay &&
+          !u.razorpaySubscriptionId &&
+          !u.stripeSubscriptionId &&
+          (String(u.plan || "").toLowerCase() === "pro" || u.subscriptionStatus)
+        ) {
+          const payment = paymentByEmail.get(String(u.email || "").toLowerCase());
+          if (payment) {
+            // Subscription charges don't carry subscription_id on the payment
+            // entity directly — recover it via the linked invoice.
+            let subId = payment.subscription_id || null;
+            if (!subId && payment.invoice_id) {
+              try {
+                const inv = await razorpay.invoices.fetch(payment.invoice_id);
+                subId = inv?.subscription_id || null;
+              } catch (e) {
+                console.warn("Invoice fetch failed during reconciliation:", e.message);
+              }
+            }
+            const paidAmount = payment.amount != null ? payment.amount / 100 : null;
+            const backfill = {
+              paymentGateway: "razorpay",
+              ...(paidAmount !== null ? { lastPaymentAmount: paidAmount } : {}),
+              lastPaymentId: payment.id,
+              ...(subId ? { razorpaySubscriptionId: subId, subscriptionId: subId } : {}),
+              ...(payment.created_at
+                ? { subscriptionCreatedAt: new Date(payment.created_at * 1000).toISOString() }
+                : {}),
+              updatedAt: new Date().toISOString(),
+            };
+            try {
+              await adminDb.collection("users").doc(u.id).set(backfill, { merge: true });
+            } catch (e) {
+              console.warn("Reconciliation backfill write failed:", e.message);
+            }
+            // Reflect immediately in this response (and let the live
+            // enrichment below run with the recovered subscription id).
+            if (subId) {
+              u.razorpaySubscriptionId = subId;
+              base.razorpaySubscriptionId = subId;
+            }
+            base.paymentGateway = "razorpay";
+            if (paidAmount !== null) base.lastPaymentAmount = paidAmount;
+            if (payment.created_at) {
+              base.subscriptionCreatedAt = new Date(payment.created_at * 1000).toISOString();
+            }
+          }
+        }
 
         // Enrich with Stripe live data
         if (stripe && u.stripeSubscriptionId) {
@@ -1860,6 +1936,21 @@ app.post("/api/razorpay/verify", async (req, res) => {
     const userRef = adminDb.collection("users").doc(decoded.uid);
 
     if (razorpay_subscription_id) {
+      // Fetch the REAL paid amount from Razorpay so the admin panel and
+      // revenue figures reflect what the customer actually paid — never an
+      // assumed price. Non-fatal if the fetch fails (the renewal webhook will
+      // backfill it).
+      let paidAmount = null;
+      try {
+        const razorpay = getRazorpay();
+        if (razorpay) {
+          const payment = await razorpay.payments.fetch(razorpay_payment_id);
+          if (payment?.amount != null) paidAmount = payment.amount / 100;
+        }
+      } catch (e) {
+        console.warn("Could not fetch payment amount:", e.message);
+      }
+
       // Subscription purchase → grant Pro and establish the subscription→user
       // mapping that the webhook relies on for renewals/cancellations.
       await userRef.set(
@@ -1873,6 +1964,7 @@ app.post("/api/razorpay/verify", async (req, res) => {
           cancelAtPeriodEnd: false,
           subscriptionCreatedAt: nowIso,
           lastPaymentId: razorpay_payment_id,
+          ...(paidAmount !== null ? { lastPaymentAmount: paidAmount } : {}),
           subscriptionUpdatedAt: nowIso,
           updatedAt: nowIso,
         },
@@ -1884,6 +1976,8 @@ app.post("/api/razorpay/verify", async (req, res) => {
         userId: decoded.uid,
         paymentId: razorpay_payment_id,
         subscriptionId: razorpay_subscription_id,
+        amount: paidAmount,
+        currency: "INR",
       });
       return res.json({ success: true, type: "subscription" });
     }

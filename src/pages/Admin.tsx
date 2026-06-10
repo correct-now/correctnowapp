@@ -683,7 +683,16 @@ const Admin = () => {
   const suspendedUsers = users.filter((user) => user.status === "deactivated").length;
   const totalUsers = users.length;
   const conversionRate = totalUsers ? Math.round((proUsers / totalUsers) * 100) : 0;
-  const monthlyRevenue = proUsers * 500;
+  // Revenue from actual recorded payments (webhook/verify writes
+  // lastPaymentAmount). Users without a recorded amount contribute 0 —
+  // never assume a hardcoded price.
+  const monthlyRevenue = users.reduce(
+    (sum, user) =>
+      user.plan === "Pro" && user.lastPaymentAmount != null
+        ? sum + Number(user.lastPaymentAmount)
+        : sum,
+    0
+  );
   const isToday = (iso?: string) => {
     if (!iso) return false;
     const date = new Date(iso);
@@ -709,7 +718,14 @@ const Admin = () => {
         return {
           name: user.email || user.name,
           plan: user.plan,
-          amount: user.plan === "Pro" ? "₹500" : "₹0",
+          // Real recorded payment (set by webhook/verify). "—" when unknown —
+          // never display an assumed price.
+          amount:
+            user.plan === "Pro"
+              ? user.lastPaymentAmount != null
+                ? `₹${Number(user.lastPaymentAmount).toLocaleString("en-IN")}`
+                : "—"
+              : "₹0",
           status: statusLabel,
           date: user.updatedAt || user.createdAt || new Date().toISOString(),
           subscriptionUpdatedAt: user.subscriptionUpdatedAt,
@@ -739,7 +755,12 @@ const Admin = () => {
         return {
           name: user.email || user.name,
           plan: user.plan,
-          amount: user.plan === "Pro" ? "₹500" : "₹0",
+          amount:
+            user.plan === "Pro"
+              ? user.lastPaymentAmount != null
+                ? `₹${Number(user.lastPaymentAmount).toLocaleString("en-IN")}`
+                : "—"
+              : "₹0",
           status: statusLabel,
           date: user.updatedAt || user.createdAt || new Date().toISOString(),
           subscriptionUpdatedAt: user.subscriptionUpdatedAt,
@@ -2957,7 +2978,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                   {[
                     { label: "Checks Today", value: checksToday.toLocaleString(), sub: `${totalDocs.toLocaleString()} all time`, icon: <CheckCircle className="w-5 h-5" />, light: "bg-purple-50", color: "text-purple-600", border: "border-l-purple-500" },
                     { label: "Words Today", value: wordsToday >= 1000 ? `${(wordsToday/1000).toFixed(1)}K` : wordsToday.toString(), sub: `${(totalWords/1000).toFixed(0)}K total`, icon: <FileText className="w-5 h-5" />, light: "bg-indigo-50", color: "text-indigo-600", border: "border-l-indigo-500" },
-                    { label: "Monthly Revenue", value: `₹${monthlyRevenue.toLocaleString("en-IN")}`, sub: "Based on Pro users × ₹500", icon: <TrendingUp className="w-5 h-5" />, light: "bg-teal-50", color: "text-teal-600", border: "border-l-teal-500" },
+                    { label: "Monthly Revenue", value: `₹${monthlyRevenue.toLocaleString("en-IN")}`, sub: "From recorded payments", icon: <TrendingUp className="w-5 h-5" />, light: "bg-teal-50", color: "text-teal-600", border: "border-l-teal-500" },
                     { label: "Conversion Rate", value: `${conversionRate}%`, sub: "Free → Pro", icon: <BarChart3 className="w-5 h-5" />, light: "bg-orange-50", color: "text-orange-600", border: "border-l-orange-500" },
                   ].map(card => (
                     <div key={card.label} className={`bg-white rounded-xl border border-gray-200 border-l-4 ${card.border} p-5 shadow-sm`}>
