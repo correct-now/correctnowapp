@@ -2486,10 +2486,12 @@ TEXT:
 });
 
 const buildPrompt = (text, language, options = {}) => {
-  const languageInstruction =
-    language && language !== "auto"
-      ? `Language: ${language}.`
-      : "Auto-detect language.";
+  // "auto" and "any" both mean: let the model work in whatever language the
+  // text is written in (the user picked "Any language" in the UI).
+  const isAnyLanguage = !language || language === "auto" || language === "any";
+  const languageInstruction = isAnyLanguage
+    ? "Auto-detect language."
+    : `Language: ${language}.`;
 
   const nameCorrectionsRaw = options?.nameCorrections;
   const nameCorrections = (() => {

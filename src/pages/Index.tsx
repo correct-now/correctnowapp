@@ -29,7 +29,6 @@ import { deleteUser, onAuthStateChanged, signOut } from "firebase/auth";
 import { collection, deleteDoc, doc, getDoc, getDocs as getFirestoreDocs, onSnapshot, setDoc } from "firebase/firestore";
 import { clearSessionId } from "@/lib/session";
 import { detectCountryCode, formatPrice, resolvePricing, type RegionalPricing } from "@/lib/pricing";
-import { detectLanguageViaGemini, DETECTION_MIN_CHARS } from "@/lib/languageDetection";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -123,9 +122,6 @@ const Index = () => {
   // ── Language detection for dashboard mini-editor ────────────────────────
   // Mirrors the full editor: detect AFTER "Check Text" succeeds, store the full
   // language NAME (e.g. "Tamil"), and show it with a confidence score.
-  const [miniDetectedLanguageName, setMiniDetectedLanguageName] = useState<string | null>(null);
-  const [miniDetectedConfidence, setMiniDetectedConfidence] = useState<number | null>(null);
-  const [miniIsDetectingLanguage, setMiniIsDetectingLanguage] = useState(false);
   // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -488,8 +484,6 @@ const Index = () => {
     setMiniCorrectedText("");
     setMiniEditorLanguage("any");
     setMiniEditorLanguageMode("manual");
-    setMiniDetectedLanguageName(null);
-    setMiniDetectedConfidence(null);
   };
 
   const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -695,18 +689,6 @@ const Index = () => {
       setMiniChanges(changes);
       setMiniHasResults(true);
       toast.success(changes.length === 0 ? "No changes needed — your text is clean." : `Found ${changes.length} suggestion${changes.length === 1 ? "" : "s"}`);
-
-      // ── Detect language AFTER a successful check (fire & forget) ──────────
-      if (text.length >= DETECTION_MIN_CHARS) {
-        setMiniIsDetectingLanguage(true);
-        detectLanguageViaGemini(text).then((result) => {
-          if (result.isReliable && result.language) {
-            setMiniDetectedLanguageName(result.language);
-            setMiniDetectedConfidence(result.confidence);
-          }
-        }).finally(() => setMiniIsDetectingLanguage(false));
-      }
-      // ─────────────────────────────────────────────────────────────────────
     } catch (error) {
       const message = error instanceof Error ? error.message : "Something went wrong";
       toast.error(message);
@@ -1631,20 +1613,14 @@ const Index = () => {
                     </div>
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3 flex-wrap">
-                        {/* Language detection pill — detects after Check, shows full name + score */}
-                        {miniIsDetectingLanguage && !miniDetectedLanguageName ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 text-xs text-blue-500 select-none">
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                            Detecting…
-                          </span>
-                        ) : miniDetectedLanguageName ? (
-                          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gradient-to-r from-emerald-50 to-cyan-50 border border-emerald-100 text-xs font-semibold text-emerald-700 select-none">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                            Detected
-                            <span className="text-emerald-300">:</span>
-                            <span className="text-emerald-900">{miniDetectedLanguageName}</span>
-                          </span>
-                        ) : null}
+                        {/* Simple language picker — user chooses; defaults to "Any language" */}
+                        <LanguageSelector
+                          value={miniEditorLanguage}
+                          onChange={(value) => {
+                            setMiniEditorLanguage(value);
+                            setMiniEditorLanguageMode(value === "auto" ? "auto" : "manual");
+                          }}
+                        />
                         <span className="text-sm text-gray-500">
                           {miniWordCount} / {userProfile?.wordLimit?.toLocaleString() || "5,000"} words
                         </span>
@@ -1682,7 +1658,7 @@ const Index = () => {
                         spellCheck={false}
                         onChange={(e) => {
                           setMiniEditorText(e.target.value);
-                          if (miniHasResults) { setMiniHasResults(false); setMiniChanges([]); setMiniCorrectedText(""); setMiniDetectedLanguageName(null); setMiniDetectedConfidence(null); }
+                          if (miniHasResults) { setMiniHasResults(false); setMiniChanges([]); setMiniCorrectedText(""); }
                         }}
                         onScroll={(e) => {
                           if (miniHighlightRef.current) {

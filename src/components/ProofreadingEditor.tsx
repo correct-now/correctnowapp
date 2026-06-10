@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import LanguageSelector, { LANGUAGE_OPTIONS } from "./LanguageSelector";
-import { detectLanguageViaGemini, DETECTION_MIN_CHARS } from "@/lib/languageDetection";
 import WordCounter from "./WordCounter";
 import LoadingDots from "./LoadingDots";
 import { Change } from "./ChangeLogTable";
@@ -299,39 +298,6 @@ const SuggestionCard = React.memo(({
 
 SuggestionCard.displayName = 'SuggestionCard';
 
-/**
- * Read-only pill that shows the auto-detected language.
- * No dropdown, no interaction â€” purely informational.
- */
-const LanguageDetectionPill = React.memo(({
-  detectedLanguage,
-  isDetecting,
-}: {
-  detectedLanguage: string | null;
-  isDetecting: boolean;
-}) => {
-  if (isDetecting && !detectedLanguage) {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 text-xs text-blue-500 select-none">
-        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-        Detecting…
-      </span>
-    );
-  }
-
-  if (!detectedLanguage) return null;
-
-  return (
-    <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-none bg-gradient-to-r from-emerald-50 via-white to-cyan-50 border border-emerald-100 shadow-sm select-none">
-      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-      <span className="text-[11px] font-semibold text-emerald-700">Detected</span>
-      <span className="text-[10px] text-emerald-600">:</span>
-      <span className="text-[11px] font-semibold text-emerald-900">{detectedLanguage}</span>
-    </span>
-  );
-});
-LanguageDetectionPill.displayName = 'LanguageDetectionPill';
-
 const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLanguage, noPaddingTop }: ProofreadingEditorProps) => {
   const [planName, setPlanName] = useState<"Free" | "Pro">("Free");
   const [wordLimit, setWordLimit] = useState(FREE_WORD_LIMIT);
@@ -379,11 +345,6 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
   const speechPulseRef = useRef<number | null>(null);
   const speechInterimRef = useRef<string>("");
   const suggestionsRef = useRef<HTMLDivElement>(null);
-  // ── Language detection — shown ONLY after Check Text is clicked ──────────
-  const [detectedLanguageName, setDetectedLanguageName] = useState<string | null>(null);
-  const [detectedConfidence, setDetectedConfidence] = useState<number>(0);
-  const [isDetectingLanguage, setIsDetectingLanguage] = useState(false);
-  // ────────────────────────────────────────────────────────────────────────
 
   const uniqueLanguageOptions = Array.from(
     new Map(LANGUAGE_OPTIONS.map((lang) => [lang.code, lang])).values()
@@ -1053,20 +1014,6 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
         }, 120);
       }
       toast.success("Text checked successfully!");
-
-      // ── Detect language AFTER successful check — fire & forget ────────────
-      if (textToCheck.length >= DETECTION_MIN_CHARS) {
-        setIsDetectingLanguage(true);
-        detectLanguageViaGemini(textToCheck).then((result) => {
-          if (result.isReliable && result.language) {
-            setDetectedLanguageName(result.language);
-            setDetectedConfidence(result.confidence);
-          }
-        }).finally(() => {
-          setIsDetectingLanguage(false);
-        });
-      }
-      // ─────────────────────────────────────────────────────────────────────
     } catch (error) {
       const message = error instanceof Error ? error.message : "Something went wrong";
       toast.error(message);
@@ -1089,8 +1036,6 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
     setChanges([]);
     setHasResults(false);
     setDocId(undefined);
-    setDetectedLanguageName(null);
-    setDetectedConfidence(0);
     checkPromptedRef.current = false;
     newDocPromptedRef.current = false;
     setShouldBlinkCheck(false);
@@ -1480,10 +1425,12 @@ const ProofreadingEditor = ({ editorRef, initialText, initialDocId, initialLangu
                     Your Text
                   </CardTitle>
                   <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
-                    {/* Language detection pill — read-only, shows current language (Any default) */}
-                    <LanguageDetectionPill
-                      detectedLanguage={detectedLanguageName}
-                      isDetecting={isDetectingLanguage}
+                    {/* Simple language picker — defaults to "Any language" */}
+                    <LanguageSelector
+                      value={language}
+                      onChange={handleLanguagePick}
+                      open={isLanguageOpen}
+                      onOpenChange={setIsLanguageOpen}
                     />
                     <div className="flex flex-col items-start gap-0.5 sm:gap-1 w-full sm:w-auto">
                       <WordCounter count={wordCount} limit={wordLimit} />
