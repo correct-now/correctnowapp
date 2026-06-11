@@ -5,8 +5,6 @@ import { Label } from "@/components/ui/label";
 import { CheckCircle, Mail, ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { sendPasswordResetEmail } from "firebase/auth";
-import { getFirebaseAuth } from "@/lib/firebase";
 import Header from "@/components/Header";
 
 const ForgotPassword = () => {
@@ -23,23 +21,18 @@ const ForgotPassword = () => {
     e.preventDefault();
     setIsLoading(true);
     try {
-      const auth = getFirebaseAuth();
-      if (!auth) {
-        toast.error("Firebase is not configured yet.");
-        return;
-      }
-      const res = await fetch(`${apiBase}/api/auth/send-password-reset`, {
+      await fetch(`${apiBase}/api/auth/send-password-reset`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, continueUrl: window.location.origin }),
-      });
-      if (!res.ok) {
-        await sendPasswordResetEmail(auth, email);
-      }
+      }).catch(() => {});
+      // Always show the same confirmation regardless of whether the email is
+      // registered — never reveal account existence (anti-enumeration).
       setIsSubmitted(true);
-      toast.success("Password reset email sent");
-    } catch (error: any) {
-      toast.error(error?.message ?? "Unable to send reset email");
+      toast.success("If an account exists for that email, a reset link is on its way.");
+    } catch {
+      setIsSubmitted(true);
+      toast.success("If an account exists for that email, a reset link is on its way.");
     } finally {
       setIsLoading(false);
     }

@@ -242,6 +242,7 @@ const applyAllSuggestions = (text: string, suggestions: Array<{ original: string
 const Admin = () => {
   const auth = useMemo(() => getFirebaseAuth(), []);
   const [user, setUser] = useState(() => auth?.currentUser ?? null);
+  const [isAdminUser, setIsAdminUser] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(!!auth);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -501,8 +502,27 @@ const Admin = () => {
     }
 
     setLoading(true);
-    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (nextUser) => {
       setUser(nextUser);
+      if (!nextUser) {
+        setIsAdminUser(false);
+        setLoading(false);
+        return;
+      }
+      // Verify the admin custom claim (mirrors the server's isAdminClaims /
+      // Firestore rules: claim === true, or an allow-listed identity). This
+      // prevents a non-admin who is merely logged in from seeing the admin UI.
+      try {
+        const token = await nextUser.getIdTokenResult();
+        const email = (nextUser.email || "").trim().toLowerCase();
+        const allowed =
+          token.claims.admin === true ||
+          email === "correctnowapp@gmail.com" ||
+          email.endsWith("@correctnow.app");
+        setIsAdminUser(allowed);
+      } catch {
+        setIsAdminUser(false);
+      }
       setLoading(false);
     });
 
@@ -2636,6 +2656,31 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
         <div className="text-center">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto" />
           <p className="mt-4 text-sm text-gray-400">Loading…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Logged in but NOT an admin → explicit access-denied (never render the panel).
+  if (user && !isAdminUser) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
+        <div className="w-full max-w-sm text-center">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-500">
+            <Shield className="h-7 w-7" />
+          </div>
+          <h1 className="text-xl font-bold text-gray-900">Access denied</h1>
+          <p className="mt-2 text-sm text-gray-500">
+            Your account doesn't have admin access. If you believe this is a mistake, contact support.
+          </p>
+          <div className="mt-6 flex items-center justify-center gap-3">
+            <Button variant="outline" onClick={async () => { await auth?.signOut(); }}>
+              Sign out
+            </Button>
+            <Link to="/">
+              <Button>Go home</Button>
+            </Link>
+          </div>
         </div>
       </div>
     );

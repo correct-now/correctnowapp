@@ -93,11 +93,16 @@ export const startSessionEnforcement = () => {
       const data = snap.data() as { sessionId?: string; status?: string; email?: string };
       const localSessionId = getSessionId();
 
-      // Skip session enforcement for admin emails (check both auth and firestore)
-      const userEmail = user.email || data.email || "";
-      const isAdmin = userEmail.includes("@correctnow.app") || userEmail.includes("admin");
+      // Admins may use multiple devices, so they're exempt from SINGLE-SESSION
+      // enforcement only. Identity is matched by exact allow-list / verified
+      // domain — never a loose "contains admin" substring (which previously let
+      // any email like "admin.x@gmail.com" bypass controls). Deactivation is
+      // ALWAYS enforced, even for admins.
+      const userEmail = (user.email || data.email || "").trim().toLowerCase();
+      const isAdmin =
+        userEmail === "correctnowapp@gmail.com" || userEmail.endsWith("@correctnow.app");
 
-      if (data.status === "deactivated" && !isAdmin) {
+      if (data.status === "deactivated") {
         await signOut(auth);
         toast.error("Your account is deactivated. Contact support to reactivate.");
         return;

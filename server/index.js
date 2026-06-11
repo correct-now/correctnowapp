@@ -418,6 +418,37 @@ const requireAdmin = async (req, res, next) => {
 };
 
 /**
+ * Simple in-memory fixed-window rate limiter keyed by an arbitrary string.
+ * Returns true if the action is allowed, false if the limit is exceeded.
+ * Used to throttle unauthenticated, abuse-prone endpoints (email sends) so a
+ * single IP/email can't be used for mail bombing or brute force.
+ */
+const _rateBuckets = new Map();
+const rateLimitHit = (key, limit, windowMs) => {
+  const now = Date.now();
+  const entry = _rateBuckets.get(key);
+  if (!entry || now > entry.resetAt) {
+    _rateBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    return false;
+  }
+  entry.count += 1;
+  return entry.count > limit;
+};
+// Opportunistic cleanup so the map can't grow unbounded.
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of _rateBuckets) if (now > v.resetAt) _rateBuckets.delete(k);
+}, 10 * 60 * 1000).unref?.();
+
+const clientIpOf = (req) =>
+  String(
+    req.headers["x-forwarded-for"]?.split(",")[0] ||
+      req.headers["x-real-ip"] ||
+      req.socket?.remoteAddress ||
+      "unknown"
+  ).trim();
+
+/**
  * Idempotency guard. Atomically records a webhook event id; returns true if the
  * event was ALREADY processed (duplicate delivery), false if this is the first
  * time. Concurrent duplicate deliveries are serialised by the transaction so an
@@ -2168,27 +2199,43 @@ app.post("/api/subscription/cancel", async (req, res) => {
 app.post("/api/auth/send-verification", async (req, res) => {
   try {
     const { email, continueUrl } = req.body || {};
-    if (!email) return res.status(400).json({ message: "Email is required" });
+    if (!email || typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ message: "A valid email is required" });
+    }
+
+    // Throttle by IP and by email to prevent mail bombing.
+    if (
+      rateLimitHit(`verify:ip:${clientIpOf(req)}`, 10, 60 * 60 * 1000) ||
+      rateLimitHit(`verify:email:${email.toLowerCase()}`, 5, 60 * 60 * 1000)
+    ) {
+      return res.status(429).json({ message: "Too many requests. Please try again later." });
+    }
 
     if (!admin.apps.length) {
       return res.status(500).json({ message: "Firebase admin not initialized" });
     }
 
-    const link = await admin.auth().generateEmailVerificationLink(String(email), {
-      url: String(continueUrl || process.env.CLIENT_URL || "http://localhost:5173"),
-      handleCodeInApp: false,
-    });
-
-    await sendBrevoEmail({
-      to: String(email),
-      subject: "Verify your email",
-      html: `
-        <h2>Welcome to CorrectNow</h2>
-        <p>Please verify your email address to activate your account:</p>
-        <p><a href="${link}">Verify Email</a></p>
-        <p>If you did not create this account, you can ignore this email.</p>
-      `,
-    });
+    // Generate + send inside try; on any per-email failure (e.g. unknown email)
+    // we still return success so the endpoint can't be used to enumerate
+    // registered accounts.
+    try {
+      const link = await admin.auth().generateEmailVerificationLink(String(email), {
+        url: String(continueUrl || process.env.CLIENT_URL || "http://localhost:5173"),
+        handleCodeInApp: false,
+      });
+      await sendBrevoEmail({
+        to: String(email),
+        subject: "Verify your email",
+        html: `
+          <h2>Welcome to CorrectNow</h2>
+          <p>Please verify your email address to activate your account:</p>
+          <p><a href="${link}">Verify Email</a></p>
+          <p>If you did not create this account, you can ignore this email.</p>
+        `,
+      });
+    } catch (inner) {
+      console.warn("send-verification (suppressed):", inner.message);
+    }
 
     return res.json({ success: true });
   } catch (err) {
@@ -2200,27 +2247,43 @@ app.post("/api/auth/send-verification", async (req, res) => {
 app.post("/api/auth/send-password-reset", async (req, res) => {
   try {
     const { email, continueUrl } = req.body || {};
-    if (!email) return res.status(400).json({ message: "Email is required" });
+    if (!email || typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ message: "A valid email is required" });
+    }
+
+    // Throttle by IP and by email to prevent reset spam / brute force.
+    if (
+      rateLimitHit(`reset:ip:${clientIpOf(req)}`, 10, 60 * 60 * 1000) ||
+      rateLimitHit(`reset:email:${email.toLowerCase()}`, 5, 60 * 60 * 1000)
+    ) {
+      return res.status(429).json({ message: "Too many requests. Please try again later." });
+    }
 
     if (!admin.apps.length) {
       return res.status(500).json({ message: "Firebase admin not initialized" });
     }
 
-    const link = await admin.auth().generatePasswordResetLink(String(email), {
-      url: String(continueUrl || process.env.CLIENT_URL || "http://localhost:5173"),
-      handleCodeInApp: false,
-    });
-
-    await sendBrevoEmail({
-      to: String(email),
-      subject: "Reset your password",
-      html: `
-        <h2>Reset your password</h2>
-        <p>Click the link below to reset your password:</p>
-        <p><a href="${link}">Reset Password</a></p>
-        <p>If you did not request this, you can ignore this email.</p>
-      `,
-    });
+    // Suppress per-email errors (e.g. unknown account) and always return
+    // success, so the response cannot be used to discover which emails are
+    // registered.
+    try {
+      const link = await admin.auth().generatePasswordResetLink(String(email), {
+        url: String(continueUrl || process.env.CLIENT_URL || "http://localhost:5173"),
+        handleCodeInApp: false,
+      });
+      await sendBrevoEmail({
+        to: String(email),
+        subject: "Reset your password",
+        html: `
+          <h2>Reset your password</h2>
+          <p>Click the link below to reset your password:</p>
+          <p><a href="${link}">Reset Password</a></p>
+          <p>If you did not request this, you can ignore this email.</p>
+        `,
+      });
+    } catch (inner) {
+      console.warn("send-password-reset (suppressed):", inner.message);
+    }
 
     return res.json({ success: true });
   } catch (err) {
@@ -3515,9 +3578,20 @@ app.post("/api/proofread", async (req, res) => {
         authenticatedUser = decodedToken;
         userId = decodedToken.uid;
         console.log('âœ… Authenticated user:', userId);
-        
+
         // Get user data and check entitlements
         const userData = await getUserData(userId);
+
+        // Enforce account deactivation server-side. Client-side sign-out is
+        // bypassable (a suspended user can keep a valid token), so the API must
+        // reject deactivated accounts directly.
+        if (userData && String(userData.status || "").toLowerCase() === "deactivated") {
+          return res.status(403).json({
+            message: "Your account has been deactivated. Please contact support.",
+            code: "ACCOUNT_DEACTIVATED",
+          });
+        }
+
         const entitlements = getUserEntitlements(userData);
         
         console.log('ðŸ“Š User entitlements:', entitlements);
@@ -3604,7 +3678,11 @@ app.post("/api/proofread", async (req, res) => {
 
     let freeDailyContext = null;
     let creditsContext = null;
-    if (userId && adminDb) {
+    // Only meter/spend credits against a REAL authenticated user. The body
+    // `userId` is attacker-controlled, so an unauthenticated request must never
+    // be able to read or decrement another account's credits (IDOR / quota
+    // drain). Unauthenticated traffic is limited by IP above.
+    if (authenticatedUser && userId && adminDb) {
       try {
         const userRef = adminDb.collection("users").doc(String(userId));
         const userSnap = await userRef.get();

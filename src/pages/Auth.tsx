@@ -28,6 +28,37 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+/**
+ * Map raw Firebase auth error codes to friendly, non-enumerating messages.
+ * Login failures are intentionally generic ("invalid email or password") so the
+ * response can't be used to discover which emails are registered.
+ */
+const friendlyAuthError = (error: any): string => {
+  const code = String(error?.code || "");
+  switch (code) {
+    case "auth/invalid-credential":
+    case "auth/wrong-password":
+    case "auth/user-not-found":
+    case "auth/invalid-email":
+      return "Invalid email or password.";
+    case "auth/email-already-in-use":
+      return "An account with this email may already exist. Try signing in or resetting your password.";
+    case "auth/weak-password":
+      return "Please choose a stronger password (at least 6 characters).";
+    case "auth/too-many-requests":
+      return "Too many attempts. Please wait a moment and try again.";
+    case "auth/network-request-failed":
+      return "Network error. Check your connection and try again.";
+    case "auth/popup-closed-by-user":
+    case "auth/cancelled-popup-request":
+      return "Sign-in was cancelled.";
+    case "auth/user-disabled":
+      return "This account has been disabled. Contact support.";
+    default:
+      return "Authentication failed. Please try again.";
+  }
+};
+
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
@@ -306,7 +337,7 @@ const Auth = () => {
         await handleGoogleResult(result);
       } catch (err: any) {
         console.error('[Auth] Redirect result error:', err);
-        toast.error(err?.message ?? 'Google sign-in failed');
+        toast.error(friendlyAuthError(err));
       } finally {
         setIsLoading(false);
       }
@@ -368,8 +399,17 @@ const Auth = () => {
       if (isLogin) {
         const result = await signInWithEmailAndPassword(auth, email, password);
         if (!result.user.emailVerified) {
+          const verifyEmail = result.user.email;
           await auth.signOut();
-          toast.error("Please verify your email before signing in. Check your inbox for the verification link.");
+          // Resend the verification link so an unverified user is never stuck.
+          if (verifyEmail) {
+            fetch(`${apiBase}/api/auth/send-verification`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: verifyEmail, continueUrl: window.location.origin }),
+            }).catch(() => {});
+          }
+          toast.error("Please verify your email before signing in. We've re-sent the verification link to your inbox.");
           return;
         }
         const db = getFirebaseDb();
@@ -439,25 +479,35 @@ const Auth = () => {
           
           await setDoc(ref, userData, { merge: true });
         }
-        const verifyRes = await fetch(`${apiBase}/api/auth/send-verification`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: result.user.email,
-            continueUrl: window.location.origin,
-          }),
-        });
-        if (!verifyRes.ok) {
-          throw new Error("Failed to send verification email");
+        // Try to send the verification email. Even if this fails (network /
+        // mail provider), still sign the user out so they don't end up
+        // auto-logged-in but unverified. They can re-trigger the email by
+        // attempting to sign in.
+        let verifySent = true;
+        try {
+          const verifyRes = await fetch(`${apiBase}/api/auth/send-verification`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: result.user.email,
+              continueUrl: window.location.origin,
+            }),
+          });
+          verifySent = verifyRes.ok;
+        } catch {
+          verifySent = false;
         }
-        
-        // Sign out the user to prevent auto-login before verification
+
+        // Always sign out to enforce verify-before-login.
         await auth.signOut();
-        
-        // Show dialog to inform user about email verification
-        alert("Account created successfully! Please check your email to verify your account before signing in.");
-        
-        // Reset form and redirect to login
+
+        toast.success(
+          verifySent
+            ? "Account created! Check your email to verify your account before signing in."
+            : "Account created, but the verification email couldn't be sent. Try signing in to resend it."
+        );
+
+        // Reset form and switch to login
         setEmail("");
         setPassword("");
         setName("");
@@ -469,7 +519,7 @@ const Auth = () => {
 
       navigate("/");
     } catch (error: any) {
-      toast.error(error?.message ?? "Authentication failed");
+      toast.error(friendlyAuthError(error));
     } finally {
       setIsLoading(false);
     }
@@ -592,7 +642,7 @@ const Auth = () => {
         return;
       }
     } catch (error: any) {
-      toast.error(error?.message ?? "Google sign-in failed");
+      toast.error(friendlyAuthError(error));
     } finally {
       setIsLoading(false);
     }
