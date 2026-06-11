@@ -29,6 +29,7 @@ import Languages from "./pages/Languages";
 import LanguageLanding from "./pages/LanguageLanding";
 import { initDocsSync } from "@/lib/docs";
 import { startSessionEnforcement } from "@/lib/session";
+import { startExtensionAuthSync } from "@/lib/extensionAuth";
 
 const queryClient = new QueryClient();
 
@@ -51,7 +52,14 @@ const App = () => {
   useEffect(() => {
     initDocsSync();
     const stop = startSessionEnforcement();
-    return () => stop();
+    // Keep the Chrome extension authenticated on every page — so an
+    // already-logged-in user (who never hits a fresh-login flow) still updates
+    // the extension popup from Login → Dashboard.
+    const stopExtSync = startExtensionAuthSync();
+    return () => {
+      stop();
+      stopExtSync();
+    };
   }, []);
 
   return (

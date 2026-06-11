@@ -561,10 +561,26 @@ function initFooterLink() {
   });
 }
 
-// Keep the status badge live if the enabled-state changes elsewhere
+// Keep the popup live when relevant storage changes elsewhere (e.g. the website
+// pushes a fresh token while the popup is open). This is a backstop to the
+// runtime `authStateChanged` message — whichever fires first updates the view.
 try {
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.extensionEnabled) syncStatusBadge();
+    if (area !== 'local') return;
+    if (changes.extensionEnabled) syncStatusBadge();
+
+    // Auth token added/refreshed → switch to dashboard.
+    if (changes.authToken) {
+      const newToken = changes.authToken.newValue;
+      if (newToken) {
+        getAuthState().then((authState) => {
+          if (authState && authState.user) showDashboard(authState);
+        });
+      } else {
+        // Token removed → back to login.
+        showLogin();
+      }
+    }
   });
 } catch (_) {}
 

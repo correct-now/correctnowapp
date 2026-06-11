@@ -155,6 +155,8 @@ function hideFloatingButton() {
   if (floatingButton) {
     floatingButton.style.display = 'none';
     floatingButton.style.opacity = '0';
+    // Drop the entrance class so it can replay next time the button appears.
+    if (floatingButtonElement) floatingButtonElement.classList.remove('correctnow-entrance');
   }
 }
 
@@ -172,6 +174,90 @@ function scheduleIdleHide() {
   }, BUTTON_IDLE_HIDE_MS);
 }
 
+
+/**
+ * Inject the floating button's design system (once). A white disc wrapped in a
+ * slowly rotating conic-gradient ring, with a soft breathing brand glow,
+ * spring-in entrance, and a satisfying hover lift.
+ */
+function injectButtonStyles() {
+  if (document.getElementById('correctnow-button-style')) return;
+  const style = document.createElement('style');
+  style.id = 'correctnow-button-style';
+  style.textContent = `
+    @keyframes correctnow-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes correctnow-ring-spin { to { transform: rotate(360deg); } }
+    @keyframes correctnow-pop {
+      0%   { transform: scale(.3) translateY(6px); opacity: 0; }
+      55%  { transform: scale(1.12) translateY(-1px); opacity: 1; }
+      78%  { transform: scale(.96); }
+      100% { transform: scale(1) translateY(0); opacity: 1; }
+    }
+    @keyframes correctnow-breathe {
+      0%,100% { box-shadow: 0 4px 14px rgba(37,99,235,.30), 0 0 0 0 rgba(99,102,241,.0); }
+      50%     { box-shadow: 0 7px 20px rgba(37,99,235,.45), 0 0 0 6px rgba(99,102,241,.10); }
+    }
+    .${CONFIG.BUTTON_CLASS} {
+      position: relative;
+      isolation: isolate;
+      padding: 0;
+      border: 0;
+      border-radius: 999px;
+      background: #ffffff;
+      cursor: pointer;
+      pointer-events: auto;
+      user-select: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      animation: correctnow-breathe 3.4s ease-in-out infinite;
+      transition: transform .22s cubic-bezier(.34,1.56,.64,1), filter .22s ease;
+      will-change: transform;
+    }
+    /* Rotating conic gradient ring */
+    .${CONFIG.BUTTON_CLASS}::before {
+      content: '';
+      position: absolute;
+      inset: -2.5px;
+      border-radius: 999px;
+      z-index: -1;
+      background: conic-gradient(from 0deg, #2563eb, #7c3aed, #06b6d4, #2563eb);
+      animation: correctnow-ring-spin 3.2s linear infinite;
+    }
+    /* Glossy inner highlight */
+    .${CONFIG.BUTTON_CLASS}::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      z-index: 1;
+      background: radial-gradient(120% 120% at 30% 22%, rgba(255,255,255,.9), rgba(255,255,255,0) 55%);
+      pointer-events: none;
+    }
+    .${CONFIG.BUTTON_CLASS} > * { position: relative; z-index: 2; }
+    .${CONFIG.BUTTON_CLASS}:hover {
+      transform: translateY(-2px) scale(1.08);
+      filter: drop-shadow(0 6px 12px rgba(37,99,235,.35));
+    }
+    .${CONFIG.BUTTON_CLASS}:hover::before { animation-duration: 1.1s; }
+    .${CONFIG.BUTTON_CLASS}:active { transform: translateY(0) scale(.96); }
+    .${CONFIG.BUTTON_CLASS}.correctnow-entrance { animation: correctnow-pop .42s cubic-bezier(.34,1.56,.64,1), correctnow-breathe 3.4s ease-in-out infinite .42s; }
+    @media (prefers-reduced-motion: reduce) {
+      .${CONFIG.BUTTON_CLASS}, .${CONFIG.BUTTON_CLASS}::before, .${CONFIG.BUTTON_CLASS}.correctnow-entrance { animation: none !important; }
+    }
+  `;
+  (document.head || document.documentElement).appendChild(style);
+}
+
+/** Replay the spring-in entrance animation each time the button is shown. */
+function playButtonEntrance() {
+  if (!floatingButtonElement) return;
+  floatingButtonElement.classList.remove('correctnow-entrance');
+  // Force reflow so the animation restarts even if the class was just removed.
+  void floatingButtonElement.offsetWidth;
+  floatingButtonElement.classList.add('correctnow-entrance');
+}
 
 /**
  * Create and position the floating button
@@ -193,49 +279,14 @@ function createFloatingButton() {
   button.title = 'Check grammar with CorrectNow';
   button.setAttribute('aria-label', 'Check grammar with CorrectNow');
 
-  // Style the button
-  button.style.cssText = `
-    width: ${CONFIG.BUTTON_SIZE}px;
-    height: ${CONFIG.BUTTON_SIZE}px;
-    padding: 0;
-    background-color: #ffffff;
-    color: #2563eb;
-    border: 1px solid rgba(37, 99, 235, 0.35);
-    border-radius: 999px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    box-shadow: 0 3px 12px rgba(15, 23, 42, 0.22);
-    transition: all 0.2s ease;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    pointer-events: auto;
-    user-select: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  `;
+  // The button is a white disc; the eye-catching part is a rotating conic
+  // gradient ring (::before) + a soft brand glow that gently "breathes".
+  button.style.width = `${CONFIG.BUTTON_SIZE}px`;
+  button.style.height = `${CONFIG.BUTTON_SIZE}px`;
 
-  if (!document.getElementById('correctnow-spin-style')) {
-    const spinStyle = document.createElement('style');
-    spinStyle.id = 'correctnow-spin-style';
-    spinStyle.textContent = '@keyframes correctnow-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }';
-    (document.head || document.documentElement).appendChild(spinStyle);
-  }
+  injectButtonStyles();
 
   console.log('🔷 Button created');
-
-  // Hover effect
-  button.addEventListener('mouseenter', () => {
-    button.style.transform = 'translateY(-1px) scale(1.03)';
-    button.style.boxShadow = '0 6px 16px rgba(15, 23, 42, 0.26)';
-    button.style.borderColor = 'rgba(37, 99, 235, 0.7)';
-  });
-
-  button.addEventListener('mouseleave', () => {
-    button.style.transform = 'translateY(0) scale(1)';
-    button.style.boxShadow = '0 3px 12px rgba(15, 23, 42, 0.22)';
-    button.style.borderColor = 'rgba(37, 99, 235, 0.35)';
-  });
 
   // Prevent the underlying input from losing focus when clicking the button
   button.addEventListener('mousedown', (e) => { e.preventDefault(); });
@@ -344,9 +395,11 @@ function handleFocus(event) {
     }
 
     // Position and show button
+    const wasHidden = floatingButton.style.display === 'none' || floatingButton.style.opacity === '0';
     positionButton(targetElement, floatingButton);
     floatingButton.style.display = 'block';
     floatingButton.style.opacity = '1';
+    if (wasHidden) playButtonEntrance(); // spring-in only when (re)appearing
     scheduleIdleHide();
     console.log('🔷 Button shown at position:', floatingButton.style.left, floatingButton.style.top);
   });
@@ -355,24 +408,20 @@ function handleFocus(event) {
 /**
  * Hide floating button on blur
  */
-function handleBlur(event) {
-  // Don't hide / clear state if user is clicking any CorrectNow UI element
-  // (floating check button, Apply All button, or correction tooltip).
-  const rt = event && event.relatedTarget;
-  if (rt && (
-    (floatingButton && floatingButton.contains(rt)) ||
-    (applyAllButton && applyAllButton.contains(rt)) ||
-    (hoverTooltip && hoverTooltip.contains(rt))
-  )) {
-    console.log('🔷 Button blur - clicked extension UI, keeping state');
-    return;
-  }
-
-  hideFloatingButton();
-  // Note: do NOT null currentFocusedElement here — keep it so post-check
-  // operations (Apply All click, tooltip Apply click) can still target the
-  // correct field. It will be reassigned on the next focus / click.
-  console.log('🔷 Button blur - hiding button');
+function handleBlur() {
+  // RELIABILITY: don't trust event.relatedTarget (it's frequently null, and
+  // misses tab-away / scrollbar / programmatic focus changes — the cause of the
+  // "button won't disappear" bug). Instead, defer one tick so focus settles,
+  // then decide from the REAL active element. Keep the button only if focus is
+  // still inside an editable field or moved into our own UI; otherwise hide.
+  setTimeout(() => {
+    if (isCheckingInProgress) return; // never yank the button mid-check
+    const active = document.activeElement;
+    if (active && (isEditableField(active) || isClickInsideExtension(active))) return;
+    hideFloatingButton();
+    // Note: do NOT null currentFocusedElement here — post-check actions
+    // (Apply All, tooltip Apply) still need to target the correct field.
+  }, 80);
 }
 
 /**
