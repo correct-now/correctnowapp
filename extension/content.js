@@ -1185,7 +1185,6 @@ function showCorrectionTooltip(event, error) {
   const hasSuggestion = error.suggestion && error.suggestion.trim() && error.suggestion !== 'No suggestion';
   const color = _suggestionColor(error.type);
   const label = _suggestionLabel(error.type);
-  const message = error.message || '';
   const originalText = (error.original && String(error.original).trim())
     ? String(error.original).trim()
     : (span && span.textContent ? span.textContent.trim() : '');
@@ -1218,10 +1217,6 @@ function showCorrectionTooltip(event, error) {
     `font-size:11px;font-weight:700;letter-spacing:.2px;background:${_hexA(color, 0.14)};color:${color};">` +
     `<span style="width:6px;height:6px;border-radius:50%;background:${color};"></span>${label}</span>`;
 
-  const messageHtml = message
-    ? `<div dir="auto" style="font-size:12.5px;line-height:1.5;color:${sub};margin:10px 0 0;">${escapeHtml(message)}</div>`
-    : '';
-
   // dir="auto" lets each token follow its own script direction (RTL for
   // Arabic/Hebrew/Urdu/Persian, LTR otherwise) — essential for a multilingual tool.
   const suggestionHtml = hasSuggestion
@@ -1244,9 +1239,11 @@ function showCorrectionTooltip(event, error) {
     : `<div style="display:flex;"><button data-cn="ignore" class="cn-act" style="flex:1;height:36px;border:1px solid ${cardBorder};` +
         `border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;color:${ignoreText};background:${surf2};">Dismiss</button></div>`;
 
+  // Hover card shows the CORRECTION only (no reason/explanation) — keeps it
+  // clean and language-agnostic.
   tooltip.innerHTML =
     `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">${chip}</div>` +
-    messageHtml + suggestionHtml + actionsHtml;
+    suggestionHtml + actionsHtml;
 
   document.body.appendChild(tooltip);
 
