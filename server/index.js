@@ -229,7 +229,23 @@ const getUserEntitlements = (userData) => {
   // frontend getEffectivePlan() so server and client never disagree.
   const isActive = subscriptionStatus === 'active' && (updatedAt ? isRecent : true);
 
-  const effectiveIsPro = subscriptionStatus ? (isActive && isPro) : isPro;
+  // A manual admin grant is AUTHORITATIVE: it confers Pro until its explicit
+  // expiry (adminPlanExpiresAt), independent of any billing/subscription state.
+  // This guarantees a manually-granted account can never silently revert to
+  // Free due to a billing webhook or reconciliation job.
+  const adminExpiresRaw = userData?.adminPlanExpiresAt;
+  const adminExpires = adminExpiresRaw ? new Date(String(adminExpiresRaw)) : null;
+  const adminGrantActive =
+    userData?.adminManaged === true &&
+    adminExpires &&
+    !Number.isNaN(adminExpires.getTime()) &&
+    adminExpires.getTime() > Date.now();
+
+  const effectiveIsPro = adminGrantActive
+    ? true
+    : subscriptionStatus
+    ? (isActive && isPro)
+    : isPro;
   
   // Get today's date for daily check reset
   const today = new Date().toISOString().split('T')[0];
@@ -520,11 +536,17 @@ const findUsersBySubscription = async (subscriptionId) => {
 const updateUsersBySubscriptionId = async (subscriptionId, updates) => {
   if (!adminDb || !subscriptionId) return 0;
   const docs = await findUsersBySubscription(subscriptionId);
-  if (!docs.length) return 0;
+  // GOVERNMENT-GRADE INVARIANT: a manual admin grant (adminManaged === true) is
+  // authoritative and must NEVER be overridden by a billing webhook — including
+  // a delayed/retried cancel on a subscription that was previously attached to
+  // the account. Skipping these docs here protects every Razorpay webhook path,
+  // since they all flow through this helper.
+  const targets = docs.filter((doc) => doc.data()?.adminManaged !== true);
+  if (!targets.length) return 0;
   const batch = adminDb.batch();
-  docs.forEach((doc) => batch.set(doc.ref, updates, { merge: true }));
+  targets.forEach((doc) => batch.set(doc.ref, updates, { merge: true }));
   await batch.commit();
-  return docs.length;
+  return targets.length;
 };
 
 /** Canonical free-plan downgrade payload (instant, no grace period). */
@@ -768,15 +790,16 @@ app.post(
           console.log("Update data:", JSON.stringify(updates, null, 2));
           
           snapshot.forEach((doc) => {
+            if (doc.data()?.adminManaged === true) return; // never override manual grants
             console.log("Updating user:", doc.id);
             batch.set(doc.ref, updates, { merge: true });
           });
-          
+
           await batch.commit();
           console.log("âœ“ Batch update completed");
           break;
         }
-        
+
         case "invoice.payment_succeeded": {
           console.log("--- Processing invoice.payment_succeeded ---");
           const invoice = event.data.object;
@@ -806,6 +829,7 @@ app.post(
             ? new Date(invoice.lines.data[0].period.end * 1000).toISOString()
             : null;
           snapshot.forEach((doc) => {
+            if (doc.data()?.adminManaged === true) return; // never override manual grants
             console.log("Updating user:", doc.id);
             batch.set(doc.ref, {
               plan: "pro",
@@ -851,6 +875,7 @@ app.post(
           
           const batch = adminDb.batch();
           snapshot.forEach((doc) => {
+            if (doc.data()?.adminManaged === true) return; // never override manual grants
             console.log("Updating user:", doc.id);
             batch.set(doc.ref, {
               subscriptionStatus: "past_due",
@@ -1342,7 +1367,7 @@ app.post("/api/admin/toggle-plan", requireAdmin, async (req, res) => {
 
     const userData = userDoc.data();
     const currentPlan = String(userData?.plan || "free").toLowerCase();
-    
+
     // Toggle plan
     const newPlan = currentPlan === "pro" ? "free" : "pro";
     const updates = {
@@ -1362,12 +1387,22 @@ app.post("/api/admin/toggle-plan", requireAdmin, async (req, res) => {
       expiresAt.setDate(expiresAt.getDate() + days);
       updates.adminPlanExpiresAt = expiresAt.toISOString();
       updates.adminPlanDurationDays = days;
+      // Mark as admin-managed and DETACH any stale gateway subscription so a
+      // delayed/retried webhook from a previously-cancelled subscription can
+      // never revert this manual grant back to Free.
+      updates.adminManaged = true;
+      updates.paymentGateway = "manual";
+      updates.razorpaySubscriptionId = null;
+      updates.stripeSubscriptionId = null;
+      updates.subscriptionId = null;
     } else {
       // Downgrading â€” clear manual grant fields and subscription metadata
+      updates.adminManaged = false;
       updates.adminPlanExpiresAt = null;
       updates.adminPlanDurationDays = null;
       updates.razorpaySubscriptionId = null;
       updates.stripeSubscriptionId = null;
+      updates.subscriptionId = null;
     }
 
     await adminDb.collection("users").doc(userId).update(updates);
@@ -1421,15 +1456,27 @@ app.post("/api/admin/bulk-action", requireAdmin, async (req, res) => {
               subscriptionUpdatedAt: new Date().toISOString(),
               adminPlanExpiresAt: expiresAt.toISOString(),
               adminPlanDurationDays: days,
+              // Admin-managed & detached from any gateway sub (see toggle-plan).
+              adminManaged: true,
+              paymentGateway: "manual",
+              razorpaySubscriptionId: null,
+              stripeSubscriptionId: null,
+              subscriptionId: null,
               updatedAt: new Date().toISOString(),
             });
           } else if (action === "revoke-pro") {
             batch.update(ref, {
               plan: "free",
               wordLimit: 200,
+              credits: 0,
+              creditsUsed: 0,
               subscriptionStatus: "inactive",
+              adminManaged: false,
               adminPlanExpiresAt: null,
               adminPlanDurationDays: null,
+              razorpaySubscriptionId: null,
+              stripeSubscriptionId: null,
+              subscriptionId: null,
               updatedAt: new Date().toISOString(),
             });
           } else if (action === "add-credits") {
@@ -1505,6 +1552,7 @@ app.get("/api/admin/subscriptions", async (req, res) => {
     const paymentByEmail = new Map();
     const needsReconcile = users.some(
       (u) =>
+        u.adminManaged !== true && // never re-attach a gateway sub to a manual grant
         !u.razorpaySubscriptionId &&
         !u.stripeSubscriptionId &&
         (String(u.plan || "").toLowerCase() === "pro" || u.subscriptionStatus)
@@ -1561,6 +1609,7 @@ app.get("/api/admin/subscriptions", async (req, res) => {
         // Backfill missing gateway mapping from the reconciliation map.
         if (
           razorpay &&
+          u.adminManaged !== true && // manual grants are not gateway-backed
           !u.razorpaySubscriptionId &&
           !u.stripeSubscriptionId &&
           (String(u.plan || "").toLowerCase() === "pro" || u.subscriptionStatus)
@@ -1992,6 +2041,9 @@ app.post("/api/razorpay/verify", async (req, res) => {
           razorpaySubscriptionId: razorpay_subscription_id,
           paymentGateway: "razorpay",
           subscriptionStatus: "active",
+          // A real paid subscription supersedes any prior manual grant.
+          adminManaged: false,
+          adminPlanExpiresAt: null,
           cancelAtPeriodEnd: false,
           subscriptionCreatedAt: nowIso,
           lastPaymentId: razorpay_payment_id,

@@ -153,6 +153,7 @@ type AdminUser = {
   razorpayTotalCount?: number | null;
   adminPlanExpiresAt?: string | null;
   adminPlanDurationDays?: number | null;
+  adminManaged?: boolean;
   updatedAt?: string;
   createdAt?: string;
   status?: string;
@@ -1393,6 +1394,7 @@ const Admin = () => {
           razorpayTotalCount: data?.razorpayTotalCount ?? null,
           adminPlanExpiresAt: data?.adminPlanExpiresAt ?? null,
           adminPlanDurationDays: data?.adminPlanDurationDays ?? null,
+          adminManaged: data?.adminManaged === true,
           updatedAt: data?.updatedAt,
           createdAt: data?.createdAt,
           status: data?.status || "active",
@@ -1749,7 +1751,11 @@ const Admin = () => {
       setPlanGrantDays(30);
       return;
     }
-    // Downgrade directly
+    // Revoke is destructive — confirm first.
+    const confirmed = window.confirm(
+      `Revoke Pro from ${user.email || user.name || "this user"}?\n\nThey will be downgraded to Free immediately and their credits reset to 0.`
+    );
+    if (!confirmed) return;
     setTogglingPlanUserId(user.id);
     try {
       const response = await fetch("/api/admin/toggle-plan", {
@@ -1762,11 +1768,11 @@ const Admin = () => {
       setUsers((prev) =>
         prev.map((u) =>
           u.id === user.id
-            ? { ...u, plan: "Free", wordLimit: data.wordLimit, subscriptionStatus: data.subscriptionStatus, adminPlanExpiresAt: null }
+            ? { ...u, plan: "Free", wordLimit: data.wordLimit, subscriptionStatus: data.subscriptionStatus, adminPlanExpiresAt: null, adminManaged: false }
             : u
         )
       );
-      toast.success("User downgraded to Free");
+      toast.success(`${user.email || "User"} downgraded to Free`);
     } catch (err: any) {
       toast.error(err.message || "Failed to toggle plan");
     } finally {
@@ -1796,6 +1802,9 @@ const Admin = () => {
                 wordLimit: data.wordLimit,
                 subscriptionStatus: data.subscriptionStatus,
                 adminPlanExpiresAt: data.adminPlanExpiresAt,
+                adminManaged: true,
+                razorpaySubscriptionId: undefined,
+                stripeSubscriptionId: undefined,
               }
             : u
         )
@@ -3520,11 +3529,18 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                               </Button>
                               <Button
                                 size="sm"
-                                className={`h-8 text-xs flex-1 min-w-[80px] ${user.plan === "Pro" ? "bg-red-100 text-red-700 border border-red-200" : "bg-amber-100 text-amber-700 border border-amber-200"}`}
+                                className={`h-8 text-xs font-semibold flex-1 min-w-[96px] shadow-sm ${user.plan === "Pro" ? "bg-white text-red-600 border border-red-300 hover:bg-red-50" : "bg-amber-500 hover:bg-amber-600 text-white border-0"}`}
                                 onClick={() => handleTogglePlan(user)}
                                 disabled={togglingPlanUserId === user.id}
+                                title={user.plan === "Pro" ? "Revoke Pro and downgrade to Free" : "Grant Pro access to this user"}
                               >
-                                {togglingPlanUserId === user.id ? "..." : user.plan === "Pro" ? "↓ Free" : "↑ Pro"}
+                                {togglingPlanUserId === user.id ? (
+                                  <span className="inline-flex items-center gap-1"><span className="w-3 h-3 border-2 border-current/30 border-t-current rounded-full animate-spin" />Working…</span>
+                                ) : user.plan === "Pro" ? (
+                                  <span className="inline-flex items-center gap-1"><ArrowUpDown className="w-3.5 h-3.5" />Revoke Pro</span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1"><Crown className="w-3.5 h-3.5" />Grant Pro</span>
+                                )}
                               </Button>
                               <Button size="sm" variant="outline" className="h-8 text-xs flex-1 min-w-[80px]" onClick={() => handleAddAddonCredits(user.id, user)}>
                                 <Coins className="w-3.5 h-3.5 mr-1" /> Credits
@@ -3632,12 +3648,25 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                                     </Button>
                                     <Button
                                       size="sm"
-                                      className={`h-6 px-2 text-xs rounded ${user.plan === "Pro" ? "bg-red-100 hover:bg-red-200 text-red-700 border border-red-200" : "bg-amber-100 hover:bg-amber-200 text-amber-700 border border-amber-200"}`}
+                                      className={`h-7 px-2.5 text-xs font-semibold rounded-md shadow-sm transition-colors ${
+                                        user.plan === "Pro"
+                                          ? "bg-white text-red-600 border border-red-300 hover:bg-red-50"
+                                          : "bg-amber-500 hover:bg-amber-600 text-white border-0"
+                                      }`}
                                       onClick={() => handleTogglePlan(user)}
                                       disabled={togglingPlanUserId === user.id}
-                                      title={user.plan === "Pro" ? "Downgrade to Free" : "Upgrade to Pro"}
+                                      title={user.plan === "Pro" ? "Revoke Pro and downgrade to Free" : "Grant Pro access to this user"}
                                     >
-                                      {togglingPlanUserId === user.id ? "..." : user.plan === "Pro" ? "↓ Free" : "↑ Pro"}
+                                      {togglingPlanUserId === user.id ? (
+                                        <span className="inline-flex items-center gap-1">
+                                          <span className="w-3 h-3 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                                          Working…
+                                        </span>
+                                      ) : user.plan === "Pro" ? (
+                                        <span className="inline-flex items-center gap-1"><ArrowUpDown className="w-3 h-3" />Revoke Pro</span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1"><Crown className="w-3 h-3" />Grant Pro</span>
+                                      )}
                                     </Button>
                                   </div>
                                 </div>
