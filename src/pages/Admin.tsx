@@ -112,6 +112,12 @@ import {
   downloadCsv,
   type FilterPreset,
 } from "@/pages/admin-helpers";
+import {
+  useColumnQuery,
+  applyColumnQuery,
+  ColumnHeader,
+  type ColumnDef,
+} from "@/pages/admin/UserTableColumns";
 
 /**
  * Build headers for an authenticated admin API call. Every privileged
@@ -629,6 +635,28 @@ const Admin = () => {
     });
   }, [suggestions, getSuggMeta, suggestionStatusFilter, suggestionPriorityFilter, suggestionSearch]);
 
+  // ── Enterprise column system (per-column sort + type-aware filters) ────────
+  const colQuery = useColumnQuery();
+  const userColumns = useMemo<ColumnDef<AdminUser>[]>(() => {
+    const categories = Array.from(
+      new Set(users.map((u) => (u.category || "").trim()).filter(Boolean))
+    ).sort();
+    const addonUsed = (u: AdminUser) => Math.max(0, (u.creditsUsed || 0) - (u.credits || 0));
+    return [
+      { id: "user", label: "User", type: "text", getValue: (u) => u.name || u.email, getText: (u) => `${u.name} ${u.email}` },
+      { id: "phone", label: "Phone", type: "text", getValue: (u) => u.phone || "" },
+      { id: "category", label: "Category", type: "enum", getValue: (u) => u.category || "", enumOptions: categories.map((c) => ({ value: c, label: c })) },
+      { id: "plan", label: "Plan", type: "enum", getValue: (u) => u.plan, enumOptions: [{ value: "Pro", label: "Pro" }, { value: "Free", label: "Free" }] },
+      { id: "status", label: "Status", type: "enum", getValue: (u) => (u.status === "deactivated" ? "Suspended" : "Active"), enumOptions: [{ value: "Active", label: "Active" }, { value: "Suspended", label: "Suspended" }] },
+      { id: "credits", label: "Credits", type: "number", getValue: (u) => u.credits || 0 },
+      { id: "addon", label: "Addon", type: "number", getValue: (u) => u.addonCredits || 0 },
+      { id: "addonUsed", label: "Addon Used", type: "number", getValue: addonUsed },
+      { id: "usage", label: "Usage", type: "number", getValue: (u) => u.creditsUsed || 0 },
+      { id: "limit", label: "Limit", type: "number", getValue: (u) => u.wordLimit || 0 },
+      { id: "joined", label: "Joined", type: "date", getValue: (u) => u.createdAt || u.updatedAt || "" },
+    ];
+  }, [users]);
+
   // All hooks must be called before any conditional returns
   const filteredUsers = useMemo(() => {
     const now = Date.now();
@@ -661,6 +689,8 @@ const Admin = () => {
       return matchesSearch && matchesCategory && matchesPlan && matchesStatus && matchesDate;
     });
 
+    // Quick-filter "Sort by" still applies as the BASE order. Per-column header
+    // sorts (colQuery.sorts) take precedence when present and are applied last.
     list.sort((a, b) => {
       if (sortBy === "newest") return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
       if (sortBy === "oldest") return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
@@ -668,8 +698,11 @@ const Admin = () => {
       if (sortBy === "credits") return (b.credits || 0) - (a.credits || 0);
       return 0;
     });
-    return list;
-  }, [users, searchQuery, categoryFilter, planFilter, statusFilter, dateFilter, sortBy]);
+
+    // Enterprise per-column filters + multi-sort. Folded in here so pagination,
+    // counts, select-all and CSV export all respect the active column query.
+    return applyColumnQuery(list, userColumns, { filters: colQuery.filters, sorts: colQuery.sorts });
+  }, [users, searchQuery, categoryFilter, planFilter, statusFilter, dateFilter, sortBy, userColumns, colQuery.filters, colQuery.sorts]);
 
   const totalPages = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
 
@@ -681,7 +714,7 @@ const Admin = () => {
   // Reset to page 1 when filters/sort/search change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, categoryFilter, planFilter, statusFilter, dateFilter, sortBy, pageSize]);
+  }, [searchQuery, categoryFilter, planFilter, statusFilter, dateFilter, sortBy, pageSize, colQuery.filters, colQuery.sorts]);
 
   // Unique categories from loaded users
   const uniqueCategories = useMemo(() => {
@@ -3456,6 +3489,16 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                     <span className="flex items-center gap-1"><Crown className="w-3 h-3 text-amber-500" /> Pro: <span className="font-semibold text-gray-700">{filteredUsers.filter(u => u.plan === "Pro").length}</span></span>
                     <span className="flex items-center gap-1"><Zap className="w-3 h-3 text-blue-400" /> Free: <span className="font-semibold text-gray-700">{filteredUsers.filter(u => u.plan !== "Pro").length}</span></span>
                     <span className="flex items-center gap-1"><UserX className="w-3 h-3 text-red-400" /> Suspended: <span className="font-semibold text-gray-700">{filteredUsers.filter(u => u.status === "deactivated").length}</span></span>
+                    {(colQuery.activeFilterCount > 0 || colQuery.sorts.length > 0) && (
+                      <button
+                        onClick={colQuery.clearAll}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium hover:bg-blue-100 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                        {colQuery.activeFilterCount} filter{colQuery.activeFilterCount === 1 ? "" : "s"}
+                        {colQuery.sorts.length ? ` · ${colQuery.sorts.length} sort` : ""} — clear all
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -3585,17 +3628,9 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                               className="w-4 h-4 cursor-pointer accent-blue-600"
                             />
                           </th>
-                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">User</th>
-                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Phone</th>
-                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Category</th>
-                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Plan</th>
-                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Credits</th>
-                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Addon</th>
-                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Addon Used</th>
-                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Usage</th>
-                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Limit</th>
-                          <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Joined</th>
+                          {userColumns.map((col) => (
+                            <ColumnHeader key={col.id} col={col} query={colQuery} />
+                          ))}
                           <th className="text-right py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
                         </tr>
                       </thead>
