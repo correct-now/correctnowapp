@@ -326,8 +326,12 @@ const sendBrevoEmail = async ({ to, subject, html }) => {
   if (!transporter) {
     throw new Error("Brevo SMTP is not configured");
   }
-  const fromEmail = process.env.BREVO_FROM_EMAIL || "no-reply@yourdomain.com";
-  const fromName = process.env.BREVO_FROM_NAME || "CorrectNow";
+  // Prefer the admin-configured From identity (Settings → Email), then env vars,
+  // then a safe default. The SMTP credential always comes from env (getBrevoTransporter).
+  let cfg = {};
+  try { cfg = await readSettingsDoc(); } catch { /* fall back to env */ }
+  const fromEmail = cfg.emailFromAddress || process.env.BREVO_FROM_EMAIL || "no-reply@yourdomain.com";
+  const fromName = cfg.emailFromName || process.env.BREVO_FROM_NAME || "CorrectNow";
   await transporter.sendMail({
     from: `"${fromName}" <${fromEmail}>`,
     to,
@@ -430,6 +434,35 @@ const requireAdmin = async (req, res, next) => {
   } catch (err) {
     console.error("requireAdmin error:", err);
     return res.status(500).json({ error: "Auth check failed" });
+  }
+};
+
+/**
+ * Append an immutable admin audit-log entry to Firestore. This is the
+ * AUTHORITATIVE trail: written server-side on every privileged action so it
+ * cannot be tampered with from the browser and survives cache clears. Firestore
+ * rules deny update/delete on `auditLogs`, making entries append-only.
+ * Never throws — auditing must not break the action it records.
+ */
+const writeAudit = async (req, { action, targetId = "", targetLabel = "", detail = "", note = "", actor = "" } = {}) => {
+  if (!adminDb) return;
+  try {
+    const who = actor || req?.admin?.email || req?.admin?.uid || "system";
+    await adminDb.collection("auditLogs").add({
+      ts: new Date().toISOString(),
+      action: String(action || "unknown"),
+      targetId: String(targetId || ""),
+      targetLabel: String(targetLabel || ""),
+      detail: String(detail || ""),
+      note: note ? String(note) : "",
+      actor: String(who),
+      actorUid: req?.admin?.uid || "",
+      ip: req ? clientIpOf(req) : "",
+      userAgent: String(req?.headers?.["user-agent"] || "").slice(0, 300),
+      source: "server",
+    });
+  } catch (e) {
+    console.error("writeAudit failed:", e.message);
   }
 };
 
@@ -1188,8 +1221,15 @@ app.post("/api/set-admin", async (req, res) => {
     await admin.auth().setCustomUserClaims(user.uid, { admin: true });
     console.log(`Admin claim set for ${email} (${user.uid})`);
 
-    res.json({ 
-      success: true, 
+    await writeAudit(req, {
+      action: "grant_admin",
+      actor: decodedToken.email || decodedToken.uid,
+      targetId: user.uid,
+      targetLabel: email,
+      detail: `Granted ADMIN privileges to ${email}`,
+    });
+    res.json({
+      success: true,
       message: `Admin access granted to ${email}`,
       uid: user.uid
     });
@@ -1282,6 +1322,8 @@ app.post("/api/admin/create-user", requireAdmin, async (req, res) => {
 
     console.log(`Created Firestore document for user: ${userRecord.uid}`);
 
+    await writeAudit(req, { action: "create_user", targetId: userRecord.uid, targetLabel: email, detail: `Created user ${email}` });
+
     // Build response object without undefined values
     const responseData = {
       success: true, 
@@ -1335,8 +1377,9 @@ app.post("/api/admin/delete-user", requireAdmin, async (req, res) => {
       console.warn(`Failed to delete Firestore document for ${userId}:`, error.message);
     }
 
-    res.json({ 
-      success: true, 
+    await writeAudit(req, { action: "delete_user", targetId: userId, targetLabel: userId, detail: `Deleted user ${userId}` });
+    res.json({
+      success: true,
       message: `User deleted successfully: ${userId}`
     });
   } catch (error) {
@@ -1409,8 +1452,16 @@ app.post("/api/admin/toggle-plan", requireAdmin, async (req, res) => {
     
     console.log(`Toggled plan for user ${userId}: ${currentPlan} â†’ ${newPlan}${updates.adminPlanExpiresAt ? ` (expires ${updates.adminPlanExpiresAt})` : ""}`);
 
-    res.json({ 
-      success: true, 
+    await writeAudit(req, {
+      action: newPlan === "pro" ? "grant_pro" : "revoke_pro",
+      targetId: userId,
+      targetLabel: userData?.email || userId,
+      detail: newPlan === "pro"
+        ? `Granted Pro (${updates.adminPlanDurationDays || 30}d, until ${updates.adminPlanExpiresAt})`
+        : `Revoked Pro — downgraded to Free`,
+    });
+    res.json({
+      success: true,
       message: `Plan changed to ${newPlan}`,
       newPlan,
       wordLimit: updates.wordLimit,
@@ -1511,10 +1562,175 @@ app.post("/api/admin/bulk-action", requireAdmin, async (req, res) => {
     }
 
     console.log(`Bulk action '${action}' on ${processed} users, ${failed} failed`);
+    await writeAudit(req, {
+      action: `bulk_${action}`,
+      targetId: userIds.slice(0, 50).join(","),
+      targetLabel: `${userIds.length} user(s)`,
+      detail: `Bulk "${action}" on ${userIds.length} user(s) — ${processed} ok, ${failed} failed` +
+        (durationDays ? ` · ${durationDays}d` : "") +
+        (creditsAmount ? ` · +${creditsAmount} credits` : "") +
+        (category ? ` · category "${category}"` : ""),
+    });
     res.json({ success: true, processed, failed, errors });
   } catch (error) {
     console.error("Bulk action error:", error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin audit log — append a CLIENT-originated event (login, page actions that
+// don't hit a mutation endpoint, etc.). Server-side mutations are logged
+// automatically via writeAudit(); this covers the rest. Admin-authenticated;
+// the actor is taken from the verified token, never trusted from the body.
+app.post("/api/admin/audit", requireAdmin, async (req, res) => {
+  try {
+    const { action, targetId, targetLabel, detail, note } = req.body || {};
+    if (!action) return res.status(400).json({ error: "action is required" });
+    await writeAudit(req, { action: String(action), targetId, targetLabel, detail, note });
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("Audit write error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin audit log — read the most recent entries (newest first).
+app.get("/api/admin/audit", requireAdmin, async (req, res) => {
+  try {
+    if (!adminDb) return res.status(500).json({ error: "DB not ready" });
+    const limit = Math.min(1000, Math.max(1, Number(req.query.limit) || 300));
+    const snap = await adminDb
+      .collection("auditLogs")
+      .orderBy("ts", "desc")
+      .limit(limit)
+      .get();
+    const entries = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return res.json({ entries, total: entries.length });
+  } catch (error) {
+    console.error("Audit read error:", error);
+    // Firestore may need a single-field index on `ts` — surface clearly.
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── Admin settings ──────────────────────────────────────────────────────────
+// SECURITY MODEL: only NON-SECRET operational config (site name, support email,
+// email "from" identity, active gateway, pricing) is editable here and stored in
+// Firestore `settings/global`. Secret credentials (API keys, webhook secrets,
+// SMTP password) are NEVER read from or written to the database — they live in
+// environment variables. The UI receives only a boolean "is configured" status
+// for each secret, never the value itself.
+
+const SETTINGS_DEFAULTS = {
+  siteName: "CorrectNow",
+  supportEmail: "support@correctnow.app",
+  emailFromName: "CorrectNow",
+  emailFromAddress: "no-reply@correctnow.app",
+  activeGateway: "razorpay", // "razorpay" | "stripe" | "both"
+  currency: "INR",
+  proPriceMonthly: 999,
+  maintenanceMode: false,
+};
+
+const readSettingsDoc = async () => {
+  if (!adminDb) return { ...SETTINGS_DEFAULTS };
+  try {
+    const snap = await adminDb.collection("settings").doc("global").get();
+    return { ...SETTINGS_DEFAULTS, ...(snap.exists ? snap.data() : {}) };
+  } catch {
+    return { ...SETTINGS_DEFAULTS };
+  }
+};
+
+const secretKeyStatus = () => ({
+  gemini: !!process.env.GEMINI_API_KEY,
+  razorpayKeyId: !!process.env.RAZORPAY_KEY_ID,
+  razorpayKeySecret: !!process.env.RAZORPAY_KEY_SECRET,
+  razorpayWebhook: !!process.env.RAZORPAY_WEBHOOK_SECRET,
+  stripeSecret: !!process.env.STRIPE_SECRET_KEY,
+  stripeWebhook: !!process.env.STRIPE_WEBHOOK_SECRET,
+  brevoEmail: !!(process.env.BREVO_API_KEY || process.env.BREVO_SMTP_PASS),
+  firebaseAdmin: !!adminDb,
+});
+
+app.get("/api/admin/settings", requireAdmin, async (_req, res) => {
+  try {
+    const settings = await readSettingsDoc();
+    return res.json({ settings, keyStatus: secretKeyStatus() });
+  } catch (error) {
+    console.error("Settings read error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/settings", requireAdmin, async (req, res) => {
+  try {
+    if (!adminDb) return res.status(500).json({ error: "DB not ready" });
+    const body = req.body || {};
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    // Whitelist + validate each editable field. Reject malformed input rather
+    // than silently coercing — this is operational config, accuracy matters.
+    const next = {};
+    if (body.siteName !== undefined) {
+      const v = String(body.siteName).trim();
+      if (!v || v.length > 60) return res.status(400).json({ error: "Site name must be 1–60 characters" });
+      next.siteName = v;
+    }
+    if (body.supportEmail !== undefined) {
+      const v = String(body.supportEmail).trim();
+      if (v && !emailRe.test(v)) return res.status(400).json({ error: "Invalid support email" });
+      next.supportEmail = v;
+    }
+    if (body.emailFromName !== undefined) {
+      const v = String(body.emailFromName).trim();
+      if (v.length > 60) return res.status(400).json({ error: "From name too long" });
+      next.emailFromName = v;
+    }
+    if (body.emailFromAddress !== undefined) {
+      const v = String(body.emailFromAddress).trim();
+      if (v && !emailRe.test(v)) return res.status(400).json({ error: "Invalid from address" });
+      next.emailFromAddress = v;
+    }
+    if (body.activeGateway !== undefined) {
+      const v = String(body.activeGateway);
+      if (!["razorpay", "stripe", "both"].includes(v)) return res.status(400).json({ error: "Invalid gateway" });
+      next.activeGateway = v;
+    }
+    if (body.currency !== undefined) {
+      const v = String(body.currency).trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(v)) return res.status(400).json({ error: "Currency must be a 3-letter code" });
+      next.currency = v;
+    }
+    if (body.proPriceMonthly !== undefined) {
+      const v = Number(body.proPriceMonthly);
+      if (!Number.isFinite(v) || v < 0 || v > 1000000) return res.status(400).json({ error: "Invalid Pro price" });
+      next.proPriceMonthly = Math.round(v);
+    }
+    if (body.maintenanceMode !== undefined) {
+      next.maintenanceMode = !!body.maintenanceMode;
+    }
+
+    if (Object.keys(next).length === 0) {
+      return res.status(400).json({ error: "No valid settings provided" });
+    }
+
+    next.updatedAt = new Date().toISOString();
+    next.updatedBy = req.admin?.email || req.admin?.uid || "admin";
+
+    await adminDb.collection("settings").doc("global").set(next, { merge: true });
+    await writeAudit(req, {
+      action: "update_settings",
+      targetId: "settings/global",
+      targetLabel: "Platform settings",
+      detail: `Updated: ${Object.keys(next).filter((k) => k !== "updatedAt" && k !== "updatedBy").join(", ")}`,
+    });
+
+    const settings = await readSettingsDoc();
+    return res.json({ success: true, settings, keyStatus: secretKeyStatus() });
+  } catch (error) {
+    console.error("Settings write error:", error);
+    return res.status(500).json({ error: error.message });
   }
 });
 

@@ -117,6 +117,22 @@ service cloud.firestore {
       allow read: if isAdmin(); // Only admins can view user check history
       allow write: if false; // Written by server only
     }
+
+    // Immutable admin audit trail. Readable by admins; entries are written by
+    // the server (Admin SDK bypasses rules). Append-only — no client may create,
+    // and NOBODY may update or delete, so the trail cannot be tampered with.
+    match /auditLogs/{entryId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // Platform settings — readable by admins; written ONLY by the server
+    // (Admin SDK bypasses rules) via the validated /api/admin/settings endpoint.
+    // No client may write directly.
+    match /settings/{docId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
   } 
 }
  

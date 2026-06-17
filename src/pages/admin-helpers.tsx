@@ -21,15 +21,18 @@ import { toast } from "sonner";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type AuditAction =
-  | "grant_pro" | "revoke_pro"
+  | "login" | "logout"
+  | "grant_pro" | "revoke_pro" | "grant_admin"
   | "add_credits" | "set_category"
-  | "suspend" | "reactivate" | "delete"
+  | "suspend" | "reactivate" | "delete" | "create_user"
   | "edit_limits" | "add_note"
   | "bulk_grant_pro" | "bulk_revoke_pro"
   | "bulk_add_credits" | "bulk_set_category"
   | "bulk_suspend" | "bulk_reactivate" | "bulk_delete"
   | "suggestion_assign" | "suggestion_tag" | "suggestion_priority"
-  | "settings_rotate_key";
+  | "settings_rotate_key"
+  // Allow any server-emitted action string without losing autocomplete above.
+  | (string & {});
 
 export type AuditEntry = {
   id: string;
@@ -65,8 +68,42 @@ export type SuggestionMeta = {
 // ─── Audit Log Hook ───────────────────────────────────────────────────────────
 
 const AUDIT_KEY = "admin:audit_log";
-const AUDIT_MAX = 500;
+const AUDIT_MAX = 1000;
 
+/**
+ * Actions that are persisted AUTHORITATIVELY server-side by their backend
+ * endpoint (see writeAudit in server/index.js). The hook shows them
+ * optimistically for instant feedback but does NOT re-POST them, avoiding
+ * duplicate entries. They appear from the server on the next refresh().
+ */
+const SERVER_PERSISTED = new Set<string>([
+  "grant_pro", "revoke_pro", "delete", "create_user", "grant_admin",
+  "bulk_grant_pro", "bulk_revoke_pro", "bulk_add_credits",
+  "bulk_suspend", "bulk_reactivate", "bulk_set_category",
+]);
+
+async function adminAuthHeaders(): Promise<Record<string, string>> {
+  try {
+    const { getFirebaseAuth } = await import("@/lib/firebase");
+    const auth = getFirebaseAuth();
+    const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
+    return token
+      ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+      : { "Content-Type": "application/json" };
+  } catch {
+    return { "Content-Type": "application/json" };
+  }
+}
+
+/**
+ * Server-backed, tamper-resistant admin audit log.
+ *  • The Firestore `auditLogs` collection (written by the server) is the source
+ *    of truth; it survives cache clears and cannot be edited from the browser.
+ *  • Backend mutations are logged automatically server-side.
+ *  • Client-origin events (login, and client-side Firestore writes like
+ *    add_credits / edit_limits / suggestion changes) are persisted via POST.
+ *  • localStorage is kept only as an offline display cache.
+ */
 export function useAuditLog(actor: string) {
   const [entries, setEntries] = useState<AuditEntry[]>(() => {
     try {
@@ -76,33 +113,76 @@ export function useAuditLog(actor: string) {
     }
   });
 
+  const persistCache = useCallback((list: AuditEntry[]) => {
+    try { localStorage.setItem(AUDIT_KEY, JSON.stringify(list.slice(0, AUDIT_MAX))); } catch {}
+  }, []);
+
+  // Load the authoritative server log (newest first).
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/audit?limit=500", { headers: await adminAuthHeaders() });
+      if (!res.ok) return;
+      const data = await res.json();
+      const server: AuditEntry[] = Array.isArray(data?.entries) ? data.entries : [];
+      setEntries(server);
+      persistCache(server);
+    } catch {
+      /* keep cached entries on network failure */
+    }
+  }, [persistCache]);
+
+  // Refresh on mount and whenever the admin identity becomes known (actor
+  // changes from "" → email after sign-in), so the server log loads once the
+  // auth token is available.
+  useEffect(() => {
+    if (actor) refresh();
+  }, [refresh, actor]);
+
   const log = useCallback(
     (action: AuditAction, targetId: string, targetLabel: string, detail: string, note?: string) => {
       const entry: AuditEntry = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         ts: new Date().toISOString(),
-        action,
+        action: action as string,
         targetId,
         targetLabel,
         actor,
         detail,
         note,
       };
+      // Optimistic local prepend for instant UI feedback.
       setEntries((prev) => {
         const next = [entry, ...prev].slice(0, AUDIT_MAX);
-        try { localStorage.setItem(AUDIT_KEY, JSON.stringify(next)); } catch {}
+        persistCache(next);
         return next;
       });
+      // Persist client-origin events; server already records backend mutations.
+      if (!SERVER_PERSISTED.has(action as string)) {
+        (async () => {
+          try {
+            await fetch("/api/admin/audit", {
+              method: "POST",
+              headers: await adminAuthHeaders(),
+              body: JSON.stringify({ action, targetId, targetLabel, detail, note }),
+            });
+          } catch { /* cached locally; will reconcile on next refresh */ }
+        })();
+      } else {
+        // Pull the authoritative entry shortly after the backend writes it.
+        setTimeout(() => { refresh(); }, 1200);
+      }
     },
-    [actor]
+    [actor, persistCache, refresh]
   );
 
   const clearLog = useCallback(() => {
+    // Only clears the LOCAL display cache — the server trail is immutable.
     setEntries([]);
     try { localStorage.removeItem(AUDIT_KEY); } catch {}
-  }, []);
+    refresh();
+  }, [refresh]);
 
-  return { entries, log, clearLog };
+  return { entries, log, clearLog, refresh };
 }
 
 // ─── Saved Filter Presets Hook ────────────────────────────────────────────────

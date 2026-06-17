@@ -265,9 +265,9 @@ const Admin = () => {
   const [suggestionSearch, setSuggestionSearch] = useState("");
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [totalDocs, setTotalDocs] = useState(0);
-  const [totalWords, setTotalWords] = useState(0);
-  const [checksToday, setChecksToday] = useState(0);
-  const [wordsToday, setWordsToday] = useState(0);
+  // checksToday / wordsToday / totalWords / totalChecks are DERIVED from the same
+  // `userChecks` collection the Checks page uses (see checkStats memo below), so
+  // the dashboard and Checks page are guaranteed to report identical numbers.
 
   const [blogPosts, setBlogPosts] = useState<BlogPost[]>([]);
   const [blogLoading, setBlogLoading] = useState(false);
@@ -411,6 +411,37 @@ const Admin = () => {
   const [newAdminPassword, setNewAdminPassword] = useState("");
   const [creatingAdmin, setCreatingAdmin] = useState(false);
 
+  // ── Platform settings (General / Email / Payment / API keys) ──
+  type PlatformSettings = {
+    siteName: string;
+    supportEmail: string;
+    emailFromName: string;
+    emailFromAddress: string;
+    activeGateway: "razorpay" | "stripe" | "both";
+    currency: string;
+    proPriceMonthly: number;
+    maintenanceMode: boolean;
+  };
+  type KeyStatus = Record<string, boolean>;
+  const [settings, setSettings] = useState<PlatformSettings>({
+    siteName: "CorrectNow",
+    supportEmail: "",
+    emailFromName: "CorrectNow",
+    emailFromAddress: "",
+    activeGateway: "razorpay",
+    currency: "INR",
+    proPriceMonthly: 999,
+    maintenanceMode: false,
+  });
+  const [keyStatus, setKeyStatus] = useState<KeyStatus>({});
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const updateSetting = <K extends keyof PlatformSettings>(key: K, value: PlatformSettings[K]) => {
+    setSettings((prev) => ({ ...prev, [key]: value }));
+    setSettingsDirty(true);
+  };
+
   // User limit management
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [limitType, setLimitType] = useState<"unlimited" | "limited" | "disabled">("limited");
@@ -527,6 +558,17 @@ const Admin = () => {
           email === "correctnowapp@gmail.com" ||
           email.endsWith("@correctnow.app");
         setIsAdminUser(allowed);
+        // Record the admin sign-in to the audit trail — once per browser session
+        // (onAuthStateChanged also fires on silent token refresh).
+        if (allowed) {
+          try {
+            const key = `admin:login_logged:${nextUser.uid}`;
+            if (!sessionStorage.getItem(key)) {
+              sessionStorage.setItem(key, "1");
+              logAudit("login", nextUser.uid, email, `Admin signed in (${email})`);
+            }
+          } catch { /* sessionStorage unavailable — skip de-dupe */ }
+        }
       } catch {
         setIsAdminUser(false);
       }
@@ -621,6 +663,33 @@ const Admin = () => {
     }
     return list;
   }, [userChecks, checksSearch, checksUserSearch, checksDateFrom, checksDateTo, checksFilter]);
+
+  // SINGLE SOURCE OF TRUTH for all check/word KPIs on the Overview dashboard.
+  // Derived from the exact same `userChecks` records the Checks page renders, so
+  // the two pages can never report different numbers. `wordCount` is recomputed
+  // defensively from the stored text when the field is missing/zero, matching how
+  // the Checks page aggregates.
+  const checkStats = useMemo(() => {
+    const todayStart = new Date(
+      new Date().getFullYear(),
+      new Date().getMonth(),
+      new Date().getDate()
+    ).getTime();
+    let checksToday = 0;
+    let wordsToday = 0;
+    let totalWords = 0;
+    for (const c of userChecks) {
+      const w = Number(c.wordCount) || 0;
+      totalWords += w;
+      const ts = new Date(c.timestamp).getTime();
+      if (Number.isFinite(ts) && ts >= todayStart) {
+        checksToday += 1;
+        wordsToday += w;
+      }
+    }
+    return { totalChecks: userChecks.length, totalWords, checksToday, wordsToday };
+  }, [userChecks]);
+  const { totalChecks, totalWords, checksToday, wordsToday } = checkStats;
 
   // Filtered suggestions (status + priority)
   const filteredSuggestionsEnhanced = useMemo(() => {
@@ -1435,39 +1504,10 @@ const Admin = () => {
       });
       setUsers(list);
 
+      // "Total Documents" = saved documents in the editor (a distinct metric
+      // from proofreading checks). Check/word KPIs are derived from userChecks.
       const docsSnap = await getDocs(collectionGroup(db, "docs"));
       setTotalDocs(docsSnap.size);
-
-      // Calculate today's stats
-      const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      let wordsAll = 0;
-      let checksTodayCount = 0;
-      let wordsTodayCount = 0;
-
-      docsSnap.forEach((docSnap) => {
-        const data = docSnap.data() as Record<string, any>;
-        const text = typeof data?.text === "string" ? data.text : "";
-        const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
-        wordsAll += wordCount;
-
-        // Check if document was created today
-        const createdAt = data?.createdAt;
-        if (createdAt) {
-          const docDate = typeof createdAt === "string" 
-            ? new Date(createdAt) 
-            : createdAt?.toDate ? createdAt.toDate() : null;
-          
-          if (docDate && docDate >= todayStart) {
-            checksTodayCount++;
-            wordsTodayCount += wordCount;
-          }
-        }
-      });
-
-      setTotalWords(wordsAll);
-      setChecksToday(checksTodayCount);
-      setWordsToday(wordsTodayCount);
     };
 
     loadUsers();
@@ -1623,10 +1663,11 @@ const Admin = () => {
     loadSeoPages();
   }, [user, activeTab]);
 
-  // Load user checks when switching to checks tab
+  // Load user checks once the admin is authenticated. Loaded on mount (not only
+  // on the Checks tab) so the Overview dashboard KPIs derive from the same data.
   useEffect(() => {
-    if (!user || activeTab !== "checks") return;
-    
+    if (!user) return;
+
     const loadUserChecks = async () => {
       const db = getFirebaseDb();
       if (!db) return;
@@ -1660,7 +1701,7 @@ const Admin = () => {
     };
 
     loadUserChecks();
-  }, [user, activeTab]);
+  }, [user]);
 
   // Merge default and custom languages for use in selectors
   const allLanguages = useMemo(() => {
@@ -1719,6 +1760,62 @@ const Admin = () => {
       toast.error("Failed to create coupon");
     } finally {
       setCouponSaving(false);
+    }
+  };
+
+  // Load platform settings + secret-key status once the admin is authenticated.
+  useEffect(() => {
+    if (!user || !isAdminUser) return;
+    let cancelled = false;
+    (async () => {
+      setSettingsLoading(true);
+      try {
+        const res = await fetch("/api/admin/settings", { headers: await adminHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        if (data?.settings) {
+          setSettings((prev) => ({ ...prev, ...data.settings }));
+          setSettingsDirty(false);
+        }
+        if (data?.keyStatus) setKeyStatus(data.keyStatus);
+      } catch {
+        /* keep defaults on failure */
+      } finally {
+        if (!cancelled) setSettingsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user, isAdminUser]);
+
+  const handleSaveSettings = async () => {
+    setSettingsSaving(true);
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: await adminHeaders(),
+        body: JSON.stringify({
+          siteName: settings.siteName,
+          supportEmail: settings.supportEmail,
+          emailFromName: settings.emailFromName,
+          emailFromAddress: settings.emailFromAddress,
+          activeGateway: settings.activeGateway,
+          currency: settings.currency,
+          proPriceMonthly: settings.proPriceMonthly,
+          maintenanceMode: settings.maintenanceMode,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Failed to save settings");
+      if (data?.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
+      if (data?.keyStatus) setKeyStatus(data.keyStatus);
+      setSettingsDirty(false);
+      logAudit("edit_limits", "settings/global", "Platform settings", "Updated platform settings");
+      toast.success("Settings saved");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save settings");
+    } finally {
+      setSettingsSaving(false);
     }
   };
 
@@ -1897,9 +1994,20 @@ const Admin = () => {
       if (!auth) {
         throw new Error("Firebase is not configured.");
       }
+      // Audit the sign-out BEFORE the token is revoked (the POST needs it).
+      const me = auth.currentUser;
+      if (me) {
+        try { sessionStorage.removeItem(`admin:login_logged:${me.uid}`); } catch {}
+        await new Promise<void>((resolve) => {
+          logAudit("logout", me.uid, me.email || "", `Admin signed out (${me.email || ""})`);
+          // give the fire-and-forget POST a moment to send with a valid token
+          setTimeout(resolve, 250);
+        });
+      }
+
       // Clear session data
       localStorage.removeItem("correctnow:sessionId");
-      
+
       // Clear admin state
       setUsers([]);
       setSelectedUsers(new Set());
@@ -1907,7 +2015,7 @@ const Admin = () => {
       setCoupons([]);
       setSuggestions([]);
       setActiveTab("overview");
-      
+
       // Sign out
       await auth.signOut();
     } catch (error) {
@@ -3063,7 +3171,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                 {/* Secondary KPI row */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                   {[
-                    { label: "Checks Today", value: checksToday.toLocaleString(), sub: `${totalDocs.toLocaleString()} all time`, icon: <CheckCircle className="w-5 h-5" />, light: "bg-purple-50", color: "text-purple-600", border: "border-l-purple-500" },
+                    { label: "Checks Today", value: checksToday.toLocaleString(), sub: `${totalChecks.toLocaleString()} all time`, icon: <CheckCircle className="w-5 h-5" />, light: "bg-purple-50", color: "text-purple-600", border: "border-l-purple-500" },
                     { label: "Words Today", value: wordsToday >= 1000 ? `${(wordsToday/1000).toFixed(1)}K` : wordsToday.toString(), sub: `${(totalWords/1000).toFixed(0)}K total`, icon: <FileText className="w-5 h-5" />, light: "bg-indigo-50", color: "text-indigo-600", border: "border-l-indigo-500" },
                     { label: "Monthly Revenue", value: `₹${monthlyRevenue.toLocaleString("en-IN")}`, sub: "From recorded payments", icon: <TrendingUp className="w-5 h-5" />, light: "bg-teal-50", color: "text-teal-600", border: "border-l-teal-500" },
                     { label: "Conversion Rate", value: `${conversionRate}%`, sub: "Free → Pro", icon: <BarChart3 className="w-5 h-5" />, light: "bg-orange-50", color: "text-orange-600", border: "border-l-orange-500" },
@@ -3134,9 +3242,10 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                     <div className="space-y-3">
                       {[
                         { label: "New Users Today", value: `+${newUsersToday}`, color: "text-emerald-600" },
-                        { label: "Total Documents", value: totalDocs.toLocaleString(), color: "text-blue-600" },
+                        { label: "Total Checks", value: totalChecks.toLocaleString(), color: "text-blue-600" },
+                        { label: "Total Documents", value: totalDocs.toLocaleString(), color: "text-blue-500" },
                         { label: "Total Words Processed", value: `${(totalWords/1000).toFixed(1)}K`, color: "text-purple-600" },
-                        { label: "Words Per Check", value: totalDocs ? Math.round(totalWords / totalDocs).toLocaleString() : "—", color: "text-orange-600" },
+                        { label: "Words Per Check", value: totalChecks ? Math.round(totalWords / totalChecks).toLocaleString() : "—", color: "text-orange-600" },
                         { label: "Avg Credits/User", value: users.length ? Math.round(users.reduce((s,u) => s + (u.credits||0), 0) / users.length).toLocaleString() : "—", color: "text-indigo-600" },
                       ].map(item => (
                         <div key={item.label} className="flex items-center justify-between">
@@ -6465,7 +6574,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                             .replace(/^-/, ""); // Only remove leading hyphen, allow trailing while typing
                           setSeoUrlSlug(slugified);
                         }}
-                        placeholder="tamil-grammar" 
+                        placeholder="language-grammar"
                         disabled={!!seoEditingId}
                       />
                       {seoUrlSlug && !slugAlreadyExists && (
@@ -6480,7 +6589,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                       )}
                       {!seoUrlSlug && (
                         <p className="text-xs text-muted-foreground mt-1">
-                          Custom URL for this page (e.g., "tamil", "hindi-checker", "grammar-ta")
+                          Custom URL for this page (e.g., "language-name", "grammar-checker", "spell-check")
                         </p>
                       )}
                     </div>
@@ -6530,7 +6639,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                       <Input
                         value={seoTitle}
                         onChange={(e) => setSeoTitle(e.target.value)}
-                        placeholder="Tamil Grammar Checker - CorrectNow"
+                        placeholder="Language Grammar Checker - CorrectNow"
                         maxLength={60}
                       />
                       <p className="text-xs text-muted-foreground mt-1">
@@ -6543,7 +6652,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                       <Textarea
                         value={seoMetaDescription}
                         onChange={(e) => setSeoMetaDescription(e.target.value)}
-                        placeholder="Free online Tamil grammar checker and proofreading tool..."
+                        placeholder="Free online grammar checker and proofreading tool..."
                         maxLength={160}
                         rows={3}
                         className="resize-none"
@@ -6558,7 +6667,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                       <Textarea
                         value={seoKeywords}
                         onChange={(e) => setSeoKeywords(e.target.value)}
-                        placeholder="tamil grammar checker, tamil spell check, tamil proofreading"
+                        placeholder="grammar checker, spell check, proofreading"
                         rows={2}
                         className="resize-none"
                       />
@@ -6569,7 +6678,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                       <Input
                         value={seoH1}
                         onChange={(e) => setSeoH1(e.target.value)}
-                        placeholder="Tamil Grammar Checker"
+                        placeholder="Language Grammar Checker"
                         maxLength={70}
                       />
                     </div>
@@ -6579,7 +6688,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                       <Textarea
                         value={seoDescription}
                         onChange={(e) => setSeoDescription(e.target.value)}
-                        placeholder="Free online Tamil grammar checker and proofreading tool. Check your Tamil text for spelling, grammar, and style mistakes instantly."
+                        placeholder="Free online grammar checker and proofreading tool. Check your text for spelling, grammar, and style mistakes instantly."
                         rows={3}
                         className="resize-none"
                       />
@@ -6606,7 +6715,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                           <Input
                             value={seoAiKeywords}
                             onChange={(e) => setSeoAiKeywords(e.target.value)}
-                            placeholder="Tamil grammar checker, spell check…"
+                            placeholder="grammar checker, spell check…"
                             className="text-sm bg-white dark:bg-background"
                           />
                           <p className="text-xs text-muted-foreground mt-1">Leave blank to auto-generate from slug + language</p>
@@ -7278,7 +7387,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                         value={indexingUrlsText}
                         onChange={e => setIndexingUrlsText(e.target.value)}
                         rows={8}
-                        placeholder="https://correctnow.app/tamil-grammar\nhttps://correctnow.app/hindi-grammar\nhttps://correctnow.app/"
+                        placeholder="https://correctnow.app/grammar-checker\nhttps://correctnow.app/spell-check\nhttps://correctnow.app/"
                         className="w-full font-mono text-xs px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary resize-y"
                       />
                       {(() => {
@@ -7464,7 +7573,7 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
                         <textarea
                           value={bulkSlugsText}
                           onChange={e => setBulkSlugsText(e.target.value)}
-                          placeholder={`tamil-grammar-checker\nbest-tamil-spell-check\ntamil-proofreading-tool\nonline-tamil-grammar`}
+                          placeholder={`grammar-checker\nbest-spell-check\nproofreading-tool\nonline-grammar-check`}
                           rows={7}
                           className="w-full font-mono text-sm px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary resize-y"
                         />
@@ -7596,9 +7705,145 @@ Meena Raj,meena${ts}@gmail.com,,,pass999`;
 
             {activeTab === "settings" && (
               <div className="space-y-6">
-                <div>
-                  <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Settings</h1>
-                  <p className="text-gray-500 text-sm mt-0.5">Platform configuration and preferences</p>
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div>
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Settings</h1>
+                    <p className="text-gray-500 text-sm mt-0.5">Platform configuration and preferences</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {settingsDirty && <span className="text-xs text-amber-600 font-medium">Unsaved changes</span>}
+                    <Button
+                      onClick={handleSaveSettings}
+                      disabled={settingsSaving || settingsLoading || !settingsDirty}
+                      className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                    >
+                      {settingsSaving ? "Saving…" : "Save changes"}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* ── General ─────────────────────────────────── */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                  <h2 className="text-base font-semibold text-gray-900 mb-1">General</h2>
+                  <p className="text-sm text-gray-400 mb-4">Public identity of the platform.</p>
+                  <div className="grid sm:grid-cols-2 gap-4 max-w-2xl">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Site Name</label>
+                      <Input value={settings.siteName} onChange={(e) => updateSetting("siteName", e.target.value)} placeholder="CorrectNow" maxLength={60} className="border-gray-200" />
+                      <p className="text-xs text-gray-400 mt-1">Shown in titles, emails, and the UI.</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Support Email</label>
+                      <Input type="email" value={settings.supportEmail} onChange={(e) => updateSetting("supportEmail", e.target.value)} placeholder="support@correctnow.app" className="border-gray-200" />
+                      <p className="text-xs text-gray-400 mt-1">Where users are told to contact for help.</p>
+                    </div>
+                    <div className="sm:col-span-2 flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">Maintenance Mode</p>
+                        <p className="text-xs text-gray-400">Display a maintenance notice to end users.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => updateSetting("maintenanceMode", !settings.maintenanceMode)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.maintenanceMode ? "bg-amber-500" : "bg-gray-300"}`}
+                        aria-pressed={settings.maintenanceMode}
+                      >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.maintenanceMode ? "translate-x-6" : "translate-x-1"}`} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Email ───────────────────────────────────── */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                  <div className="flex items-center justify-between mb-1">
+                    <h2 className="text-base font-semibold text-gray-900">Email</h2>
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${keyStatus.brevoEmail ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${keyStatus.brevoEmail ? "bg-emerald-500" : "bg-red-500"}`} />
+                      {keyStatus.brevoEmail ? "Provider connected" : "Provider not configured"}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-400 mb-4">Identity used on verification, password-reset, and notification emails. The SMTP credential itself is set via the <code className="text-[11px] bg-gray-100 px-1 rounded">BREVO_API_KEY</code> environment variable.</p>
+                  <div className="grid sm:grid-cols-2 gap-4 max-w-2xl">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">From Name</label>
+                      <Input value={settings.emailFromName} onChange={(e) => updateSetting("emailFromName", e.target.value)} placeholder="CorrectNow" maxLength={60} className="border-gray-200" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">From Address</label>
+                      <Input type="email" value={settings.emailFromAddress} onChange={(e) => updateSetting("emailFromAddress", e.target.value)} placeholder="no-reply@correctnow.app" className="border-gray-200" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Payment ─────────────────────────────────── */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                  <h2 className="text-base font-semibold text-gray-900 mb-1">Payment</h2>
+                  <p className="text-sm text-gray-400 mb-4">Billing gateway and pricing. Secret keys are managed via environment variables — see API Keys below.</p>
+                  <div className="grid sm:grid-cols-3 gap-4 max-w-3xl">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Active Gateway</label>
+                      <select value={settings.activeGateway} onChange={(e) => updateSetting("activeGateway", e.target.value as PlatformSettings["activeGateway"])} className="w-full h-10 px-3 rounded-lg border border-gray-200 bg-white text-sm">
+                        <option value="razorpay">Razorpay only</option>
+                        <option value="stripe">Stripe only</option>
+                        <option value="both">Both</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Currency</label>
+                      <Input value={settings.currency} onChange={(e) => updateSetting("currency", e.target.value.toUpperCase())} placeholder="INR" maxLength={3} className="border-gray-200" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Pro Price (monthly)</label>
+                      <Input type="number" value={settings.proPriceMonthly} onChange={(e) => updateSetting("proPriceMonthly", Number(e.target.value))} min={0} className="border-gray-200" />
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {[
+                      { label: "Razorpay Key", ok: keyStatus.razorpayKeyId },
+                      { label: "Razorpay Secret", ok: keyStatus.razorpayKeySecret },
+                      { label: "Razorpay Webhook", ok: keyStatus.razorpayWebhook },
+                      { label: "Stripe Secret", ok: keyStatus.stripeSecret },
+                      { label: "Stripe Webhook", ok: keyStatus.stripeWebhook },
+                    ].map((k) => (
+                      <span key={k.label} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${k.ok ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-400"}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${k.ok ? "bg-emerald-500" : "bg-gray-300"}`} />
+                        {k.label}{k.ok ? "" : " — missing"}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ── API Keys / Integrations ─────────────────── */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                  <h2 className="text-base font-semibold text-gray-900 mb-1">API Keys & Integrations</h2>
+                  <p className="text-sm text-gray-400 mb-4">
+                    Secret credentials are <strong>never stored in the database or shown here</strong> — they are read from server environment variables. This panel only reports whether each is configured.
+                  </p>
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {[
+                      { label: "Gemini AI", env: "GEMINI_API_KEY", ok: keyStatus.gemini, note: "Proofreading & language detection" },
+                      { label: "Razorpay Key ID", env: "RAZORPAY_KEY_ID", ok: keyStatus.razorpayKeyId, note: "Payments" },
+                      { label: "Razorpay Secret", env: "RAZORPAY_KEY_SECRET", ok: keyStatus.razorpayKeySecret, note: "Payment signing" },
+                      { label: "Razorpay Webhook", env: "RAZORPAY_WEBHOOK_SECRET", ok: keyStatus.razorpayWebhook, note: "Renewal events" },
+                      { label: "Stripe Secret", env: "STRIPE_SECRET_KEY", ok: keyStatus.stripeSecret, note: "International payments" },
+                      { label: "Stripe Webhook", env: "STRIPE_WEBHOOK_SECRET", ok: keyStatus.stripeWebhook, note: "Subscription events" },
+                      { label: "Brevo Email", env: "BREVO_API_KEY", ok: keyStatus.brevoEmail, note: "Transactional email" },
+                      { label: "Firebase Admin", env: "FIREBASE_SERVICE_ACCOUNT", ok: keyStatus.firebaseAdmin, note: "Server data access" },
+                    ].map((k) => (
+                      <div key={k.env} className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold text-gray-800">{k.label}</p>
+                          <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${k.ok ? "text-emerald-600" : "text-red-500"}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${k.ok ? "bg-emerald-500" : "bg-red-500"}`} />
+                            {k.ok ? "Configured" : "Missing"}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-gray-400 mt-0.5">{k.note}</p>
+                        <code className="text-[10px] text-gray-400 mt-1 block truncate">{k.env}</code>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
