@@ -194,13 +194,45 @@
     height: 100%;
   }
 
+  /* Smooth in-page anchor scrolling (route-change scroll-to-top still uses
+     behavior:auto explicitly, so navigation isn't affected). */
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    /* Crisper rendering + Inter's contextual alternates and tabular figures —
+       the subtle typographic polish premium products ship with. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv11', 'ss01';
   }
 
   h1, h2, h3, h4, h5, h6 {
     @apply font-semibold tracking-tight;
+  }
+
+  /* Brand-tinted text selection across the whole site. */
+  ::selection {
+    background: hsl(var(--primary) / 0.18);
+    color: hsl(var(--foreground));
+  }
+
+  /* Accessible keyboard focus for native/raw elements. shadcn components set
+     `outline-none` + their own ring, so this only fills the gap on plain
+     links/divs — no double rings. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring) / 0.55);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Tabular figures for numbers (counters, prices, stats) so they don't jitter. */
+  .tabular-nums, [data-tabular] {
+    font-variant-numeric: tabular-nums;
   }
 }
 
@@ -823,6 +855,29 @@
   /* Prevent horizontal scroll on mobile */
   body {
     overflow-x: hidden;
+  }
+
+  /* Premium, unobtrusive scrollbar (desktop). Thin, neutral, brand on hover. */
+  @media (min-width: 768px) and (pointer: fine) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: hsl(var(--muted-foreground) / 0.28) transparent;
+    }
+    *::-webkit-scrollbar { width: 10px; height: 10px; }
+    *::-webkit-scrollbar-track { background: transparent; }
+    *::-webkit-scrollbar-thumb {
+      background: hsl(var(--muted-foreground) / 0.28);
+      border-radius: 999px;
+      border: 2.5px solid transparent;
+      background-clip: padding-box;
+      transition: background 0.2s ease;
+    }
+    *::-webkit-scrollbar-thumb:hover {
+      background: hsl(var(--primary) / 0.55);
+      background-clip: padding-box;
+    }
+    /* Don't draw the corner square. */
+    *::-webkit-scrollbar-corner { background: transparent; }
   }
 }
 

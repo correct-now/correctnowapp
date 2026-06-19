@@ -3738,56 +3738,60 @@ app.get("/api/user/stats", async (req, res) => {
     const email = decodedToken.email;
     
     // Get user data
+    // Free-plan limits (single source of truth for the UI).
+    const FREE_DAILY_CHECKS = 5;
+    const FREE_WORDS_PER_CHECK = 200;
+
     const userData = await getUserData(userId);
+
+    // Today's check count (resets daily — mirrors getUserEntitlements()).
+    const today = new Date().toISOString().split('T')[0];
+    const checksToday = userData && userData.lastCheckDate === today
+      ? Number(userData.dailyChecksUsed || 0)
+      : 0;
+
     if (!userData) {
-      // Return default for new users
       return res.json({
-        userId,
-        email,
-        planType: 'free',
-        dailyChecksUsed: 0,
-        dailyLimit: 5,
-        creditsRemaining: 5
+        userId, email, planType: 'free',
+        checksToday: 0,
+        dailyCheckLimit: FREE_DAILY_CHECKS,
+        checksRemaining: FREE_DAILY_CHECKS,
+        wordsPerCheck: FREE_WORDS_PER_CHECK,
       });
     }
-    
-    // Calculate credits
+
     const nowMs = Date.now();
     const planField = String(userData.plan || '').toLowerCase();
     const wordLimit = Number(userData.wordLimit) || 0;
-    
-    // Pro users have wordLimit >= 5,000 or plan = 'pro'
     const isPro = wordLimit >= 5000 || planField === 'pro';
-    
-    // Get credit information
+
+    if (!isPro) {
+      // FREE: limited by daily CHECKS (not a credit pool). Report exactly that.
+      return res.json({
+        userId, email, planType: 'free',
+        checksToday,
+        dailyCheckLimit: FREE_DAILY_CHECKS,
+        checksRemaining: Math.max(0, FREE_DAILY_CHECKS - checksToday),
+        wordsPerCheck: Number(userData.wordLimit) || FREE_WORDS_PER_CHECK,
+      });
+    }
+
+    // PRO: unlimited checks, metered by a monthly credit (word) pool.
     const creditsUsed = Number(userData.creditsUsed || 0);
-    
-    // Use actual credits from database, or default based on plan
-    // Free users: use their actual credits (typically 5000)
-    // Pro users: default to 25000 if not set
-    const baseCredits = Number(userData.credits) || (isPro ? 25000 : 5000);
-    
-    // Handle addon credits
+    const baseCredits = Number(userData.credits) || 25000;
     const rawAddonCredits = Number(userData.addonCredits || 0);
-    const addonExpiry = userData.addonCreditsExpiryAt
-      ? new Date(String(userData.addonCreditsExpiryAt))
-      : null;
-    const addonValid = addonExpiry && !Number.isNaN(addonExpiry.getTime())
-      ? addonExpiry.getTime() > nowMs
-      : false;
+    const addonExpiry = userData.addonCreditsExpiryAt ? new Date(String(userData.addonCreditsExpiryAt)) : null;
+    const addonValid = addonExpiry && !Number.isNaN(addonExpiry.getTime()) ? addonExpiry.getTime() > nowMs : false;
     const validAddonCredits = addonValid && Number.isFinite(rawAddonCredits) ? rawAddonCredits : 0;
-    
-    // Calculate total credits
-    const totalCredits = Number(baseCredits) + validAddonCredits;
+    const totalCredits = baseCredits + validAddonCredits;
     const creditsRemaining = Math.max(0, totalCredits - creditsUsed);
-    
+
     res.json({
-      userId,
-      email,
-      planType: isPro ? 'pro' : 'free',
-      dailyChecksUsed: creditsUsed,
-      dailyLimit: totalCredits,
-      creditsRemaining: creditsRemaining
+      userId, email, planType: 'pro',
+      creditsUsed,
+      totalCredits,
+      creditsRemaining,
+      wordsPerCheck: 5000,
     });
   } catch (error) {
     console.error('âŒ Error fetching user stats:', error);

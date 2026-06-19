@@ -133,14 +133,22 @@ function escapeHtml(text) {
 
 function setFloatingButtonIcon(button, isLoading = false) {
   if (!button) return;
+  // Update only the icon slot so the expanding "Check" label is preserved.
+  const slot = button.querySelector('.cn-orb-icon') || button;
 
   if (isLoading) {
-    button.innerHTML = '<span style="display:inline-block;animation:correctnow-spin 0.9s linear infinite;font-size:16px;line-height:1;color:#2563eb;">⟳</span>';
+    slot.innerHTML = '<span style="display:inline-block;animation:correctnow-spin .8s linear infinite;font-size:18px;line-height:1;color:#fff;">⟳</span>';
     return;
   }
 
+  // CorrectNow logo on a crisp white chip so the brand mark reads cleanly
+  // against the gradient squircle.
   const iconUrl = chrome.runtime.getURL(CONFIG.BUTTON_ICON);
-  button.innerHTML = `<img src="${iconUrl}" alt="CorrectNow" style="width:26px;height:26px;display:block;border-radius:999px;object-fit:cover;pointer-events:none;" />`;
+  slot.innerHTML =
+    `<span style="width:28px;height:28px;border-radius:9px;background:#fff;display:flex;align-items:center;justify-content:center;` +
+    `box-shadow:0 1px 3px rgba(2,6,23,.25);pointer-events:none;">` +
+    `<img src="${iconUrl}" alt="CorrectNow" style="width:22px;height:22px;display:block;border-radius:6px;object-fit:contain;pointer-events:none;" />` +
+    `</span>`;
 }
 
 function clearButtonIdleTimer() {
@@ -184,67 +192,74 @@ function injectButtonStyles() {
   if (document.getElementById('correctnow-button-style')) return;
   const style = document.createElement('style');
   style.id = 'correctnow-button-style';
+  const C = CONFIG.BUTTON_CLASS;
   style.textContent = `
-    @keyframes correctnow-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes correctnow-spin { to { transform: rotate(360deg); } }
     @keyframes correctnow-ring-spin { to { transform: rotate(360deg); } }
     @keyframes correctnow-pop {
-      0%   { transform: scale(.3) translateY(6px); opacity: 0; }
-      55%  { transform: scale(1.12) translateY(-1px); opacity: 1; }
-      78%  { transform: scale(.96); }
+      0%   { transform: scale(.4) translateY(8px); opacity: 0; }
+      55%  { transform: scale(1.1) translateY(-1px); opacity: 1; }
+      78%  { transform: scale(.97); }
       100% { transform: scale(1) translateY(0); opacity: 1; }
     }
-    @keyframes correctnow-breathe {
-      0%,100% { box-shadow: 0 4px 14px rgba(37,99,235,.30), 0 0 0 0 rgba(99,102,241,.0); }
-      50%     { box-shadow: 0 7px 20px rgba(37,99,235,.45), 0 0 0 6px rgba(99,102,241,.10); }
-    }
-    .${CONFIG.BUTTON_CLASS} {
-      position: relative;
-      isolation: isolate;
-      padding: 0;
-      border: 0;
-      border-radius: 999px;
-      background: #ffffff;
-      cursor: pointer;
-      pointer-events: auto;
-      user-select: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
+    @keyframes cn-sheen { from { transform: translateX(-130%) skewX(-18deg); } to { transform: translateX(130%) skewX(-18deg); } }
+
+    /* ── Floating control: gradient squircle → pill on hover ─────────────── */
+    .${C} {
+      position: relative; isolation: isolate; overflow: hidden;
+      display: inline-flex; align-items: center; height: 42px; padding: 0;
+      border: 0; border-radius: 15px;            /* squircle (was a circle) */
+      background: linear-gradient(135deg, #2563eb 0%, #6366f1 52%, #7c3aed 100%);
+      background-size: 180% 180%; background-position: 0% 50%;
+      color: #fff; cursor: pointer; pointer-events: auto; user-select: none;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      animation: correctnow-breathe 3.4s ease-in-out infinite;
-      transition: transform .22s cubic-bezier(.34,1.56,.64,1), filter .22s ease;
+      box-shadow: 0 6px 18px rgba(37,99,235,.40), 0 1px 3px rgba(2,6,23,.18);
+      transition: transform .26s cubic-bezier(.34,1.56,.64,1), box-shadow .26s ease,
+                  background-position .55s ease, border-radius .26s ease;
       will-change: transform;
     }
-    /* Rotating conic gradient ring */
-    .${CONFIG.BUTTON_CLASS}::before {
-      content: '';
-      position: absolute;
-      inset: -2.5px;
-      border-radius: 999px;
-      z-index: -1;
-      background: conic-gradient(from 0deg, #2563eb, #7c3aed, #06b6d4, #2563eb);
-      animation: correctnow-ring-spin 3.2s linear infinite;
+    .${C} .cn-orb-icon {
+      flex: 0 0 42px; width: 42px; height: 42px;
+      display: flex; align-items: center; justify-content: center;
+      position: relative; z-index: 2;
     }
-    /* Glossy inner highlight */
-    .${CONFIG.BUTTON_CLASS}::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      border-radius: 999px;
-      z-index: 1;
-      background: radial-gradient(120% 120% at 30% 22%, rgba(255,255,255,.9), rgba(255,255,255,0) 55%);
-      pointer-events: none;
+    .${C} .cn-orb-label {
+      position: relative; z-index: 2;
+      max-width: 0; opacity: 0; overflow: hidden; white-space: nowrap;
+      font-weight: 700; font-size: 13px; letter-spacing: .2px;
+      transition: max-width .3s cubic-bezier(.16,1,.3,1), opacity .2s ease, padding .3s ease;
+      padding-right: 0;
     }
-    .${CONFIG.BUTTON_CLASS} > * { position: relative; z-index: 2; }
-    .${CONFIG.BUTTON_CLASS}:hover {
-      transform: translateY(-2px) scale(1.08);
-      filter: drop-shadow(0 6px 12px rgba(37,99,235,.35));
+    /* Animated gradient glow ring (idle: hidden; hover/checking: visible). */
+    .${C}::before {
+      content: ''; position: absolute; inset: -2px; border-radius: 17px; z-index: 0;
+      background: conic-gradient(from 0deg, #22d3ee, #6366f1, #a855f7, #22d3ee);
+      opacity: 0; transition: opacity .3s ease;
     }
-    .${CONFIG.BUTTON_CLASS}:hover::before { animation-duration: 1.1s; }
-    .${CONFIG.BUTTON_CLASS}:active { transform: translateY(0) scale(.96); }
-    .${CONFIG.BUTTON_CLASS}.correctnow-entrance { animation: correctnow-pop .42s cubic-bezier(.34,1.56,.64,1), correctnow-breathe 3.4s ease-in-out infinite .42s; }
+    /* Moving sheen sweep. */
+    .${C}::after {
+      content: ''; position: absolute; top: 0; left: 0; width: 60%; height: 100%; z-index: 1;
+      background: linear-gradient(120deg, transparent, rgba(255,255,255,.38), transparent);
+      transform: translateX(-130%) skewX(-18deg); pointer-events: none;
+    }
+    .${C}:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 30px rgba(37,99,235,.50), 0 2px 6px rgba(2,6,23,.2);
+      background-position: 100% 50%;
+    }
+    .${C}:hover .cn-orb-label { max-width: 96px; opacity: 1; padding-right: 15px; }
+    .${C}:hover::before { opacity: .9; animation: correctnow-ring-spin 3s linear infinite; }
+    .${C}:hover::after { animation: cn-sheen 1s ease; }
+    .${C}:active { transform: translateY(0) scale(.95); transition-duration: .08s; }
+    .${C}:focus-visible { outline: 3px solid rgba(99,102,241,.55); outline-offset: 3px; }
+    /* Checking state — spinning glow ring. */
+    .${C}.cn-checking::before { opacity: 1; animation: correctnow-ring-spin .9s linear infinite; }
+    /* Spring-in entrance, replayed each time the control appears. */
+    .${C}.correctnow-entrance { animation: correctnow-pop .42s cubic-bezier(.34,1.56,.64,1); }
+
     @media (prefers-reduced-motion: reduce) {
-      .${CONFIG.BUTTON_CLASS}, .${CONFIG.BUTTON_CLASS}::before, .${CONFIG.BUTTON_CLASS}.correctnow-entrance { animation: none !important; }
+      .${C}, .${C}::before, .${C}::after, .${C}.correctnow-entrance,
+      .${C}:hover, .${C} .cn-orb-label { animation: none !important; transition: opacity .15s, max-width .15s, padding .15s !important; }
     }
   `;
   (document.head || document.documentElement).appendChild(style);
@@ -271,18 +286,15 @@ function createFloatingButton() {
     display: block;
   `;
 
-  // Create button
+  // Create button — a gradient squircle that expands into a pill on hover,
+  // revealing a "Check" label. Structure: [icon slot] + [label].
   const button = document.createElement('button');
   button.className = CONFIG.BUTTON_CLASS;
-  setFloatingButtonIcon(button, false);
   button.type = 'button';
   button.title = 'Check grammar with CorrectNow';
   button.setAttribute('aria-label', 'Check grammar with CorrectNow');
-
-  // The button is a white disc; the eye-catching part is a rotating conic
-  // gradient ring (::before) + a soft brand glow that gently "breathes".
-  button.style.width = `${CONFIG.BUTTON_SIZE}px`;
-  button.style.height = `${CONFIG.BUTTON_SIZE}px`;
+  button.innerHTML = '<span class="cn-orb-icon"></span><span class="cn-orb-label">Check</span>';
+  setFloatingButtonIcon(button, false);
 
   injectButtonStyles();
 
@@ -351,15 +363,22 @@ function handleFocus(event) {
     return;
   }
 
-  chrome.storage.local.get(['extensionEnabled'], (result) => {
+  chrome.storage.local.get(['extensionEnabled', 'cnDisabledSites'], (result) => {
     if (chrome.runtime.lastError) {
       console.warn('⚠️ Could not read extension state in handleFocus:', chrome.runtime.lastError.message);
       return;
     }
     const isEnabled = result.extensionEnabled !== false; // default to true
-    
+
     if (!isEnabled) {
       console.log('🔷 Extension is disabled, not showing button');
+      return;
+    }
+
+    // Per-site disable (set via the ⌘K command palette).
+    const disabledSites = Array.isArray(result.cnDisabledSites) ? result.cnDisabledSites : [];
+    if (disabledSites.includes(location.hostname)) {
+      console.log('🔷 CorrectNow disabled on this site');
       return;
     }
 
@@ -507,6 +526,7 @@ function handleCheckClick() {
     setFloatingButtonIcon(floatingButtonElement, true);
     floatingButtonElement.style.opacity = '0.92';
   }
+  try { window.__cnSetChecking && window.__cnSetChecking(true); } catch (_) {}
   console.log('⏳ Sending message to service worker...');
   console.log('📤 API Base URL:', CONFIG.API_BASE_URL);
 
@@ -514,6 +534,7 @@ function handleCheckClick() {
   let checkTimeout;
   const resetButton = () => {
     isCheckingInProgress = false;
+    try { window.__cnSetChecking && window.__cnSetChecking(false); } catch (_) {}
     if (floatingButtonElement) {
       floatingButtonElement.disabled = false;
       setFloatingButtonIcon(floatingButtonElement, false);
@@ -595,7 +616,13 @@ function handleCheckClick() {
         if (response.requiresAuth) {
           showMessage('Sign in to CorrectNow to check grammar. Click the extension icon → Sign In.', 'warning');
         } else if (response.requiresUpgrade) {
-          showMessage('Daily free limit reached. Upgrade to Pro for unlimited checks.', 'warning');
+          // Interactive conversion prompt instead of a passive toast.
+          try {
+            if (window.__cnUpgradePrompt) window.__cnUpgradePrompt("You've reached today's free limit");
+            else showMessage('Daily free limit reached. Upgrade to Pro for unlimited checks.', 'warning');
+          } catch (_) {
+            showMessage('Daily free limit reached. Upgrade to Pro for unlimited checks.', 'warning');
+          }
         } else {
           showMessage(`Error: ${response.error}`, 'error');
         }
@@ -772,19 +799,22 @@ function handleCheckClick() {
         
         if (fixedErrors.length > 0) {
           highlightErrors(currentFocusedElement, fixedErrors);
-          showMessage(`Found ${fixedErrors.length} issue(s)`, 'info');
+          showMessage(`Found ${fixedErrors.length} issue${fixedErrors.length === 1 ? '' : 's'}`, 'info');
+          try { window.__cnReportResult && window.__cnReportResult(fixedErrors); } catch (_) {}
 
           // Show Apply All whenever there are errors — works for all field types
           // since the overlay approach supports individual accepts on every type.
           showApplyAllButton();
         } else {
           clearHighlights();
-          showMessage('No issues found', 'success');
+          showMessage('✓ All clear — your text looks great', 'success');
+          try { window.__cnReportResult && window.__cnReportResult([]); } catch (_) {}
         }
       } else {
         console.log('✅ No errors found');
         clearHighlights(); // Clear any previous highlights
-        showMessage('No issues found', 'success');
+        showMessage('✓ All clear — your text looks great', 'success');
+        try { window.__cnReportResult && window.__cnReportResult([]); } catch (_) {}
       }
     }
   ); // End chrome.runtime.sendMessage
@@ -1733,9 +1763,23 @@ function _ensureUIStyles() {
   style.textContent = `
     @keyframes correctnow-pop { from { opacity: 0; transform: translateY(6px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
     @keyframes correctnow-toast-in { from { opacity: 0; transform: translateY(-8px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
-    .correctnow-tooltip .cn-act { transition: transform .15s cubic-bezier(.34,1.56,.64,1), box-shadow .15s ease, background .15s ease, border-color .15s ease; }
-    .correctnow-tooltip .cn-act:hover { transform: translateY(-1px); }
-    .correctnow-tooltip .cn-act:active { transform: translateY(0) scale(.97); }
+    /* Interactive states for every tooltip action — hover, focus, active. */
+    .correctnow-tooltip .cn-act {
+      transition: transform .15s cubic-bezier(.34,1.56,.64,1), box-shadow .15s ease, background .18s ease, border-color .15s ease, filter .15s ease;
+      outline: none;
+    }
+    .correctnow-tooltip .cn-act:hover { transform: translateY(-1.5px); }
+    .correctnow-tooltip .cn-act:active { transform: translateY(0) scale(.96); transition-duration: .06s; }
+    .correctnow-tooltip .cn-act:focus-visible { outline: 2px solid #6366f1; outline-offset: 2px; }
+    .correctnow-tooltip button[data-cn="accept"]:hover { box-shadow: 0 7px 20px rgba(37,99,235,.45); filter: brightness(1.05); }
+    .correctnow-tooltip button[data-cn="ignore"]:hover { border-color: rgba(99,102,241,.5); filter: brightness(.98); }
+    /* All-clear celebration + loading shimmer (reusable). */
+    @keyframes correctnow-celebrate { 0%{transform:scale(.6);opacity:0} 55%{transform:scale(1.15)} 100%{transform:scale(1);opacity:1} }
+    @keyframes correctnow-shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+    .cn-skeleton { background:linear-gradient(90deg, rgba(148,163,184,.12) 25%, rgba(148,163,184,.28) 37%, rgba(148,163,184,.12) 63%); background-size:200% 100%; animation:correctnow-shimmer 1.3s ease-in-out infinite; border-radius:8px; }
+    @media (prefers-reduced-motion: reduce){
+      .correctnow-tooltip .cn-act, .cn-skeleton { animation: none !important; transition: none !important; }
+    }
   `;
   (document.head || document.documentElement).appendChild(style);
 }
@@ -1991,6 +2035,259 @@ function initializeContentScript() {
 
   console.log('CorrectNow extension loaded - Ready to check grammar');
 }
+
+// =============================================================================
+// PREMIUM UX LAYER — design tokens, calm orb states, count badge, command
+// palette (⌘K / Ctrl+K), and first-run onboarding. Additive: nothing here
+// touches the overlay/highlight engine, so the core checker is unaffected.
+// =============================================================================
+(function CorrectNowPremiumUX() {
+  // ── Design system (tokens + keyframes), injected once ─────────────────────
+  function injectDesignSystem() {
+    if (document.getElementById('cn-design-system')) return;
+    const dark = (typeof _prefersDarkUI === 'function') ? _prefersDarkUI() : false;
+    const s = document.createElement('style');
+    s.id = 'cn-design-system';
+    s.textContent = `
+      :root{
+        --cn-accent:#2563eb; --cn-accent2:#6366f1;
+        --cn-danger:#ef4444; --cn-warn:#f59e0b; --cn-info:#3b82f6; --cn-ok:#10b981;
+        --cn-radius:12px; --cn-radius-lg:16px;
+        --cn-font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+      }
+      @keyframes cn-fade-up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+      @keyframes cn-scale-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+      @keyframes cn-badge-pop{0%{transform:scale(.4)}60%{transform:scale(1.18)}100%{transform:scale(1)}}
+      /* Calm the orb: idle is static; motion only on hover / checking. */
+      .${typeof CONFIG!=='undefined'?CONFIG.BUTTON_CLASS:'correctnow-check-button'}{animation:none !important;}
+      .${typeof CONFIG!=='undefined'?CONFIG.BUTTON_CLASS:'correctnow-check-button'}.cn-checking::before{animation-duration:1s !important;}
+      /* Count badge on the orb */
+      .cn-orb-badge{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;
+        display:inline-flex;align-items:center;justify-content:center;font:700 11px/1 var(--cn-font);color:#fff;
+        box-shadow:0 2px 6px rgba(0,0,0,.25);z-index:3;animation:cn-badge-pop .28s cubic-bezier(.34,1.56,.64,1);pointer-events:none;}
+      .cn-toast-ok{color:var(--cn-ok) !important;}
+    `;
+    (document.head || document.documentElement).appendChild(s);
+  }
+
+  // ── Orb state: idle / checking / issues(count, severityColor) / clean ─────
+  function severityColor(errors) {
+    const types = (errors || []).map(e => String(e.type || '').toLowerCase());
+    if (types.some(t => /grammar|spell/.test(t))) return 'var(--cn-danger)';
+    if (types.some(t => /punct/.test(t))) return 'var(--cn-warn)';
+    if (types.some(t => /clar|style/.test(t))) return 'var(--cn-info)';
+    return 'var(--cn-accent)';
+  }
+  function setOrbBadge(count, color) {
+    try {
+      if (typeof floatingButton === 'undefined' || !floatingButton) return;
+      let badge = floatingButton.querySelector('.cn-orb-badge');
+      if (!count) { if (badge) badge.remove(); return; }
+      if (!badge) { badge = document.createElement('span'); badge.className = 'cn-orb-badge'; floatingButton.appendChild(badge); }
+      badge.textContent = String(count > 99 ? '99+' : count);
+      badge.style.background = color || 'var(--cn-danger)';
+      // replay pop
+      badge.style.animation = 'none'; void badge.offsetWidth; badge.style.animation = '';
+    } catch (_) {}
+  }
+  function flashCheckingState(on) {
+    try { floatingButtonElement && floatingButtonElement.classList.toggle('cn-checking', !!on); } catch (_) {}
+  }
+  // Exposed so the check flow can report results.
+  window.__cnReportResult = function (errors) {
+    const n = (errors || []).length;
+    setOrbBadge(n, n ? severityColor(errors) : null);
+  };
+  window.__cnSetChecking = flashCheckingState;
+
+  // ── Command Palette (⌘K / Ctrl+K) ─────────────────────────────────────────
+  let palette = null;
+  const COMMANDS = () => [
+    { id: 'check', label: 'Check text now', hint: 'Run a grammar & spelling check', icon: '✓', run: () => { try { handleCheckClick(); } catch (_) {} } },
+    { id: 'acceptAll', label: 'Accept all suggestions', hint: 'Apply every correction', icon: '✦', run: () => { try { applyAllCorrections(); } catch (_) {} } },
+    { id: 'dismiss', label: 'Dismiss all suggestions', hint: 'Clear the underlines', icon: '⊘', run: () => { try { clearHighlights(); setOrbBadge(0); } catch (_) {} } },
+    { id: 'disableSite', label: 'Disable on this site', hint: location.hostname, icon: '🚫', run: () => disableOnSite() },
+    { id: 'dashboard', label: 'Open CorrectNow dashboard', hint: 'correctnow.app', icon: '◎', run: () => window.open('https://correctnow.app/', '_blank') },
+    { id: 'account', label: 'Open account / sign in', hint: 'Manage your plan', icon: '◐', run: () => { try { chrome.runtime.sendMessage({ action: 'openOptions' }); } catch (_) { window.open('https://correctnow.app/auth', '_blank'); } } },
+  ];
+
+  function disableOnSite() {
+    try {
+      const host = location.hostname;
+      chrome.storage.local.get(['cnDisabledSites'], (r) => {
+        const list = Array.isArray(r.cnDisabledSites) ? r.cnDisabledSites : [];
+        if (!list.includes(host)) list.push(host);
+        chrome.storage.local.set({ cnDisabledSites: list }, () => {
+          try { hideFloatingButton(); clearHighlights(); } catch (_) {}
+          if (typeof showMessage === 'function') showMessage(`CorrectNow disabled on ${host}`, 'info');
+        });
+      });
+    } catch (_) {}
+  }
+
+  function buildPalette() {
+    injectDesignSystem();
+    const overlay = document.createElement('div');
+    overlay.setAttribute('data-correctnow-ui', 'true');
+    overlay.style.cssText = `position:fixed;inset:0;z-index:2147483647;display:flex;align-items:flex-start;justify-content:center;
+      padding-top:14vh;background:rgba(15,23,42,.34);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);animation:cn-fade-up .12s ease;`;
+    const dark = (typeof _prefersDarkUI === 'function') ? _prefersDarkUI() : false;
+    const panel = document.createElement('div');
+    panel.style.cssText = `width:min(560px,92vw);background:${dark ? '#161b22' : '#fff'};color:${dark ? '#e6edf3' : '#0f172a'};
+      border:1px solid ${dark ? 'rgba(255,255,255,.08)' : 'rgba(15,23,42,.08)'};border-radius:16px;
+      box-shadow:0 24px 60px rgba(2,6,23,.35);overflow:hidden;font-family:var(--cn-font);animation:cn-scale-in .14s cubic-bezier(.16,1,.3,1);`;
+    panel.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid ${dark ? 'rgba(255,255,255,.07)' : '#eef2f7'};">
+        <span style="font-size:14px;opacity:.5;">⌘</span>
+        <input id="cn-cmd-input" placeholder="Type a command…" autocomplete="off"
+          style="flex:1;border:0;outline:0;background:transparent;font:500 15px var(--cn-font);color:inherit;" />
+        <kbd style="font:600 10px var(--cn-font);opacity:.45;border:1px solid currentColor;border-radius:5px;padding:2px 5px;">ESC</kbd>
+      </div>
+      <div id="cn-cmd-list" style="max-height:46vh;overflow:auto;padding:6px;"></div>
+      <div style="padding:8px 14px;border-top:1px solid ${dark ? 'rgba(255,255,255,.07)' : '#eef2f7'};font:500 11px var(--cn-font);opacity:.5;display:flex;gap:14px;">
+        <span>↑↓ navigate</span><span>↵ run</span><span>esc close</span>
+      </div>`;
+    overlay.appendChild(panel);
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closePalette(); });
+    return { overlay, panel };
+  }
+
+  let cmdIndex = 0, cmdFiltered = [];
+  function renderList(filter) {
+    const list = palette.panel.querySelector('#cn-cmd-list');
+    const dark = (typeof _prefersDarkUI === 'function') ? _prefersDarkUI() : false;
+    const q = (filter || '').toLowerCase().trim();
+    cmdFiltered = COMMANDS().filter(c => !q || c.label.toLowerCase().includes(q) || c.hint.toLowerCase().includes(q));
+    if (cmdIndex >= cmdFiltered.length) cmdIndex = 0;
+    list.innerHTML = cmdFiltered.map((c, i) => `
+      <div class="cn-cmd-row" data-i="${i}" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;cursor:pointer;
+        background:${i === cmdIndex ? (dark ? 'rgba(37,99,235,.18)' : 'rgba(37,99,235,.08)') : 'transparent'};">
+        <span style="width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;
+          background:${dark ? 'rgba(255,255,255,.06)' : '#f1f5f9'};">${c.icon}</span>
+        <span style="flex:1;min-width:0;">
+          <span style="display:block;font:600 13.5px var(--cn-font);">${c.label}</span>
+          <span style="display:block;font:500 11.5px var(--cn-font);opacity:.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.hint}</span>
+        </span>
+        ${i === cmdIndex ? '<span style="font-size:12px;opacity:.4;">↵</span>' : ''}
+      </div>`).join('') || `<div style="padding:24px;text-align:center;opacity:.45;font:500 13px var(--cn-font);">No matching commands</div>`;
+    list.querySelectorAll('.cn-cmd-row').forEach(row => {
+      row.addEventListener('mouseenter', () => { cmdIndex = Number(row.dataset.i); renderList(palette.panel.querySelector('#cn-cmd-input').value); });
+      row.addEventListener('click', () => runSelected());
+    });
+  }
+  function runSelected() { const c = cmdFiltered[cmdIndex]; closePalette(); if (c) setTimeout(c.run, 40); }
+
+  function openPalette() {
+    if (palette) return;
+    cmdIndex = 0;
+    palette = buildPalette();
+    document.documentElement.appendChild(palette.overlay);
+    const input = palette.panel.querySelector('#cn-cmd-input');
+    renderList('');
+    input.focus();
+    input.addEventListener('input', () => { cmdIndex = 0; renderList(input.value); });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); cmdIndex = Math.min(cmdFiltered.length - 1, cmdIndex + 1); renderList(input.value); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); cmdIndex = Math.max(0, cmdIndex - 1); renderList(input.value); }
+      else if (e.key === 'Enter') { e.preventDefault(); runSelected(); }
+      else if (e.key === 'Escape') { e.preventDefault(); closePalette(); }
+    });
+  }
+  function closePalette() { if (palette) { palette.overlay.remove(); palette = null; } }
+
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault(); e.stopPropagation();
+      palette ? closePalette() : openPalette();
+    }
+  }, true);
+
+  // ── First-run onboarding coach-mark (once) ────────────────────────────────
+  function maybeOnboard() {
+    try {
+      if (!chrome?.storage?.local) return;
+      chrome.storage.local.get(['cnOnboarded'], (r) => {
+        if (r.cnOnboarded) return;
+        const onFocus = (ev) => {
+          const el = ev.target;
+          if (!el || (typeof isEditableField === 'function' && !isEditableField(el))) return;
+          document.removeEventListener('focusin', onFocus, true);
+          chrome.storage.local.set({ cnOnboarded: true });
+          showCoachMark();
+        };
+        document.addEventListener('focusin', onFocus, true);
+      });
+    } catch (_) {}
+  }
+  function showCoachMark() {
+    injectDesignSystem();
+    const dark = (typeof _prefersDarkUI === 'function') ? _prefersDarkUI() : false;
+    const tip = document.createElement('div');
+    tip.setAttribute('data-correctnow-ui', 'true');
+    tip.style.cssText = `position:fixed;right:18px;bottom:18px;z-index:2147483646;width:300px;
+      background:${dark ? '#161b22' : '#fff'};color:${dark ? '#e6edf3' : '#0f172a'};
+      border:1px solid ${dark ? 'rgba(255,255,255,.08)' : 'rgba(15,23,42,.08)'};border-radius:16px;
+      box-shadow:0 18px 44px rgba(2,6,23,.28);padding:16px;font-family:var(--cn-font);animation:cn-fade-up .2s ease;`;
+    tip.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <span style="width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--cn-accent),var(--cn-accent2));
+          display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;">✓</span>
+        <strong style="font-size:14px;">Welcome to CorrectNow</strong>
+      </div>
+      <ol style="margin:0 0 12px;padding-left:18px;font-size:12.5px;line-height:1.7;opacity:.8;">
+        <li>Type in any text box — we work in 130+ languages</li>
+        <li>Tap the floating ✓ to check, then accept fixes</li>
+        <li>Press <kbd style="font:600 10px var(--cn-font);border:1px solid currentColor;border-radius:4px;padding:1px 4px;">⌘K</kbd> for the command bar</li>
+      </ol>
+      <button id="cn-coach-ok" style="width:100%;height:34px;border:0;border-radius:10px;cursor:pointer;
+        background:linear-gradient(135deg,var(--cn-accent),var(--cn-accent2));color:#fff;font:600 13px var(--cn-font);">Got it</button>`;
+    document.documentElement.appendChild(tip);
+    tip.querySelector('#cn-coach-ok').addEventListener('click', () => tip.remove());
+    setTimeout(() => { tip.parentNode && tip.remove(); }, 15000);
+  }
+
+  // ── Interactive upgrade prompt (free daily limit reached) ─────────────────
+  let upgradeCard = null;
+  window.__cnUpgradePrompt = function (titleText) {
+    try {
+      injectDesignSystem();
+      if (upgradeCard) upgradeCard.remove();
+      const dark = (typeof _prefersDarkUI === 'function') ? _prefersDarkUI() : false;
+      upgradeCard = document.createElement('div');
+      upgradeCard.setAttribute('data-correctnow-ui', 'true');
+      upgradeCard.style.cssText = `position:fixed;right:18px;bottom:18px;z-index:2147483646;width:320px;
+        color:#fff;border-radius:18px;padding:18px;font-family:var(--cn-font);
+        background:linear-gradient(135deg,#2563eb,#6366f1 55%,#7c3aed);
+        box-shadow:0 20px 48px rgba(37,99,235,.42);animation:cn-fade-up .22s ease;`;
+      upgradeCard.innerHTML = `
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;">
+          <span style="width:30px;height:30px;border-radius:9px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 2.4 7.4H22l-6 4.6 2.3 7.4-6.3-4.6L5.7 21 8 14 2 9.4h7.6z"/></svg>
+          </span>
+          <strong style="font-size:14px;">${titleText || "You've reached today's free limit"}</strong>
+        </div>
+        <p style="margin:0 0 13px;font-size:12.5px;line-height:1.5;opacity:.92;">
+          Upgrade to <b>Pro</b> for <b>unlimited checks</b>, 5,000 words per check, and priority AI — in all 130+ languages.
+        </p>
+        <div style="display:flex;gap:8px;">
+          <button id="cn-up-go" style="flex:1;height:38px;border:0;border-radius:11px;cursor:pointer;font:700 13px var(--cn-font);background:#fff;color:#2563eb;">Go Pro — unlimited</button>
+          <button id="cn-up-x" style="height:38px;padding:0 12px;border:0;border-radius:11px;cursor:pointer;font:600 13px var(--cn-font);background:rgba(255,255,255,.18);color:#fff;">Later</button>
+        </div>`;
+      document.documentElement.appendChild(upgradeCard);
+      upgradeCard.querySelector('#cn-up-go').addEventListener('click', () => {
+        try { window.open('https://correctnow.app/pricing', '_blank'); } catch (_) {}
+        upgradeCard.remove(); upgradeCard = null;
+      });
+      upgradeCard.querySelector('#cn-up-x').addEventListener('click', () => { upgradeCard.remove(); upgradeCard = null; });
+      setTimeout(() => { if (upgradeCard) { upgradeCard.remove(); upgradeCard = null; } }, 14000);
+    } catch (_) {}
+  };
+
+  // Boot the premium layer after the core script initializes.
+  function boot() { injectDesignSystem(); maybeOnboard(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
 
 // Start when DOM is ready
 if (document.readyState === 'loading') {

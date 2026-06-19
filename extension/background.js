@@ -107,56 +107,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
  * Check if token needs refresh and request new one if needed
  */
 async function checkAndRefreshToken() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['authToken', 'authUser', 'tokenExpiresAt'], async (result) => {
-      const { authToken, authUser, tokenExpiresAt } = result;
-      
-      // No token stored, nothing to refresh
-      if (!authToken || !authUser) {
-        resolve();
-        return;
-      }
-      
-      // Check if token is expired or will expire soon (within 5 minutes)
-      const now = Date.now();
-      const expiresAt = tokenExpiresAt || 0;
-      const willExpireSoon = expiresAt - now < (5 * 60 * 1000); // Less than 5 minutes left
-      
-      if (!willExpireSoon) {
-        console.log('✅ Token is still valid');
-        resolve();
-        return;
-      }
-      
-      console.log('⚠️ Token will expire soon, requesting refresh...');
-      
-      // Try to get a fresh token from the website
-      try {
-        const backend = await getBackendConfig();
-        const response = await fetch(`${backend.apiBase}/api/refresh-token`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${authToken}`
-          }
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (data.token) {
-            console.log('✅ Token refreshed successfully');
-            await saveAuthToken(data.token, authUser);
-          }
-        } else {
-          console.warn('⚠️ Could not refresh token, will prompt login when needed');
-        }
-      } catch (error) {
-        console.warn('⚠️ Token refresh failed:', error.message);
-      }
-      
-      resolve();
-    });
-  });
+  const result = await new Promise((res) =>
+    chrome.storage.local.get(['authToken', 'authUser', 'tokenExpiresAt'], res)
+  );
+  const { authToken, authUser, tokenExpiresAt } = result;
+
+  // No session at all → nothing to do.
+  if (!authToken || !authUser) return null;
+
+  // Still comfortably valid → keep using it.
+  const now = Date.now();
+  if ((tokenExpiresAt || 0) - now > 60 * 1000) return authToken;
+
+  // Expired / about to expire → mint a fresh one from the refresh token.
+  console.log('⚠️ Token expiring — self-refreshing…');
+  const fresh = await refreshIdToken();
+  return fresh || authToken; // fall back to the (possibly stale) token
 }
 
 /**
@@ -234,27 +200,30 @@ async function getUserStats() {
 /**
  * Save authentication token and user info
  */
-async function saveAuthToken(token, user) {
+async function saveAuthToken(token, user, opts = {}) {
   return new Promise((resolve, reject) => {
-    // Calculate token expiration (Firebase tokens last 1 hour)
-    // We'll refresh at 50 minutes to be safe
-    const expiresAt = Date.now() + (50 * 60 * 1000); // 50 minutes from now
-    
-    chrome.storage.local.set({ 
+    // Firebase ID tokens last ~1h. Refresh a couple of minutes early.
+    const ttlMs = (Number(opts.expiresInSec) > 0 ? Number(opts.expiresInSec) * 1000 : 60 * 60 * 1000);
+    const expiresAt = Date.now() + ttlMs - 2 * 60 * 1000;
+
+    const payload = {
       authToken: token,
       authUser: user,
       tokenExpiresAt: expiresAt,
-      guestMode: false
-    }, () => {
+      guestMode: false,
+    };
+    // Persist the long-lived refresh token + Firebase API key so the extension
+    // can mint fresh ID tokens on its own — the key to a PERMANENT session.
+    // Only overwrite when provided (a server token-refresh won't resend these).
+    if (opts.refreshToken) payload.firebaseRefreshToken = opts.refreshToken;
+    if (opts.apiKey) payload.firebaseApiKey = opts.apiKey;
+
+    chrome.storage.local.set(payload, () => {
       if (chrome.runtime.lastError) {
         reject(chrome.runtime.lastError);
       } else {
-        console.log('✅ Auth token saved (expires in 50 minutes)');
-        // Notify popup of auth state change
-        chrome.runtime.sendMessage({ 
-          action: 'authStateChanged', 
-          user: user 
-        }).catch(() => {}); // Ignore if popup is closed
+        console.log('✅ Auth token saved');
+        chrome.runtime.sendMessage({ action: 'authStateChanged', user }).catch(() => {});
         resolve();
       }
     });
@@ -262,11 +231,57 @@ async function saveAuthToken(token, user) {
 }
 
 /**
+ * Mint a fresh Firebase ID token from the stored refresh token using Google's
+ * Secure Token endpoint. Refresh tokens are long-lived (only invalidated by
+ * sign-out / password change / revocation), so this keeps the extension logged
+ * in PERMANENTLY without the website tab needing to be open.
+ * Returns the new ID token, or null if refresh isn't possible.
+ */
+async function refreshIdToken() {
+  const store = await new Promise((res) =>
+    chrome.storage.local.get(['firebaseRefreshToken', 'firebaseApiKey', 'authUser'], res)
+  );
+  const { firebaseRefreshToken, firebaseApiKey, authUser } = store;
+  if (!firebaseRefreshToken || !firebaseApiKey) {
+    console.warn('⚠️ No refresh token / API key stored — cannot self-refresh');
+    return null;
+  }
+  try {
+    const res = await fetch(`https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(firebaseApiKey)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(firebaseRefreshToken)}`,
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.warn('⚠️ Secure-token refresh failed:', res.status, errText);
+      // A 400 with TOKEN_EXPIRED / USER_DISABLED / invalid_grant means the
+      // refresh token is dead — only then is re-login genuinely required.
+      if (/invalid_grant|TOKEN_EXPIRED|USER_DISABLED|USER_NOT_FOUND/i.test(errText)) {
+        await logout();
+      }
+      return null;
+    }
+    const data = await res.json();
+    const newIdToken = data.id_token;
+    const newRefresh = data.refresh_token || firebaseRefreshToken;
+    const expiresInSec = Number(data.expires_in) || 3600;
+    if (!newIdToken) return null;
+    await saveAuthToken(newIdToken, authUser, { refreshToken: newRefresh, expiresInSec });
+    console.log('✅ ID token self-refreshed via secure-token endpoint');
+    return newIdToken;
+  } catch (err) {
+    console.warn('⚠️ Secure-token refresh error:', err.message);
+    return null;
+  }
+}
+
+/**
  * Logout user - clear stored auth data
  */
 async function logout() {
   return new Promise((resolve, reject) => {
-    chrome.storage.local.remove(['authToken', 'authUser', 'tokenExpiresAt'], () => {
+    chrome.storage.local.remove(['authToken', 'authUser', 'tokenExpiresAt', 'firebaseRefreshToken', 'firebaseApiKey'], () => {
       if (chrome.runtime.lastError) {
         reject(chrome.runtime.lastError);
       } else {
@@ -296,7 +311,13 @@ chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => 
   
   if (request.action === 'authUpdate' && request.token && request.user) {
     console.log('✅ Valid authUpdate message received, saving token...');
-    saveAuthToken(request.token, request.user)
+    // Store the refresh token + Firebase API key the website sends, so the
+    // extension can self-renew its ID token forever (permanent session).
+    saveAuthToken(request.token, request.user, {
+      refreshToken: request.refreshToken,
+      apiKey: request.apiKey,
+      expiresInSec: request.expiresInSec,
+    })
       .then(() => {
         console.log('✅ Token saved successfully');
         sendResponse({ success: true, message: 'Auth token saved' });
@@ -629,41 +650,48 @@ async function handleGrammarCheck(request, sender) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
 
-    // Build headers
-    const headers = {
-      'Content-Type': 'application/json',
-    };
-    
-    // Priority 1: Use Firebase auth token if user is logged in (for usage tracking)
+    // Proactively ensure a fresh ID token before the request, so an expired
+    // token never reaches the server in the first place.
+    let effectiveAuthToken = authToken;
     if (authToken) {
-      headers['Authorization'] = `Bearer ${authToken}`;
-      console.log('🔐 Using Firebase auth token (logged in user)');
+      try { const fresh = await checkAndRefreshToken(); if (fresh) effectiveAuthToken = fresh; } catch (_) {}
     }
-    // Priority 2: Use extension API key for guest users (bypasses rate limits)
-    // Send on both header names the server accepts
-    else if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
-      headers['X-API-Key'] = apiKey;
-      headers['X-CorrectNow-API-Key'] = apiKey;
-      console.log('🔑 Using extension token (guest user)');
-    }
+
+    const buildHeaders = (tok) => {
+      const h = { 'Content-Type': 'application/json' };
+      if (tok) {
+        h['Authorization'] = `Bearer ${tok}`;
+      } else if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
+        h['X-API-Key'] = apiKey;
+        h['X-CorrectNow-API-Key'] = apiKey;
+      }
+      return h;
+    };
 
     // Prepare request body
-    const requestBody = {
-      text: text,
-      language: targetLanguage,
-    };
+    const requestBody = { text: text, language: targetLanguage };
+    if (userId) requestBody.userId = userId;
 
-    // Add userId if available (for usage tracking)
-    if (userId) {
-      requestBody.userId = userId;
-    }
-
-    const response = await fetch(apiUrl, {
+    const doFetch = (tok) => fetch(apiUrl, {
       method: 'POST',
-      headers: headers,
+      headers: buildHeaders(tok),
       body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
+
+    let response = await doFetch(effectiveAuthToken);
+
+    // Reactive safety net: if the server still rejects the token (e.g. it died
+    // between refresh and send), mint a brand-new one and retry ONCE before
+    // ever forcing the user to log in again.
+    if ((response.status === 401 || response.status === 403) && authToken) {
+      console.log('🔄 Token rejected — refreshing and retrying once…');
+      const refreshed = await refreshIdToken();
+      if (refreshed) {
+        effectiveAuthToken = refreshed;
+        response = await doFetch(refreshed);
+      }
+    }
 
     clearTimeout(timeoutId);
 

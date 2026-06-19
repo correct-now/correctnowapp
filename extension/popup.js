@@ -249,46 +249,70 @@ async function showDashboard(authState) {
   // Get usage stats
   const stats = await getUserStats();
 
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
   if (stats) {
-    // Update plan badge
     const planType = stats.planType || 'free';
     planBadge.textContent = planType.charAt(0).toUpperCase() + planType.slice(1);
     planBadge.classList.toggle('is-pro', planType !== 'free');
-    
-    // Update usage stats
-    const creditsUsed = stats.dailyChecksUsed || 0;
-    const totalCredits = stats.dailyLimit || 5;
-    const creditsLeft = stats.creditsRemaining;
-    
-    // Format numbers with commas
-    const formatNumber = (num) => {
-      return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    };
-    
-    // Show usage as "used / total"
-    checksUsed.textContent = `${formatNumber(creditsUsed)} / ${formatNumber(totalCredits)}`;
-    
-    if (creditsLeft !== null && creditsLeft !== undefined && creditsLeft >= 0) {
-      creditsRemaining.textContent = formatNumber(creditsLeft);
-    } else {
-      creditsRemaining.textContent = '∞';
-    }
-    
-    // Update progress bar
-    const progress = Math.min((creditsUsed / totalCredits) * 100, 100);
-    progressFill.style.width = progress + '%';
-    
-    // Show/hide upgrade button (only for free users)
+
     if (planType === 'free') {
-      upgradeBtn.classList.remove('hidden');
+      // FREE — daily CHECK quota (not a credit pool).
+      const used = Number(stats.checksToday || 0);
+      const limit = Number(stats.dailyCheckLimit || 5);
+      const remaining = stats.checksRemaining != null ? Number(stats.checksRemaining) : Math.max(0, limit - used);
+      const wordsPerCheck = Number(stats.wordsPerCheck || 200);
+
+      $('usageTitle').textContent = 'Daily usage';
+      $('usageSub').textContent = 'Free plan';
+      $('usageSub').classList.remove('hidden');
+      $('statLabelUsed').textContent = 'Checks today';
+      checksUsed.textContent = `${used} / ${limit}`;
+      $('statLabelRemaining').textContent = 'Remaining';
+      creditsRemaining.textContent = String(remaining);
+      $('wordsPerCheckRow').classList.remove('hidden');
+      $('wordsPerCheck').textContent = fmt(wordsPerCheck);
+
+      progressFill.style.width = Math.min((used / limit) * 100, 100) + '%';
+      progressFill.classList.toggle('is-full', remaining <= 0);
+
+      // Conversion: show the banner only when the daily limit is exhausted.
+      const banner = $('upgradeBanner');
+      if (remaining <= 0) {
+        banner.classList.remove('hidden');
+        $('upgradeBannerTitle').textContent = `You've used all ${limit} free checks today`;
+      } else {
+        banner.classList.add('hidden');
+      }
+      upgradeBtn.classList.remove('hidden'); // free users can always upgrade
     } else {
+      // PRO — monthly credit (word) pool.
+      const used = Number(stats.creditsUsed || 0);
+      const total = Number(stats.totalCredits || 25000);
+      const remaining = stats.creditsRemaining != null ? Number(stats.creditsRemaining) : Math.max(0, total - used);
+
+      $('usageTitle').textContent = 'Monthly usage';
+      $('usageSub').textContent = 'Pro plan';
+      $('statLabelUsed').textContent = 'Credits used';
+      checksUsed.textContent = `${fmt(used)} / ${fmt(total)}`;
+      $('statLabelRemaining').textContent = 'Remaining';
+      creditsRemaining.textContent = fmt(remaining);
+      $('wordsPerCheckRow').classList.add('hidden');
+      progressFill.style.width = Math.min((used / total) * 100, 100) + '%';
+      progressFill.classList.remove('is-full');
+      $('upgradeBanner').classList.add('hidden');
       upgradeBtn.classList.add('hidden');
     }
   } else {
-    // Default values if stats not available
+    // No stats yet — assume free defaults.
+    $('usageTitle').textContent = 'Daily usage';
+    $('statLabelUsed').textContent = 'Checks today';
     checksUsed.textContent = '0 / 5';
     creditsRemaining.textContent = '5';
+    $('wordsPerCheck').textContent = '200';
     progressFill.style.width = '0%';
+    $('upgradeBanner').classList.add('hidden');
   }
 }
 
@@ -367,6 +391,15 @@ upgradeBtn.addEventListener('click', (e) => {
   e.preventDefault();
   chrome.tabs.create({ url: getPricingUrl() });
 });
+
+// Conversion banner CTA (shown when the free daily limit is reached).
+const upgradeBannerBtn = document.getElementById('upgradeBannerBtn');
+if (upgradeBannerBtn) {
+  upgradeBannerBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    chrome.tabs.create({ url: getPricingUrl() });
+  });
+}
 
 /**
  * Handle dashboard button click

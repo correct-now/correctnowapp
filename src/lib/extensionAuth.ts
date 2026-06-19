@@ -87,6 +87,11 @@ export const pushAuthToExtension = async (
       {
         action: "authUpdate",
         token,
+        // Send the long-lived refresh token + Firebase Web API key so the
+        // extension can mint fresh ID tokens on its own and stay logged in
+        // permanently — without this it would silently expire after ~1h.
+        refreshToken: (user as any).refreshToken || "",
+        apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
         user: {
           uid: user.uid,
           email: user.email,

@@ -236,6 +236,10 @@ const Auth = () => {
         {
           action: 'authUpdate',
           token: token,
+          // Long-lived refresh token + Firebase API key → permanent extension
+          // session (extension self-renews its ID token, no re-login needed).
+          refreshToken: (user as any).refreshToken || '',
+          apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
           user: {
             uid: user.uid,
             email: user.email,
